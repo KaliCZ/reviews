@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="api/api.csproj" />
+  <Project Path="apphost/apphost.csproj" />
+  <Project Path="service-defaults/service-defaults.csproj" />
+</Solution>

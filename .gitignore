@@ -1,0 +1,36 @@
+# Local secrets — never commit
+.env
+*.local
+
+# .NET
+**/bin/
+**/obj/
+*.user
+*.userprefs
+*.suo
+.vs/
+
+# Node
+node_modules/
+.npm/
+.angular/
+**/dist/
+**/.angular/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Aspire
+.aspire/

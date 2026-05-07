@@ -1,0 +1,16 @@
+<main class="container">
+  <h1>Reviews — Hello World</h1>
+  <p>Click the button to hit <code>/api/hello</code>. The API increments a Redis counter and returns it.</p>
+
+  <button type="button" (click)="sayHello()" [disabled]="loading()">
+    @if (loading()) { Calling... } @else { Say hello }
+  </button>
+
+  @if (response(); as r) {
+    <pre class="result">{{ r.message }} — count: {{ r.count }}</pre>
+  }
+
+  @if (error(); as e) {
+    <pre class="error">Error: {{ e }}</pre>
+  }
+</main>
