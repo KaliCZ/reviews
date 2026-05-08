@@ -13,6 +13,15 @@ RUN dotnet publish "worker/worker.csproj" -c Release -o /app/publish /p:UseAppHo
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
+
+# curl is here purely so the compose healthcheck can probe /alive — the
+# aspnet image strips it out by default.
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "worker.dll"]

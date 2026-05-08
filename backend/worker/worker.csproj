@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Worker">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -10,7 +10,6 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Npgsql" Version="13.2.4" />
     <PackageReference Include="Aspire.StackExchange.Redis" Version="13.2.4" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
     <PackageReference Include="Temporalio" Version="1.14.0" />
     <PackageReference Include="Temporalio.Extensions.Hosting" Version="1.14.0" />
   </ItemGroup>

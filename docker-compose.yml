@@ -116,21 +116,16 @@ services:
       context: ./backend
       dockerfile: worker/Dockerfile
     environment:
-      DOTNET_ENVIRONMENT: Production
+      ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__reviews: Host=postgres;Database=reviews;Username=postgres;Password=postgres;Search Path=reviews
       ConnectionStrings__cache: redis:6379
       ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       ConnectionStrings__temporal: temporal:7233
-    # A worker has no externally probeable HTTP endpoint. PID 1 is the dotnet
-    # host, so this just verifies the process is alive — essentially the
-    # `service_started` condition reframed as a healthcheck so `up --wait`
-    # accepts it. Production observability would want a real probe (e.g. a
-    # tiny HTTP listener exposing Temporal poll status), out of scope here.
     healthcheck:
-      test: ["CMD-SHELL", "grep -q dotnet /proc/1/cmdline"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
       start_period: 5s
     depends_on:
       postgres:
