@@ -11,7 +11,7 @@ interface HelloResponse {
   selector: 'app-root',
   imports: [FormsModule],
   templateUrl: './app.html',
-  styleUrl: './app.css'
+  styleUrl: './app.css',
 })
 export class App {
   private readonly http = inject(HttpClient);
@@ -32,7 +32,7 @@ export class App {
       error: (err) => {
         this.error.set(err.message ?? 'Request failed');
         this.loading.set(false);
-      }
+      },
     });
   }
 }
