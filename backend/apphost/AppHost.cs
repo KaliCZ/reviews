@@ -66,6 +66,7 @@ var temporalConnString = ReferenceExpression.Create(
 var workerService = builder.AddProject<Projects.worker>("worker")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
+    .WithReference(images).WaitFor(storage)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal);
 
@@ -74,8 +75,7 @@ var api = builder.AddProject<Projects.api>("api")
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
-    .WaitFor(temporal)
-    .WaitFor(workerService);
+    .WaitFor(temporal);
 
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)

@@ -108,12 +108,15 @@ services:
       DOTNET_ENVIRONMENT: Production
       ConnectionStrings__reviews: Host=postgres;Database=reviews;Username=postgres;Password=postgres;Search Path=reviews
       ConnectionStrings__cache: redis:6379
+      ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       ConnectionStrings__temporal: temporal:7233
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      azurite:
+        condition: service_started
       temporal:
         condition: service_healthy
 
@@ -139,8 +142,6 @@ services:
         condition: service_started
       temporal:
         condition: service_healthy
-      worker:
-        condition: service_started
 
   web:
     build:
