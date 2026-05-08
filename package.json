@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "npm run dev:infra && dotnet build Reviews.slnx && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"dotnet watch --project backend/api\" \"dotnet watch --project backend/worker\" \"npm --prefix web start\"",
     "dev:infra": "docker compose up -d --wait postgres redis azurite zitadel temporal temporal-ui",
+    "aspire": "dotnet run --project backend/apphost",
     "e2e": "npm --prefix e2e test",
     "e2e:install": "npm --prefix e2e install && npm --prefix e2e exec -- playwright install --with-deps chromium",
     "prepare": "husky"

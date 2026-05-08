@@ -35,7 +35,7 @@ npm --prefix web install
 ### 1. Aspire (richest dev experience)
 
 ```bash
-dotnet run --project backend/apphost
+npm run aspire
 ```
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, and Aspire injects connection strings into the API automatically.
@@ -81,7 +81,7 @@ reviews/
 ├── infra/                  Infra helpers (Postgres init script)
 ├── Reviews.slnx            .NET solution
 ├── docker-compose.yml      Containerized run path
-└── package.json            Root scripts: dev, dev:infra, e2e
+└── package.json            Root scripts: dev, aspire, e2e
 ```
 
 ## Design notes
