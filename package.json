@@ -3,14 +3,14 @@
   "private": true,
   "scripts": {
     "dev": "npm run dev:infra && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
-    "dev:infra": "docker compose --env-file .env up -d postgres redis azurite zitadel temporal temporal-ui",
-    "dev:infra:down": "docker compose --env-file .env down",
+    "dev:infra": "docker compose up -d postgres redis azurite zitadel temporal temporal-ui",
+    "dev:infra:down": "docker compose down",
     "dev:api": "dotnet watch --project api",
     "dev:worker": "dotnet watch --project worker",
     "dev:web": "npm --prefix web start",
     "aspire": "dotnet run --project apphost",
-    "compose:up": "docker compose --env-file .env up --build",
-    "compose:down": "docker compose --env-file .env down -v"
+    "compose:up": "docker compose up --build",
+    "compose:down": "docker compose down -v"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

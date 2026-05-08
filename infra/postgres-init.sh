@@ -22,3 +22,4 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname reviews <<-EOSQL
   CREATE SCHEMA IF NOT EXISTS reviews;
   ALTER DATABASE reviews SET search_path TO reviews, public;
 EOSQL
+

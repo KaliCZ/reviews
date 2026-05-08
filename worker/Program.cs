@@ -5,6 +5,7 @@ using Temporalio.Extensions.Hosting;
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddNpgsqlDataSource(connectionName: "reviews");
 builder.AddRedisClient(connectionName: "cache");
 
 var temporalAddress = builder.Configuration.GetConnectionString("temporal")

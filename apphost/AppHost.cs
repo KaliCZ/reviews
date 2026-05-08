@@ -64,12 +64,14 @@ var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}");
 
 var workerService = builder.AddProject<Projects.worker>("worker")
+    .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal);
 
 var api = builder.AddProject<Projects.api>("api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
+    .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal)

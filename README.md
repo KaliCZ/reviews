@@ -24,7 +24,6 @@ A product reviews platform. This kickoff seeds the monorepo and a hello-world en
 ## Setup
 
 ```bash
-cp .env.example .env
 npm install
 npm --prefix web install
 ```
@@ -78,8 +77,7 @@ reviews/
 ├── web/                    Angular SSR frontend
 ├── infra/                  Infra helpers (Postgres init script)
 ├── docker-compose.yml      Containerized run path
-├── package.json            Root scripts: dev, aspire, compose:up
-└── .env.example            Local secrets template (copy to .env)
+└── package.json            Root scripts: dev, aspire, compose:up
 ```
 
 ## Design notes
@@ -94,10 +92,12 @@ The three paths share the same code; they only differ in how connection strings 
 
 ### Secrets and configuration
 
-Connection strings flow through .NET's `IConfiguration`. The source varies per environment, the code doesn't:
+Each service reads its own config in its stack's native way; nothing is shared across services:
 
-- **Aspire** — Aspire injects connection strings as env vars via `WithReference()`. Secrets come from `apphost/appsettings.Development.json` `Parameters` section (or user secrets).
-- **Docker Compose** — The repo-level `.env` file is the single source of truth, fanned out via `${VAR}` substitution in `docker-compose.yml`.
+- **Backend (.NET)** — `api/appsettings.Development.json` and `worker/appsettings.Development.json`. .NET's `IConfiguration` picks them up automatically when `ASPNETCORE_ENVIRONMENT=Development` (the default for `dotnet watch`).
+- **Frontend (Angular)** — no env file needed locally. `web/proxy.conf.js` reads `process.env.API_URL` and falls back to `http://localhost:5146`, which matches the API's local listen address.
+- **Aspire** — orchestrates everything in code. Connection strings flow via `WithReference()`, the api gets `API_URL` via `WithEnvironment()`. Secret parameters (`postgres-password`, `zitadel-masterkey`) live in `apphost/appsettings.Development.json` under `Parameters`.
+- **Docker Compose** — each service in `docker-compose.yml` declares its own `environment:` block inline. `postgres` only sees `POSTGRES_*`, `zitadel` only sees `ZITADEL_*`, the api container only sees its connection strings, and so on. No shared file fans values out across services.
 - **Production** — Add `builder.Configuration.AddAzureKeyVault(...)` in `api/Program.cs` gated on `!IsDevelopment()`. Same code reads the values, source changes.
 
 A local Vault container (HashiCorp Vault dev mode) was considered and deferred as YAGNI for the dev loop. The plumbing is set up such that adding it later is a configuration-source swap, not a code change.
