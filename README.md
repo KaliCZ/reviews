@@ -35,8 +35,7 @@ npm --prefix web install
 ### 1. Aspire (richest dev experience)
 
 ```bash
-npm run aspire
-# or: dotnet run --project backend/apphost
+dotnet run --project backend/apphost
 ```
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, and Aspire injects connection strings into the API automatically.
@@ -51,12 +50,12 @@ npm run dev
 
 Starts Postgres, Redis, Azurite, ZITADEL, Temporal, and the Temporal UI via `docker compose -d`, then runs `dotnet watch` on both `api` and `worker` plus `ng serve` on the host, all under `concurrently` with hot reload. This is the lightest dev loop — just Docker for the infra, native dev servers for the code.
 
-Stop the infra containers with `npm run dev:infra:down`.
+Stop the infra containers with `docker compose down`.
 
 ### 3. Docker Compose (zero-install demo path)
 
 ```bash
-npm run compose:up
+docker compose up --build
 ```
 
 Builds and runs everything containerized. Reviewer needs only Docker. Slower iteration (rebuilds on change) but faithfully matches what gets deployed.
@@ -82,7 +81,7 @@ reviews/
 ├── infra/                  Infra helpers (Postgres init script)
 ├── Reviews.slnx            .NET solution
 ├── docker-compose.yml      Containerized run path
-└── package.json            Root scripts: dev, aspire, compose:up
+└── package.json            Root scripts: dev, dev:infra, e2e
 ```
 
 ## Design notes

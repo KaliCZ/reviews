@@ -2,15 +2,8 @@
   "name": "reviews",
   "private": true,
   "scripts": {
-    "dev": "npm run dev:infra && dotnet build Reviews.slnx && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
+    "dev": "npm run dev:infra && dotnet build Reviews.slnx && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"dotnet watch --project backend/api\" \"dotnet watch --project backend/worker\" \"npm --prefix web start\"",
     "dev:infra": "docker compose up -d --wait postgres redis azurite zitadel temporal temporal-ui",
-    "dev:infra:down": "docker compose down",
-    "dev:api": "dotnet watch --project backend/api",
-    "dev:worker": "dotnet watch --project backend/worker",
-    "dev:web": "npm --prefix web start",
-    "aspire": "dotnet run --project backend/apphost",
-    "compose:up": "docker compose up --build",
-    "compose:down": "docker compose down -v",
     "e2e": "npm --prefix e2e test",
     "e2e:install": "npm --prefix e2e install && npm --prefix e2e exec -- playwright install --with-deps chromium",
     "prepare": "husky"
