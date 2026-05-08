@@ -4,4 +4,8 @@
   <Project Path="service-defaults/service-defaults.csproj" />
   <Project Path="shared/shared.csproj" />
   <Project Path="worker/worker.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/shared.tests/shared.tests.csproj" />
+    <Project Path="tests/worker.tests/worker.tests.csproj" />
+  </Folder>
 </Solution>
