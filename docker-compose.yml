@@ -74,6 +74,18 @@ services:
       ENABLE_ES: "false"
     ports:
       - "7233:7233"
+    # auto-setup serves gRPC well before it has provisioned the `default`
+    # namespace, so probing the namespace catches both the gRPC-not-listening
+    # and namespace-not-yet-created races. Workers waiting on this become
+    # ready only when Temporal can actually accept work.
+    healthcheck:
+      # temporal-server binds to the container's IP (not loopback), so the CLI
+      # has to dial via Docker DNS — `temporal:7233` resolves inside the network.
+      test: ["CMD", "temporal", "operator", "namespace", "describe", "--address", "temporal:7233", "-n", "default"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,20 +109,13 @@ services:
       ConnectionStrings__reviews: Host=postgres;Database=reviews;Username=postgres;Password=postgres;Search Path=reviews
       ConnectionStrings__cache: redis:6379
       ConnectionStrings__temporal: temporal:7233
-    # Temporal's `service_started` only means the container is running — its
-    # gRPC frontend takes a few extra seconds to come up while it provisions
-    # its own schema. The worker connects eagerly; if it loses the race,
-    # the BackgroundService crash brings the .NET host down via a *graceful*
-    # shutdown (exit 0), so restart: on-failure isn't enough. Restart
-    # unconditionally until Temporal is actually serving.
-    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       temporal:
-        condition: service_started
+        condition: service_healthy
 
   api:
     build:
@@ -133,7 +138,7 @@ services:
       azurite:
         condition: service_started
       temporal:
-        condition: service_started
+        condition: service_healthy
       worker:
         condition: service_started
 

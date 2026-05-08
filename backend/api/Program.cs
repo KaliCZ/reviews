@@ -1,5 +1,3 @@
-using Temporalio.Client;
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
@@ -9,8 +7,14 @@ builder.AddRedisClient(connectionName: "cache");
 var temporalAddress = builder.Configuration.GetConnectionString("temporal")
     ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
 
-var temporalClient = await TemporalClient.ConnectAsync(new(temporalAddress) { Namespace = "default" });
-builder.Services.AddSingleton<ITemporalClient>(temporalClient);
+// Lazy client: doesn't open the gRPC connection until first use, so a slow or
+// briefly-unavailable Temporal at startup doesn't crash the API. Reconnects
+// automatically on subsequent calls if a connection is later lost.
+builder.Services.AddTemporalClient(options =>
+{
+    options.TargetHost = temporalAddress;
+    options.Namespace = "default";
+});
 
 builder.Services.AddHealthChecks().AddInfraHealthChecks();
 
