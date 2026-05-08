@@ -77,10 +77,10 @@ reviews/
 │   ├── shared/             Workflow type definitions (referenced by api + worker)
 │   ├── apphost/            Aspire orchestration project
 │   ├── service-defaults/   Shared OTel / health-check / service-discovery wiring
-│   ├── tests/              xUnit test projects (one per app project that needs them)
-│   └── Reviews.slnx        .NET solution
+│   └── tests/              xUnit test projects (one per app project that needs them)
 ├── web/                    Angular SSR frontend
 ├── infra/                  Infra helpers (Postgres init script)
+├── Reviews.slnx            .NET solution
 ├── docker-compose.yml      Containerized run path
 └── package.json            Root scripts: dev, aspire, compose:up
 ```

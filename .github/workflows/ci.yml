@@ -24,13 +24,13 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore backend/Reviews.slnx
+        run: dotnet restore Reviews.slnx
 
       - name: Build
-        run: dotnet build backend/Reviews.slnx --configuration Release --no-restore
+        run: dotnet build Reviews.slnx --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test backend/Reviews.slnx --configuration Release --no-build
+        run: dotnet test Reviews.slnx --configuration Release --no-build
 
   frontend:
     name: Frontend
