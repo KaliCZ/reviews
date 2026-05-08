@@ -99,19 +99,17 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Adding health checks endpoints to applications in non-development environments has security implications.
-        // See https://aka.ms/dotnet/aspire/healthchecks for details before enabling these endpoints in non-development environments.
-        if (app.Environment.IsDevelopment())
+        // /health (readiness — all checks must pass) and /alive (liveness — only
+        // checks tagged "live") are exposed unconditionally so docker compose
+        // healthchecks and Aspire WaitFor can probe them. In a real prod
+        // deployment behind a reverse proxy / auth layer, both routes should be
+        // restricted (see https://aka.ms/dotnet/aspire/healthchecks). For our
+        // local-dev/CI compose stack, that's not a concern.
+        app.MapHealthChecks(HealthEndpointPath);
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
-            // All health checks must pass for app to be considered ready to accept traffic after starting
-            app.MapHealthChecks(HealthEndpointPath);
-
-            // Only health checks tagged with the "live" tag must pass for app to be considered alive
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+            Predicate = r => r.Tags.Contains("live")
+        });
 
         return app;
     }

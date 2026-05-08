@@ -65,20 +65,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-
-      - name: Install root deps
-        run: npm ci
-
-      - name: Install web deps
-        working-directory: web
-        run: npm ci
 
       - name: Install e2e deps
         working-directory: e2e
@@ -88,9 +77,19 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
+      # Build and bring up the full compose stack; --wait blocks until every
+      # service reports healthy. Playwright then runs against the running
+      # web container (:4000), exactly the topology we deploy.
+      - name: Start stack
+        run: docker compose up -d --build --wait
+
       - name: Run Playwright
         working-directory: e2e
         run: npm test
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
 
       - name: Upload Playwright report on failure
         if: failure()
