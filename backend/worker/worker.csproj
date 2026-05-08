@@ -8,13 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Npgsql" Version="13.2.4" />
+    <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.4" />
     <PackageReference Include="Aspire.StackExchange.Redis" Version="13.2.4" />
     <PackageReference Include="Temporalio" Version="1.14.0" />
     <PackageReference Include="Temporalio.Extensions.Hosting" Version="1.14.0" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\infrastructure\infrastructure.csproj" />
     <ProjectReference Include="..\service-defaults\service-defaults.csproj" />
     <ProjectReference Include="..\shared\shared.csproj" />
   </ItemGroup>

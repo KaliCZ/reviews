@@ -40,15 +40,15 @@ services:
 
   zitadel:
     image: ghcr.io/zitadel/zitadel:latest
-    command: start-from-init --masterkeyFromEnv
+    # `--steps` runs the FirstInstance bootstrap (default org, admin user,
+    # bootstrap service-account PAT) on first start of an empty zitadel DB.
+    # See infra/zitadel/steps.yaml.
+    command: start-from-init --masterkeyFromEnv --steps /steps.yaml
     environment:
       ZITADEL_MASTERKEY: MasterkeyNeedsToBe32Characters!!
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALDOMAIN: localhost
       ZITADEL_EXTERNALPORT: "8080"
-      # Set TLS via env (not the --tlsMode CLI flag) so `zitadel ready` —
-      # which reads config from env vars — picks it up too. Otherwise the
-      # built-in healthcheck defaults to HTTPS and never goes green.
       ZITADEL_TLS_ENABLED: "false"
       ZITADEL_DATABASE_POSTGRES_HOST: postgres
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
@@ -61,7 +61,13 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
     ports:
       - "8080:8080"
-    # The zitadel image is distroless, but ships its own readiness probe.
+    volumes:
+      - ./infra/zitadel/steps.yaml:/steps.yaml:ro
+      # PAT lands here on first boot; consumed by zitadel-bootstrap below.
+      # Bind-mount instead of named volume so the bootstrap output is visible
+      # on the host (and shared with the Aspire run path). Resets via
+      # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
+      - ./infra/zitadel/.secrets:/zitadel-secrets
     healthcheck:
       test: ["CMD", "/app/zitadel", "ready"]
       interval: 5s
@@ -71,6 +77,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # One-shot init container: runs after zitadel is healthy, calls the mgmt API
+  # with the bootstrap PAT, provisions the OIDC application + a test user,
+  # and writes ZITADEL_ISSUER / ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET to
+  # /app-secrets/zitadel.env. The api and web containers wait for this to
+  # complete successfully before starting (depends_on: service_completed_successfully).
+  zitadel-bootstrap:
+    image: curlimages/curl:8.10.1
+    user: "0:0"  # so the script can write into the named volume
+    entrypoint: ["/bin/sh", "-c", "/bootstrap.sh"]
+    environment:
+      ZITADEL_INTERNAL_URL: http://zitadel:8080
+      ZITADEL_PUBLIC_URL: http://localhost:8080
+    volumes:
+      - ./infra/zitadel/bootstrap.sh:/bootstrap.sh:ro
+      # Bind-mount instead of named volume so the bootstrap output is visible
+      # on the host (and shared with the Aspire run path). Resets via
+      # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
+      - ./infra/zitadel/.secrets:/zitadel-secrets:ro
+      - ./infra/zitadel/.app-secrets:/app-secrets
+    depends_on:
+      zitadel:
+        condition: service_healthy
+    restart: "no"
 
   temporal:
     image: temporalio/auto-setup:latest
@@ -85,13 +115,7 @@ services:
       ENABLE_ES: "false"
     ports:
       - "7233:7233"
-    # auto-setup serves gRPC well before it has provisioned the `default`
-    # namespace, so probing the namespace catches both the gRPC-not-listening
-    # and namespace-not-yet-created races. Workers waiting on this become
-    # ready only when Temporal can actually accept work.
     healthcheck:
-      # temporal-server binds to the container's IP (not loopback), so the CLI
-      # has to dial via Docker DNS — `temporal:7233` resolves inside the network.
       test: ["CMD", "temporal", "operator", "namespace", "describe", "--address", "temporal:7233", "-n", "default"]
       interval: 5s
       timeout: 5s
@@ -136,6 +160,9 @@ services:
         condition: service_started
       temporal:
         condition: service_healthy
+      # Worker queries the schema; API owns the migrations. Wait for API.
+      api:
+        condition: service_healthy
 
   api:
     build:
@@ -148,14 +175,24 @@ services:
       ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       ConnectionStrings__temporal: temporal:7233
       WEB_ORIGIN: http://localhost:4000
+      # zitadel-bootstrap writes /run/secrets/zitadel.env with ZITADEL_ISSUER
+      # = http://localhost:8080 (the public URL that ends up in iss claims).
+      # JwtBearer can't actually reach that hostname from inside this
+      # container, so we point it at the docker-internal URL for JWKS fetch.
+      ZITADEL_METADATA_URL: http://zitadel:8080/.well-known/openid-configuration
+      Auth__RequireHttps: "false"
+    volumes:
+      - ./infra/zitadel/.app-secrets:/run/secrets:ro
     ports:
       - "8081:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/alive"]
       interval: 5s
       timeout: 3s
-      retries: 10
-      start_period: 5s
+      retries: 30
+      # First boot runs migrations + seeds 30+ images from picsum.photos to
+      # Azurite, which can take ~30s on a cold cache. After that it's instant.
+      start_period: 60s
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,6 +202,8 @@ services:
         condition: service_started
       temporal:
         condition: service_healthy
+      zitadel-bootstrap:
+        condition: service_completed_successfully
 
   web:
     build:
@@ -173,9 +212,21 @@ services:
     environment:
       API_URL: http://api:8080
       PORT: "4000"
+      # BFF reads /run/secrets/zitadel.env via dotenv at startup. SESSION_SECRET
+      # is a random string used to sign session cookies.
+      SESSION_SECRET: dev-only-session-secret-rotate-in-prod-please
+      REDIS_URL: redis://redis:6379
+      # The BFF separates browser-facing OIDC URLs (where users redirect to
+      # sign in) from server-facing ones (where the BFF exchanges the code
+      # and fetches tokens). PUBLIC stays http://localhost:8080 so the
+      # browser can resolve it; INTERNAL is http://zitadel:8080 so the
+      # docker network handles the server-to-server traffic.
+      ZITADEL_PUBLIC_URL: http://localhost:8080
+      ZITADEL_INTERNAL_URL: http://zitadel:8080
     ports:
       - "4000:4000"
-    # node:24-alpine ships BusyBox wget — fine for a simple HTTP probe.
+    volumes:
+      - ./infra/zitadel/.app-secrets:/run/secrets:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/"]
       interval: 5s
@@ -183,7 +234,12 @@ services:
       retries: 10
       start_period: 5s
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      zitadel-bootstrap:
+        condition: service_completed_successfully
 
 volumes:
   postgres-data:

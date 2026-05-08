@@ -2,10 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Web</title>
+    <title>Reviews</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- Cloudflare Turnstile script. ?render=explicit means we render the
+         widget ourselves from app code (TurnstileComponent), so unrelated
+         pages don't pay the cost of an auto-discovery scan. -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script>
   </head>
   <body>
     <app-root></app-root>

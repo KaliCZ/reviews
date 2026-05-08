@@ -1,38 +1,26 @@
-import { Component, inject, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
-
-interface HelloResponse {
-  message: string;
-  count: number;
-}
+import { Component, OnInit, inject } from '@angular/core';
+import { RouterLink, RouterOutlet, Router } from '@angular/router';
+import { AuthService } from './services/auth.service';
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule],
+  imports: [RouterOutlet, RouterLink],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class App {
-  private readonly http = inject(HttpClient);
+export class App implements OnInit {
+  protected readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
 
-  protected readonly by = signal(1);
-  protected readonly response = signal<HelloResponse | null>(null);
-  protected readonly error = signal<string | null>(null);
-  protected readonly loading = signal(false);
+  ngOnInit(): void {
+    // BFF call — unauthenticated returns 401 which the service swallows. The
+    // header re-renders reactively when the signal flips.
+    this.auth.refresh();
+  }
 
-  sayHello(): void {
-    this.loading.set(true);
-    this.error.set(null);
-    this.http.post<HelloResponse>('/api/hello', { by: this.by() }).subscribe({
-      next: (res) => {
-        this.response.set(res);
-        this.loading.set(false);
-      },
-      error: (err) => {
-        this.error.set(err.message ?? 'Request failed');
-        this.loading.set(false);
-      },
-    });
+  // Sign-in deep-links back to the page the user was on.
+  loginHref(): string {
+    const returnTo = encodeURIComponent(this.router.url || '/');
+    return `/auth/login?returnTo=${returnTo}`;
   }
 }

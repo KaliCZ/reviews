@@ -1,26 +1,15 @@
-<main class="container">
-  <h1>Reviews — Hello World</h1>
-  <p>
-    The API kicks off a Temporal workflow with the increment value below. The worker picks up the
-    workflow, runs the activity that bumps a Redis counter, and the result flows back.
-  </p>
-
-  <label for="by">Increment by:</label>
-  <input id="by" type="number" min="1" [ngModel]="by()" (ngModelChange)="by.set($event)" />
-
-  <button type="button" (click)="sayHello()" [disabled]="loading()">
-    @if (loading()) {
-      Calling...
+<header class="topbar">
+  <a routerLink="/" class="brand">Reviews</a>
+  <nav class="auth">
+    @if (auth.authenticated()) {
+      <span class="who">Hi, {{ auth.displayName() }}</span>
+      <a href="/auth/logout" class="link">Sign out</a>
     } @else {
-      Run workflow
+      <a [href]="loginHref()" class="link">Sign in</a>
     }
-  </button>
+  </nav>
+</header>
 
-  @if (response(); as r) {
-    <pre class="result">{{ r.message }} — count: {{ r.count }}</pre>
-  }
-
-  @if (error(); as e) {
-    <pre class="error">Error: {{ e }}</pre>
-  }
+<main class="container">
+  <router-outlet />
 </main>

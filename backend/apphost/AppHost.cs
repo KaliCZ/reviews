@@ -22,12 +22,28 @@ var cache = builder.AddRedis("cache")
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var images = storage.AddBlobs("images");
 
+// Bind-mount paths used to share state between zitadel and the bootstrap
+// container, plus the env file the api and web read at startup. Host
+// directories — Aspire's project resources don't support container-style
+// bind mounts, but they do run on the host so they can just read these
+// directly via path. The web (JS) project doesn't get container bind-mounts
+// either, same reason.
+const string zitadelSecrets = "../../infra/zitadel/.secrets";
+const string appSecrets = "../../infra/zitadel/.app-secrets";
+var appSecretsAbs = Path.GetFullPath(appSecrets);
+var zitadelEnvFile = Path.Combine(appSecretsAbs, "zitadel.env");
+
 var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "latest")
-    .WithArgs("start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled")
+    // start-from-init runs the FirstInstance bootstrap (default org + admin
+    // user + bootstrap service-account PAT) defined in steps.yaml.
+    .WithArgs("start-from-init", "--masterkeyFromEnv", "--steps", "/steps.yaml")
+    .WithBindMount("../../infra/zitadel/steps.yaml", "/steps.yaml", isReadOnly: true)
+    .WithBindMount(zitadelSecrets, "/zitadel-secrets")
     .WithEnvironment("ZITADEL_MASTERKEY", zitadelMasterkey)
     .WithEnvironment("ZITADEL_EXTERNALSECURE", "false")
     .WithEnvironment("ZITADEL_EXTERNALDOMAIN", "localhost")
     .WithEnvironment("ZITADEL_EXTERNALPORT", "8080")
+    .WithEnvironment("ZITADEL_TLS_ENABLED", "false")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_DATABASE", "zitadel")
@@ -39,6 +55,19 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "latest
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", port: 8080, targetPort: 8080)
     .WaitFor(zitadelDb);
+
+// One-shot bootstrap: provisions the OIDC app + a test user via mgmt API
+// using the PAT zitadel just wrote. Outputs ZITADEL_CLIENT_ID/SECRET into
+// the appSecrets bind-mount; api and web read from there at startup.
+var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/curl", "8.10.1")
+    .WithEntrypoint("/bin/sh")
+    .WithArgs("-c", "/bootstrap.sh")
+    .WithBindMount("../../infra/zitadel/bootstrap.sh", "/bootstrap.sh", isReadOnly: true)
+    .WithBindMount(zitadelSecrets, "/zitadel-secrets", isReadOnly: true)
+    .WithBindMount(appSecrets, "/app-secrets")
+    .WithEnvironment("ZITADEL_INTERNAL_URL", "http://localhost:8080")
+    .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
+    .WaitFor(zitadel);
 
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
     .WithEndpoint(name: "grpc", port: 7233, targetPort: 7233, scheme: "tcp")
@@ -63,25 +92,43 @@ var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
 var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}");
 
+// API owns migrations + seed; worker waits for API health before it tries
+// to query against the schema.
+var api = builder.AddProject<Projects.api>("api")
+    .WithReference(reviewsDb).WaitFor(reviewsDb)
+    .WithReference(cache).WaitFor(cache)
+    .WithReference(images).WaitFor(storage)
+    // Both the API and the BFF look at $ZITADEL_ENV_FILE for the bootstrap
+    // output (DotEnvLoader / dotenv); pointing at the absolute host path is
+    // what makes auth land inside the project process from outside the
+    // bootstrap container.
+    .WithEnvironment("ZITADEL_ENV_FILE", zitadelEnvFile)
+    .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
+    .WaitFor(temporal)
+    .WaitForCompletion(zitadelBootstrap);
+
 var workerService = builder.AddProject<Projects.worker>("worker")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
-    .WaitFor(temporal);
-
-var api = builder.AddProject<Projects.api>("api")
-    .WithReference(reviewsDb).WaitFor(reviewsDb)
-    .WithReference(cache).WaitFor(cache)
-    .WithReference(images).WaitFor(storage)
-    .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
-    .WaitFor(temporal);
+    .WaitFor(temporal)
+    .WaitFor(api);
 
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
+    .WithEnvironment("ZITADEL_ENV_FILE", zitadelEnvFile)
+    // In Aspire (no docker network in front of the BFF) both URLs collapse
+    // to the same localhost reference; compose differs because that route
+    // crosses container boundaries.
+    .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
+    .WithEnvironment("ZITADEL_INTERNAL_URL", "http://localhost:8080")
+    .WithEnvironment("REDIS_URL", "redis://localhost:6379")
+    .WithEnvironment("SESSION_SECRET", "dev-only-session-secret-rotate-in-prod")
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    .WaitForCompletion(zitadelBootstrap);
 
 api.WithEnvironment("WEB_ORIGIN", web.GetEndpoint("http"));
 
