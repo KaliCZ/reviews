@@ -141,7 +141,33 @@ stateDiagram-v2
 
 ## 4. Rating a review
 
-A user upvotes or downvotes a review. The vote is recorded, the review's score is recomputed, and if the change affects the cached first page, the cache is refreshed.
+A user upvotes or downvotes a review. Every vote is its own row keyed on `(review_id, voter_id)`, so we always know who voted what. The score on the review is a denormalized sum maintained off the vote rows.
+
+```mermaid
+erDiagram
+    USER ||--o{ REVIEW : authors
+    USER ||--o{ REVIEW_VOTE : casts
+    REVIEW ||--o{ REVIEW_VOTE : receives
+
+    REVIEW {
+        uuid id PK
+        uuid product_id FK
+        uuid author_id FK
+        smallint rating "1-5 stars"
+        text body
+        int score "denormalized up - down"
+        enum status
+        timestamp created_at
+    }
+    REVIEW_VOTE {
+        uuid review_id PK_FK
+        uuid voter_id PK_FK
+        smallint value "+1 or -1"
+        timestamp created_at
+    }
+```
+
+The composite primary key `(review_id, voter_id)` is what prevents double-voting and what makes flipping a vote a single UPSERT.
 
 ```mermaid
 sequenceDiagram
@@ -154,11 +180,12 @@ sequenceDiagram
     participant R as Redis
 
     B->>A: POST /api/reviews/:id/vote<br/>{ value: +1 | -1 }
-    A->>T: StartWorkflow(RateReview)
+    Note over A: API resolves voter_id<br/>from auth context
+    A->>T: StartWorkflow(RateReview, voter_id, review_id, value)
     A-->>B: 200 OK
     T->>W: dispatch
-    W->>P: UPSERT vote (user_id, review_id, value)
-    W->>P: UPDATE score (up_count - down_count)
+    W->>P: UPSERT review_vote (review_id, voter_id, value)
+    W->>P: UPDATE review.score from sum of votes
 
     alt review on cached page<br/>OR new score promotes/demotes it
         W->>R: refresh first-page cache
@@ -167,10 +194,11 @@ sequenceDiagram
     W-->>T: complete
 ```
 
-- **Why through Temporal too.** Same crash-safety argument as flow 3: the postgres write and the cache refresh need to land together or be retried. Open question whether click volume justifies a full workflow per vote vs. a lighter background task; we'll measure before deciding. For now, treating it the same as flow 3 keeps the moving parts uniform.
-- **Why a single vote endpoint with `value: +1 | -1`.** One endpoint, one workflow, one idempotency key. Flipping a vote from up to down is a single UPSERT, not a delete-then-insert.
-- **Idempotency.** Votes are unique on `(user_id, review_id)`. Re-submitting the same value is a no-op; flipping the value updates in place. Replays of the workflow don't double-count.
-- **Cache-touch heuristic.** Refresh only if the review currently sits on the cached page or if its new score crosses the threshold of whatever's lowest on that page. Keeps unnecessary cache writes off the hot path.
+- **Why through Temporal too.** Same crash-safety argument as flow 3: the vote write, the score recompute, and the cache refresh need to land together or be retried. Open question whether click volume justifies a full workflow per vote vs. a lighter background task; we'll measure before deciding. For now, treating it the same as flow 3 keeps the moving parts uniform.
+- **Why a single vote endpoint with `value: +1 | -1`.** One endpoint, one workflow, one idempotency key. Flipping from up to down is a single UPSERT, not a delete-then-insert.
+- **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalized field ever drifts.
+- **The denormalized score is a cache, not a source of truth.** The vote rows are. A periodic reconcile job (and the workflow itself, on every vote) refreshes the score from the underlying votes — so a missed UPDATE doesn't leave the system permanently inconsistent.
+- **Cache-touch heuristic.** Refresh the Redis page only if the review currently sits on the cached page or if its new score crosses the threshold of whatever's lowest on that page. Keeps unnecessary cache writes off the hot path.
 
 ---
 
