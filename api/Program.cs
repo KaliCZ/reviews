@@ -12,6 +12,8 @@ var temporalAddress = builder.Configuration.GetConnectionString("temporal")
 var temporalClient = await TemporalClient.ConnectAsync(new(temporalAddress) { Namespace = "default" });
 builder.Services.AddSingleton<ITemporalClient>(temporalClient);
 
+builder.Services.AddHealthChecks().AddInfraHealthChecks();
+
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
