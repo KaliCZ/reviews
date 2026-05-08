@@ -94,7 +94,11 @@ services:
   zitadel-bootstrap:
     image: curlimages/curl:8.10.1
     user: "0:0"  # so the script can write into the named volume
-    entrypoint: ["/bin/sh", "-c", "/bootstrap.sh"]
+    # `sh /bootstrap.sh` (not `sh -c /bootstrap.sh`) so we don't need the
+    # file to be executable — sh reads it as input. The bind-mounted source
+    # comes out of git as mode 0644 on Linux runners, and `sh -c` tries to
+    # exec it, which fails with code 126 ("command found but not executable").
+    entrypoint: ["/bin/sh", "/bootstrap.sh"]
     environment:
       ZITADEL_INTERNAL_URL: http://zitadel:8080
       ZITADEL_PUBLIC_URL: http://localhost:8080
