@@ -40,12 +40,16 @@ services:
 
   zitadel:
     image: ghcr.io/zitadel/zitadel:latest
-    command: start-from-init --masterkeyFromEnv --tlsMode disabled
+    command: start-from-init --masterkeyFromEnv
     environment:
       ZITADEL_MASTERKEY: MasterkeyNeedsToBe32Characters!!
       ZITADEL_EXTERNALSECURE: "false"
       ZITADEL_EXTERNALDOMAIN: localhost
       ZITADEL_EXTERNALPORT: "8080"
+      # Set TLS via env (not the --tlsMode CLI flag) so `zitadel ready` —
+      # which reads config from env vars — picks it up too. Otherwise the
+      # built-in healthcheck defaults to HTTPS and never goes green.
+      ZITADEL_TLS_ENABLED: "false"
       ZITADEL_DATABASE_POSTGRES_HOST: postgres
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
@@ -57,6 +61,13 @@ services:
       ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
     ports:
       - "8080:8080"
+    # The zitadel image is distroless, but ships its own readiness probe.
+    healthcheck:
+      test: ["CMD", "/app/zitadel", "ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
