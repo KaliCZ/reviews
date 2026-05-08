@@ -100,12 +100,6 @@ A local Vault container (HashiCorp Vault dev mode) was considered and deferred a
 
 This is a reviews platform — product and review pages need to be crawlable for SEO with full content rendered server-side, including structured data (`schema.org/Review`). CSR would tank organic discovery. Long-term the plan is hybrid: SSR for product/review pages, prerender for marketing, CSR for the user dashboard.
 
-### Why is the Angular app the entry point in compose, not nginx?
-
-With SSR, the web container *is* a Node Express server (`dist/web/server/server.mjs`). It both renders the SPA server-side and reverse-proxies `/api/*` to the API container — meaning the browser only ever talks to one origin. This eliminates CORS in the prod path and matches what a real deployment behind a single domain would look like.
-
-In dev, Angular's dev server proxy (`web/proxy.conf.js`) does the same `/api/*` forwarding, reading `API_URL` from the env Aspire injects.
-
 ### Auth flow: BFF pattern (planned)
 
 When ZITADEL is wired in, the Angular SSR Express server doubles as a Backend-For-Frontend:
