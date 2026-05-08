@@ -1,6 +1,6 @@
 # Product flows
 
-The four user-facing flows the platform is built around. Each section names the components involved, walks through the path with a sequence diagram, and lays out the rationale.
+The four user-facing flows the platform is built around: viewing reviews, browsing more, submitting, and rating. Each section names the components involved, walks through the path with a sequence diagram, and lays out the rationale.
 
 ## Architecture at a glance
 
@@ -65,7 +65,7 @@ sequenceDiagram
 
 ## 2. Browsing more reviews
 
-A user clicks *More reviews* and lands on a paginated list. Sort (newest, most useful, highest, lowest) and filters (rating, verified, with photos) are exposed; every variation hits postgres.
+A user clicks *More reviews* and lands on a paginated list. Sort (newest, most helpful, highest stars, lowest stars) and filters (rating, verified, with photos) are exposed; every variation hits postgres.
 
 ```mermaid
 sequenceDiagram
@@ -74,7 +74,7 @@ sequenceDiagram
     participant A as API
     participant P as Postgres
 
-    B->>A: GET /api/products/:id/reviews<br/>?cursor=…&sort=useful&rating=5
+    B->>A: GET /api/products/:id/reviews<br/>?cursor=…&sort=helpful&rating=5
     A->>P: keyset paginated query
     P-->>A: rows + next cursor
     A-->>B: payload
@@ -82,7 +82,7 @@ sequenceDiagram
 
 - **No cache.** Sort × filter × page would explode the keyspace, and the users who go past page one are a small fraction of total traffic — postgres handles the absolute load comfortably.
 - **Keyset pagination, not OFFSET.** Stable under writes and avoids the deep-page penalty.
-- **Indexes carry the sort orders.** `(product_id, created_at)`, `(product_id, useful_count desc)`, etc. No application-level pagination tricks.
+- **Indexes carry the sort orders.** `(product_id, created_at)`, `(product_id, score desc)`, etc. No application-level pagination tricks.
 
 ---
 
@@ -139,9 +139,9 @@ stateDiagram-v2
 
 ---
 
-## 4. Marking a review as useful
+## 4. Rating a review
 
-A user clicks *useful* on a review. The vote is recorded, the review's usefulness counter goes up, and if the change affects the cached first page, the cache is refreshed.
+A user upvotes or downvotes a review. The vote is recorded, the review's score is recomputed, and if the change affects the cached first page, the cache is refreshed.
 
 ```mermaid
 sequenceDiagram
@@ -153,14 +153,14 @@ sequenceDiagram
     participant P as Postgres
     participant R as Redis
 
-    B->>A: POST /api/reviews/:id/useful
-    A->>T: StartWorkflow(MarkUseful)
+    B->>A: POST /api/reviews/:id/vote<br/>{ value: +1 | -1 }
+    A->>T: StartWorkflow(RateReview)
     A-->>B: 200 OK
     T->>W: dispatch
-    W->>P: INSERT vote (idempotent)
-    W->>P: UPDATE useful_count
+    W->>P: UPSERT vote (user_id, review_id, value)
+    W->>P: UPDATE score (up_count - down_count)
 
-    alt review on cached page<br/>OR new score promotes it
+    alt review on cached page<br/>OR new score promotes/demotes it
         W->>R: refresh first-page cache
     end
 
@@ -168,7 +168,8 @@ sequenceDiagram
 ```
 
 - **Why through Temporal too.** Same crash-safety argument as flow 3: the postgres write and the cache refresh need to land together or be retried. Open question whether click volume justifies a full workflow per vote vs. a lighter background task; we'll measure before deciding. For now, treating it the same as flow 3 keeps the moving parts uniform.
-- **Idempotency.** Votes are unique on `(user_id, review_id)`. Replays of the workflow don't double-count.
+- **Why a single vote endpoint with `value: +1 | -1`.** One endpoint, one workflow, one idempotency key. Flipping a vote from up to down is a single UPSERT, not a delete-then-insert.
+- **Idempotency.** Votes are unique on `(user_id, review_id)`. Re-submitting the same value is a no-op; flipping the value updates in place. Replays of the workflow don't double-count.
 - **Cache-touch heuristic.** Refresh only if the review currently sits on the cached page or if its new score crosses the threshold of whatever's lowest on that page. Keeps unnecessary cache writes off the hot path.
 
 ---
