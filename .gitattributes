@@ -1,0 +1,6 @@
+# Shell scripts must keep LF endings — bash inside Linux containers
+# treats CRLF in the shebang as a bad interpreter.
+*.sh text eol=lf
+
+# Same for Dockerfiles (RUN commands hit /bin/sh).
+Dockerfile text eol=lf

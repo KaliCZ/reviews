@@ -1,0 +1,11 @@
+<Solution>
+  <Project Path="backend/api/api.csproj" />
+  <Project Path="backend/apphost/apphost.csproj" />
+  <Project Path="backend/service-defaults/service-defaults.csproj" />
+  <Project Path="backend/shared/shared.csproj" />
+  <Project Path="backend/worker/worker.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="backend/tests/shared.tests/shared.tests.csproj" />
+    <Project Path="backend/tests/worker.tests/worker.tests.csproj" />
+  </Folder>
+</Solution>
