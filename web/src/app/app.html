@@ -1,9 +1,12 @@
 <main class="container">
   <h1>Reviews — Hello World</h1>
-  <p>Click the button to hit <code>/api/hello</code>. The API increments a Redis counter and returns it.</p>
+  <p>The API kicks off a Temporal workflow with the increment value below. The worker picks up the workflow, runs the activity that bumps a Redis counter, and the result flows back.</p>
+
+  <label for="by">Increment by:</label>
+  <input id="by" type="number" min="1" [ngModel]="by()" (ngModelChange)="by.set($event)" />
 
   <button type="button" (click)="sayHello()" [disabled]="loading()">
-    @if (loading()) { Calling... } @else { Say hello }
+    @if (loading()) { Calling... } @else { Run workflow }
   </button>
 
   @if (response(); as r) {

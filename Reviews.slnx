@@ -2,4 +2,6 @@
   <Project Path="api/api.csproj" />
   <Project Path="apphost/apphost.csproj" />
   <Project Path="service-defaults/service-defaults.csproj" />
+  <Project Path="shared/shared.csproj" />
+  <Project Path="worker/worker.csproj" />
 </Solution>

@@ -1,9 +1,16 @@
-using StackExchange.Redis;
+using Reviews.Shared;
+using Temporalio.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddRedisClient(connectionName: "cache");
+
+var temporalAddress = builder.Configuration.GetConnectionString("temporal")
+    ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
+
+builder.Services.AddSingleton<ITemporalClient>(_ =>
+    TemporalClient.ConnectAsync(new(temporalAddress) { Namespace = "default" })
+        .ConfigureAwait(false).GetAwaiter().GetResult());
 
 builder.Services.AddOpenApi();
 
@@ -26,11 +33,17 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 
-app.MapGet("/api/hello", async (IConnectionMultiplexer redis) =>
+app.MapPost("/api/hello", async (HelloRequest body, ITemporalClient temporal) =>
 {
-    var db = redis.GetDatabase();
-    var count = await db.StringIncrementAsync("hello:count");
-    return Results.Ok(new { message = "Hello from the API", count });
+    var by = body.By <= 0 ? 1 : body.By;
+    var handle = await temporal.StartWorkflowAsync(
+        (IncrementCounterWorkflow wf) => wf.RunAsync(by),
+        new(id: $"increment-{Guid.NewGuid():N}", taskQueue: IncrementCounterWorkflow.TaskQueue));
+
+    var count = await handle.GetResultAsync();
+    return Results.Ok(new { message = "Incremented via Temporal", count });
 });
 
 app.Run();
+
+internal record HelloRequest(int By);

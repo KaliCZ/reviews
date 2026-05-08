@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
 interface HelloResponse {
@@ -8,13 +9,14 @@ interface HelloResponse {
 
 @Component({
   selector: 'app-root',
-  imports: [],
+  imports: [FormsModule],
   templateUrl: './app.html',
   styleUrl: './app.css'
 })
 export class App {
   private readonly http = inject(HttpClient);
 
+  protected readonly by = signal(1);
   protected readonly response = signal<HelloResponse | null>(null);
   protected readonly error = signal<string | null>(null);
   protected readonly loading = signal(false);
@@ -22,7 +24,7 @@ export class App {
   sayHello(): void {
     this.loading.set(true);
     this.error.set(null);
-    this.http.get<HelloResponse>('/api/hello').subscribe({
+    this.http.post<HelloResponse>('/api/hello', { by: this.by() }).subscribe({
       next: (res) => {
         this.response.set(res);
         this.loading.set(false);

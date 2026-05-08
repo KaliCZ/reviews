@@ -1,15 +1,18 @@
 # Reviews
 
-A product reviews platform. This kickoff seeds the monorepo and a hello-world endpoint that proves the wiring works end-to-end (Angular → API → Redis).
+A product reviews platform. This kickoff seeds the monorepo and a hello-world endpoint that proves the wiring works end-to-end (Angular → API → Temporal workflow → Worker → Redis).
 
 ## Stack
 
 - **API** — ASP.NET Core 10 (`api/`)
+- **Worker** — .NET worker host running Temporal workflows + activities (`worker/`)
+- **Shared library** — workflow type definitions referenced by both API and worker (`shared/`)
 - **Frontend** — Angular 21 with SSR (`web/`)
 - **Cache** — Redis
-- **Database** — PostgreSQL (one cluster, separate databases for app + auth)
+- **Database** — PostgreSQL (one server, separate databases for app, auth, and Temporal)
 - **Auth** — ZITADEL (OIDC, runs locally as a container; not yet wired into code)
 - **Blob storage** — Azurite locally (Azure Storage emulator, real Azure Blob in production)
+- **Workflow engine** — Temporal (server + UI), backed by the shared Postgres
 - **Orchestration** — .NET Aspire (`apphost/`) + Docker Compose
 
 ## Prerequisites
@@ -61,12 +64,15 @@ After it boots:
 - Frontend: <http://localhost:4000>
 - API: <http://localhost:8081>
 - ZITADEL Console: <http://localhost:8080>
+- Temporal UI: <http://localhost:8233>
 
 ## Project structure
 
 ```
 reviews/
 ├── api/                    .NET API (ASP.NET Core, Minimal API)
+├── worker/                 Temporal worker (workflows + activities runtime)
+├── shared/                 Workflow type definitions (referenced by api + worker)
 ├── apphost/                Aspire orchestration project
 ├── service-defaults/       Shared OTel / health-check / service-discovery wiring
 ├── web/                    Angular SSR frontend
@@ -95,6 +101,18 @@ Connection strings flow through .NET's `IConfiguration`. The source varies per e
 - **Production** — Add `builder.Configuration.AddAzureKeyVault(...)` in `api/Program.cs` gated on `!IsDevelopment()`. Same code reads the values, source changes.
 
 A local Vault container (HashiCorp Vault dev mode) was considered and deferred as YAGNI for the dev loop. The plumbing is set up such that adding it later is a configuration-source swap, not a code change.
+
+### Why Temporal for the hello-world counter?
+
+The hello endpoint deliberately runs through Temporal — `POST /api/hello { "by": N }` starts a workflow, the worker process picks it up, the activity increments the Redis counter, and the result flows back. The point is to prove the workflow boundary works end-to-end before any real domain logic exists.
+
+Why a separate worker process and not run workflows inside the API:
+
+- **Workers are the unit of horizontal scale for Temporal.** You scale workers (CPU-bound work) independently from the API (request-bound work).
+- **Workflow code redeploy semantics are different from API code.** Active workflows pin to the worker version that started them; rolling out a workflow change is a versioned operation. Coupling that to API deploys is painful.
+- **It also gives the demo a real "background process" to point at**, which matches what real Temporal deployments look like.
+
+The workflow type lives in `shared/`, referenced by both the API (which starts workflows) and the worker (which executes them). The activity implementation, with its Redis dependency, lives only in the worker.
 
 ### Why Angular SSR, not CSR or static?
 
@@ -134,4 +152,6 @@ It's the Microsoft-official local emulator for Azure Storage. Aspire's storage i
 
 ## Verifying the kickoff
 
-After running any of the three paths, visit the frontend URL, click **Say hello**, and the page should show `Hello from the API — count: N` with `N` incrementing on each click. That round-trip exercises Angular → SSR proxy → API → Redis.
+After running any of the three paths, visit the frontend URL, type an integer in the **Increment by** field, and click **Run workflow**. The page should show `Incremented via Temporal — count: N` with `N` increasing by your input on each click. That round-trip exercises Angular → SSR proxy → API → Temporal → Worker → Redis.
+
+You can watch the workflows execute in real time at the Temporal UI (<http://localhost:8233> in compose, or via the linked endpoint in the Aspire dashboard).
