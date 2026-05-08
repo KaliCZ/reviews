@@ -208,9 +208,9 @@ The kickoff seed has the wiring proven end-to-end via the hello-world counter (`
 
 | Layer | Where it lands |
 |---|---|
-| API endpoints | `api/Program.cs` |
-| Workflow types (referenced by both api + worker) | `shared/` |
-| Activity implementations (postgres, Redis access) | `worker/` |
+| API endpoints | `backend/api/Controllers/` |
+| Workflow types (referenced by both api + worker) | `backend/shared/` |
+| Activity implementations (postgres, Redis access) | `backend/worker/` |
 | Domain entities and migrations | `reviews` schema, provisioned by `infra/postgres-init.sh` |
 | Cache keys | conventional: `reviews:product:{id}:page:1` |
 

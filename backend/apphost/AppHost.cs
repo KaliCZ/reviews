@@ -7,7 +7,7 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 
 var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume()
-    .WithBindMount("../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
+    .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
     .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
     .WithPgAdmin();
 
@@ -77,7 +77,7 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitFor(workerService);
 
-var web = builder.AddJavaScriptApp("web", "../web", "start")
+var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)

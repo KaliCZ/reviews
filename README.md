@@ -6,16 +6,16 @@ The four user flows the product is built around — viewing reviews, browsing mo
 
 ## Stack
 
-- **API** — ASP.NET Core 10 (`api/`)
-- **Worker** — .NET worker host running Temporal workflows + activities (`worker/`)
-- **Shared library** — workflow type definitions referenced by both API and worker (`shared/`)
+- **API** — ASP.NET Core 10 (`backend/api/`)
+- **Worker** — .NET worker host running Temporal workflows + activities (`backend/worker/`)
+- **Shared library** — workflow type definitions referenced by both API and worker (`backend/shared/`)
 - **Frontend** — Angular 21 with SSR (`web/`)
 - **Cache** — Redis
 - **Database** — PostgreSQL (one server, separate databases for app, auth, and Temporal)
 - **Auth** — ZITADEL (OIDC, runs locally as a container; not yet wired into code)
 - **Blob storage** — Azurite locally (Azure Storage emulator, real Azure Blob in production)
 - **Workflow engine** — Temporal (server + UI), backed by the shared Postgres
-- **Orchestration** — .NET Aspire (`apphost/`) + Docker Compose
+- **Orchestration** — .NET Aspire (`backend/apphost/`) + Docker Compose
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ npm --prefix web install
 
 ```bash
 npm run aspire
-# or: dotnet run --project apphost
+# or: dotnet run --project backend/apphost
 ```
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, and Aspire injects connection strings into the API automatically.
@@ -71,11 +71,14 @@ After it boots:
 
 ```
 reviews/
-├── api/                    .NET API (ASP.NET Core, Minimal API)
-├── worker/                 Temporal worker (workflows + activities runtime)
-├── shared/                 Workflow type definitions (referenced by api + worker)
-├── apphost/                Aspire orchestration project
-├── service-defaults/       Shared OTel / health-check / service-discovery wiring
+├── backend/
+│   ├── api/                .NET API (ASP.NET Core controllers)
+│   ├── worker/             Temporal worker (workflows + activities runtime)
+│   ├── shared/             Workflow type definitions (referenced by api + worker)
+│   ├── apphost/            Aspire orchestration project
+│   ├── service-defaults/   Shared OTel / health-check / service-discovery wiring
+│   ├── tests/              xUnit test projects (one per app project that needs them)
+│   └── Reviews.slnx        .NET solution
 ├── web/                    Angular SSR frontend
 ├── infra/                  Infra helpers (Postgres init script)
 ├── docker-compose.yml      Containerized run path
@@ -96,11 +99,11 @@ The three paths share the same code; they only differ in how connection strings 
 
 Each service reads its own config in its stack's native way; nothing is shared across services:
 
-- **Backend (.NET)** — `api/appsettings.Development.json` and `worker/appsettings.Development.json`. .NET's `IConfiguration` picks them up automatically when `ASPNETCORE_ENVIRONMENT=Development` (the default for `dotnet watch`).
+- **Backend (.NET)** — `backend/api/appsettings.Development.json` and `backend/worker/appsettings.Development.json`. .NET's `IConfiguration` picks them up automatically when `ASPNETCORE_ENVIRONMENT=Development` (the default for `dotnet watch`).
 - **Frontend (Angular)** — no env file needed locally. `web/proxy.conf.js` reads `process.env.API_URL` and falls back to `http://localhost:5146`, which matches the API's local listen address.
-- **Aspire** — orchestrates everything in code. Connection strings flow via `WithReference()`, the api gets `API_URL` via `WithEnvironment()`. Secret parameters (`postgres-password`, `zitadel-masterkey`) live in `apphost/appsettings.Development.json` under `Parameters`.
+- **Aspire** — orchestrates everything in code. Connection strings flow via `WithReference()`, the api gets `API_URL` via `WithEnvironment()`. Secret parameters (`postgres-password`, `zitadel-masterkey`) live in `backend/apphost/appsettings.Development.json` under `Parameters`.
 - **Docker Compose** — each service in `docker-compose.yml` declares its own `environment:` block inline. `postgres` only sees `POSTGRES_*`, `zitadel` only sees `ZITADEL_*`, the api container only sees its connection strings, and so on. No shared file fans values out across services.
-- **Production** — Add `builder.Configuration.AddAzureKeyVault(...)` in `api/Program.cs` gated on `!IsDevelopment()`. Same code reads the values, source changes.
+- **Production** — Add `builder.Configuration.AddAzureKeyVault(...)` in `backend/api/Program.cs` gated on `!IsDevelopment()`. Same code reads the values, source changes.
 
 A local Vault container (HashiCorp Vault dev mode) was considered and deferred as YAGNI for the dev loop. The plumbing is set up such that adding it later is a configuration-source swap, not a code change.
 
