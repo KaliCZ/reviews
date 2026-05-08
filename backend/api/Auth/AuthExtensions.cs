@@ -5,16 +5,36 @@ using Reviews.Api.Services;
 
 namespace Reviews.Api.Auth;
 
-// DelegatingHandler that overrides the Host header on every request. Used to
-// reach ZITADEL via the docker-internal DNS name (`zitadel:8080`) while
-// presenting the public hostname (`localhost:8080`) ZITADEL expects to
-// match its ExternalDomain. Without this the JWKS fetch 404s.
-internal sealed class HostHeaderHandler(string host) : DelegatingHandler
+// JwtBearer's BackchannelHttpHandler — rewrites every outgoing call to the
+// public ZITADEL URL (e.g. `http://localhost:8080`) to the docker-internal
+// URL (e.g. `http://zitadel:8080`), AND sets the Host header to the public
+// authority so ZITADEL's vhost routing (matching ZITADEL_EXTERNALDOMAIN)
+// accepts the request.
+//
+// Why both? The discovery doc that ZITADEL returns embeds the public
+// host in jwks_uri / token_endpoint / etc. JwtBearer then uses those
+// strings verbatim for follow-up fetches. Inside the API container,
+// `localhost` resolves to the container itself, not ZITADEL — so without
+// the URL rewrite the JWKS fetch hits 127.0.0.1 and 404s. With the
+// rewrite it goes via docker DNS to the ZITADEL container; the Host
+// header reassures ZITADEL that this is still its public-facing vhost.
+internal sealed class ZitadelDockerInternalHandler(Uri publicAuthority, Uri internalAuthority) : DelegatingHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        request.Headers.Host = host;
+        if (request.RequestUri is { } uri
+            && uri.Authority.Equals(publicAuthority.Authority, StringComparison.OrdinalIgnoreCase))
+        {
+            var rewritten = new UriBuilder(uri)
+            {
+                Scheme = internalAuthority.Scheme,
+                Host = internalAuthority.Host,
+                Port = internalAuthority.Port,
+            }.Uri;
+            request.RequestUri = rewritten;
+            request.Headers.Host = publicAuthority.Authority;
+        }
         return base.SendAsync(request, cancellationToken);
     }
 }
@@ -43,27 +63,16 @@ public static class AuthExtensions
         var audience = config["Auth:Audience"] ?? config["ZITADEL_CLIENT_ID"]
             ?? throw new InvalidOperationException("Auth audience not configured (set Auth:Audience or ZITADEL_CLIENT_ID)");
 
-        // The issuer in JWTs is whatever ZITADEL has as its external URL
-        // (`http://localhost:8080` in dev). When the API runs in compose, it
-        // can't actually reach `localhost:8080` because that's the host's
-        // perspective — internally the IdP is at `http://zitadel:8080`. So
-        // we let the metadata-fetch URL differ from the issuer-claim string
-        // we validate against.
-        var metadataAddress = config["Auth:MetadataAddress"] ?? config["ZITADEL_METADATA_URL"]
-            ?? $"{issuer.TrimEnd('/')}/.well-known/openid-configuration";
-
-        // If MetadataAddress points at an internal hostname different from
-        // the public issuer (compose case), swap in an HttpClient that sets
-        // the Host header to the public hostname so ZITADEL routes the
-        // request correctly. Same trick the BFF uses for its OIDC client.
-        var issuerHost = new Uri(issuer).Host;
-        var metadataHost = new Uri(metadataAddress).Host;
-        var needsHostOverride = !issuerHost.Equals(metadataHost, StringComparison.OrdinalIgnoreCase);
-
+        // The IdP's public URL (the issuer in JWTs) and its docker-internal
+        // URL might differ (compose: `http://localhost:8080` vs
+        // `http://zitadel:8080`). When they do, every backchannel call from
+        // JwtBearer routes through the rewriting handler above; otherwise
+        // we don't bother and JwtBearer talks to the issuer directly.
+        var internalAuthority = config["Auth:InternalAuthority"] ?? config["ZITADEL_INTERNAL_URL"];
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                options.MetadataAddress = metadataAddress;
+                options.Authority = issuer;
                 options.Audience = audience;
                 // Dev / compose run ZITADEL on plain HTTP. Toggle via config
                 // so real prod (HTTPS issuer) keeps the default-on guard.
@@ -77,10 +86,12 @@ public static class AuthExtensions
                     ValidateLifetime = true,
                     NameClaimType = "name"
                 };
-                if (needsHostOverride)
+                if (!string.IsNullOrEmpty(internalAuthority)
+                    && !string.Equals(internalAuthority, issuer, StringComparison.OrdinalIgnoreCase))
                 {
-                    var hostPort = new Uri(issuer).Authority; // host:port
-                    options.BackchannelHttpHandler = new HostHeaderHandler(hostPort)
+                    options.BackchannelHttpHandler = new ZitadelDockerInternalHandler(
+                        publicAuthority: new Uri(issuer),
+                        internalAuthority: new Uri(internalAuthority))
                     {
                         InnerHandler = new HttpClientHandler()
                     };

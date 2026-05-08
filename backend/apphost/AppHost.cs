@@ -33,7 +33,11 @@ const string appSecrets = "../../infra/zitadel/.app-secrets";
 var appSecretsAbs = Path.GetFullPath(appSecrets);
 var zitadelEnvFile = Path.Combine(appSecretsAbs, "zitadel.env");
 
-var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "latest")
+// Pinned: ZITADEL v4 (July 2025) made LoginV2 the default; the v2 login UI
+// is a separate Next.js app not bundled in this image. v2.71.2 is the last
+// v2 release that ships the embedded /ui/login UI as the default OIDC
+// redirect target.
+var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.2")
     // start-from-init runs the FirstInstance bootstrap (default org + admin
     // user + bootstrap service-account PAT) defined in steps.yaml.
     .WithArgs("start-from-init", "--masterkeyFromEnv", "--steps", "/steps.yaml")
@@ -44,6 +48,7 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "latest
     .WithEnvironment("ZITADEL_EXTERNALDOMAIN", "localhost")
     .WithEnvironment("ZITADEL_EXTERNALPORT", "8080")
     .WithEnvironment("ZITADEL_TLS_ENABLED", "false")
+    .WithEnvironment("ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED", "false")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_DATABASE", "zitadel")

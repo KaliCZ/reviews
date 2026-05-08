@@ -175,6 +175,25 @@ After bringing the stack up:
 
 If you want to nuke and re-bootstrap auth (e.g. if you wiped Postgres but the local secrets are stale): `docker compose down -v && rm -rf infra/zitadel/.secrets infra/zitadel/.app-secrets`.
 
+## End-to-end tests
+
+`npm run e2e` runs Playwright against the docker-compose stack.
+
+The suite covers the four user flows from `docs/flows.md`:
+
+| Test | What it covers |
+|---|---|
+| `catalog.spec.ts` | Anonymous browse → product page renders SSR-rendered reviews + star averages |
+| `sign-in.spec.ts` | OIDC code+PKCE flow against ZITADEL → `/auth/me` returns the user → header shows display name |
+| `submit-flow.spec.ts` | Submit a 4-star review (auto-approved branch); upvote a review and watch the score recompute through the workflow + cache invalidate |
+| `moderation.spec.ts` | Submit a 5-star review (moderation branch), assert it isn't visible, then send the `Approve` signal to the workflow and watch it appear |
+
+`global-setup.ts` signs Alice into ZITADEL once (driving the v1 hosted login UI: username → password → skip the 2FA prompt) and saves the resulting BFF session cookie via Playwright's `storageState`. Tests that need an authed browser opt in with `test.use({ storageState: '.auth/storage-state.json' })`; the catalog test stays anonymous.
+
+### A note on signaling moderation workflows from tests
+
+Playwright *can* drive the Temporal UI — log in, find the workflow, click **Send Signal** — but it's brittle (the UI's DOM shifts between Temporal versions, and the action is asynchronous in ways that don't compose well with Playwright's auto-wait). The moderation spec uses the **`@temporalio/client` Node SDK** instead: the test grabs the workflow id from the API's 202 response, opens a Temporal client to `localhost:7233`, and calls `handle.signal('Approve', null)` directly. Same effect on the workflow, no UI version coupling.
+
 ## Deferred for later milestones
 
 - A real moderator surface (today: send a signal in the Temporal UI). Either an admin SPA, or — likely — an MCP server mounted on the API project so a Claude or another agent can fan out moderation actions.

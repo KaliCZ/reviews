@@ -82,7 +82,11 @@ APP_BODY="{
   \"grantTypes\":[\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\",\"OIDC_GRANT_TYPE_REFRESH_TOKEN\"],
   \"appType\":\"OIDC_APP_TYPE_WEB\",
   \"authMethodType\":\"OIDC_AUTH_METHOD_TYPE_BASIC\",
-  \"devMode\":true
+  \"devMode\":true,
+  \"accessTokenType\":\"OIDC_TOKEN_TYPE_JWT\",
+  \"accessTokenRoleAssertion\":true,
+  \"idTokenRoleAssertion\":true,
+  \"idTokenUserinfoAssertion\":true
 }"
 
 if [ -z "$APP_ID" ]; then

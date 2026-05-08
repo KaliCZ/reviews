@@ -39,7 +39,14 @@ services:
       - azurite-data:/data
 
   zitadel:
-    image: ghcr.io/zitadel/zitadel:latest
+    # Pinned to the last v2 minor — v4 (July 2025) made LoginV2 the default
+    # for new OIDC apps, redirecting `/oauth/v2/authorize` users to a
+    # /ui/v2/login route served by a separate Next.js app (`zitadel/typescript`)
+    # that isn't bundled in this image. Pinning here keeps OIDC redirects on
+    # the embedded v1 UI at `/ui/login`, which the BFF and Playwright tests
+    # both exercise. Belt-and-suspenders: also force LoginV2.Required=false
+    # via env so future image bumps don't silently flip behaviour again.
+    image: ghcr.io/zitadel/zitadel:v2.71.2
     # `--steps` runs the FirstInstance bootstrap (default org, admin user,
     # bootstrap service-account PAT) on first start of an empty zitadel DB.
     # See infra/zitadel/steps.yaml.
@@ -50,6 +57,7 @@ services:
       ZITADEL_EXTERNALDOMAIN: localhost
       ZITADEL_EXTERNALPORT: "8080"
       ZITADEL_TLS_ENABLED: "false"
+      ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: "false"
       ZITADEL_DATABASE_POSTGRES_HOST: postgres
       ZITADEL_DATABASE_POSTGRES_PORT: "5432"
       ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
@@ -175,12 +183,21 @@ services:
       ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       ConnectionStrings__temporal: temporal:7233
       WEB_ORIGIN: http://localhost:4000
-      # zitadel-bootstrap writes /run/secrets/zitadel.env with ZITADEL_ISSUER
-      # = http://localhost:8080 (the public URL that ends up in iss claims).
-      # JwtBearer can't actually reach that hostname from inside this
-      # container, so we point it at the docker-internal URL for JWKS fetch.
-      ZITADEL_METADATA_URL: http://zitadel:8080/.well-known/openid-configuration
       Auth__RequireHttps: "false"
+      # Cloudflare's documented dev-only Turnstile test keys. Always-passes
+      # site key + always-accepts secret means the e2e suite gets a real
+      # token from the widget without needing a Cloudflare account. Swap
+      # both via real values in prod.
+      Turnstile__SiteKey: "1x00000000000000000000AA"
+      Turnstile__SecretKey: "1x0000000000000000000000000000000AA"
+      # ZITADEL discovery returns its public URL (the host-mapped
+      # `http://localhost:8080`) inside jwks_uri/token_endpoint/etc. From
+      # inside the api container `localhost` resolves to the api itself,
+      # which would 404 the JWKS fetch. Setting this lets the
+      # ZitadelDockerInternalHandler rewrite all backchannel calls to the
+      # docker-internal hostname (with Host header preserved as the public
+      # authority so ZITADEL's vhost routing still matches).
+      ZITADEL_INTERNAL_URL: http://zitadel:8080
     volumes:
       - ./infra/zitadel/.app-secrets:/run/secrets:ro
     ports:
