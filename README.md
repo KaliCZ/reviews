@@ -2,6 +2,8 @@
 
 A product reviews platform. This kickoff seeds the monorepo and a hello-world endpoint that proves the wiring works end-to-end (Angular → API → Temporal workflow → Worker → Redis).
 
+The four user flows the product is built around — viewing reviews, browsing more, submitting, and marking useful — are described in [docs/flows.md](docs/flows.md).
+
 ## Stack
 
 - **API** — ASP.NET Core 10 (`api/`)
