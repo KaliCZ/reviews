@@ -23,6 +23,7 @@ node_modules/
 !.vscode/extensions.json
 !.vscode/launch.json
 !.vscode/tasks.json
+!.vscode/mcp.json
 
 # OS
 .DS_Store
