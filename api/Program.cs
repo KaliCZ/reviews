@@ -1,4 +1,3 @@
-using Reviews.Shared;
 using Temporalio.Client;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,10 +9,10 @@ builder.AddRedisClient(connectionName: "cache");
 var temporalAddress = builder.Configuration.GetConnectionString("temporal")
     ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
 
-builder.Services.AddSingleton<ITemporalClient>(_ =>
-    TemporalClient.ConnectAsync(new(temporalAddress) { Namespace = "default" })
-        .ConfigureAwait(false).GetAwaiter().GetResult());
+var temporalClient = await TemporalClient.ConnectAsync(new(temporalAddress) { Namespace = "default" });
+builder.Services.AddSingleton<ITemporalClient>(temporalClient);
 
+builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 builder.Services.AddCors(options =>
@@ -34,18 +33,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
-
-app.MapPost("/api/hello", async (HelloRequest body, ITemporalClient temporal) =>
-{
-    var by = body.By <= 0 ? 1 : body.By;
-    var handle = await temporal.StartWorkflowAsync(
-        (IncrementCounterWorkflow wf) => wf.RunAsync(by),
-        new(id: $"increment-{Guid.NewGuid():N}", taskQueue: IncrementCounterWorkflow.TaskQueue));
-
-    var count = await handle.GetResultAsync();
-    return Results.Ok(new { message = "Incremented via Temporal", count });
-});
+app.MapControllers();
 
 app.Run();
-
-internal record HelloRequest(int By);
