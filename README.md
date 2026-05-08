@@ -37,7 +37,7 @@ npm run aspire
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, and Aspire injects connection strings into the API automatically.
 
-Requires the Aspire templates (installed once via `dotnet new install Aspire.ProjectTemplates`).
+No extra install needed beyond the prerequisites — the Aspire NuGet packages come down via `dotnet restore` like any dependency.
 
 ### 2. `npm run dev` (no Aspire workload required)
 
