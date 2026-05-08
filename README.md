@@ -48,7 +48,7 @@ No extra install needed beyond the prerequisites — the Aspire NuGet packages c
 npm run dev
 ```
 
-Starts Postgres, Redis, Azurite, and ZITADEL via `docker compose -d`, then runs `dotnet watch` and `ng serve` on the host with hot reload. This is the lightest dev loop — just Docker for the infra, native dev servers for the code.
+Starts Postgres, Redis, Azurite, ZITADEL, Temporal, and the Temporal UI via `docker compose -d`, then runs `dotnet watch` on both `api` and `worker` plus `ng serve` on the host, all under `concurrently` with hot reload. This is the lightest dev loop — just Docker for the infra, native dev servers for the code.
 
 Stop the infra containers with `npm run dev:infra:down`.
 
