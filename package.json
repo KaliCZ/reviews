@@ -12,9 +12,16 @@
     "compose:up": "docker compose up --build",
     "compose:down": "docker compose down -v",
     "e2e": "npm --prefix e2e test",
-    "e2e:install": "npm --prefix e2e install && npm --prefix e2e exec -- playwright install --with-deps chromium"
+    "e2e:install": "npm --prefix e2e install && npm --prefix e2e exec -- playwright install --with-deps chromium",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "web/src/**/*.{ts,html,css,scss,json}": "prettier --write"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.3",
+    "prettier": "^3.8.3"
   }
 }
