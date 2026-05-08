@@ -5,6 +5,8 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 
 var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume()
+    .WithBindMount("../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
+    .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel")
     .WithPgAdmin();
 
 var reviewsDb = postgres.AddDatabase("reviews");

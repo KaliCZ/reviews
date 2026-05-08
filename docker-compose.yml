@@ -68,7 +68,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__cache: redis:6379
-      ConnectionStrings__reviews: Host=postgres;Database=reviews;Username=postgres;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__reviews: Host=postgres;Database=reviews;Username=postgres;Password=${POSTGRES_PASSWORD};Search Path=reviews
       ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       WEB_ORIGIN: http://localhost:4000
     ports:
