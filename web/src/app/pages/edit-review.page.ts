@@ -12,25 +12,38 @@ import { ReviewItem } from '../models';
       <p><a [routerLink]="['/products', slug()]" class="link">← Back</a></p>
       <h1>Edit your review</h1>
       <p class="muted">
-        Edits to reviews older than an hour go through moderator approval before
-        they apply. The Temporal UI is where moderators send approve/reject signals.
+        Edits to reviews older than an hour go through moderator approval before they apply. The
+        Temporal UI is where moderators send approve/reject signals.
       </p>
 
       <form (submit)="save($event)">
-        <label>Your rating
+        <label
+          >Your rating
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
-        <label>Title (optional)
+        <label
+          >Title (optional)
           <input type="text" [(ngModel)]="title" name="title" maxlength="120" />
         </label>
-        <label>Review
-          <textarea [(ngModel)]="body" name="body" rows="6" required minlength="10" maxlength="4000"></textarea>
+        <label
+          >Review
+          <textarea
+            [(ngModel)]="body"
+            name="body"
+            rows="6"
+            required
+            minlength="10"
+            maxlength="4000"
+          ></textarea>
         </label>
-        <label>Image URLs (one per line, optional)
+        <label
+          >Image URLs (one per line, optional)
           <textarea [(ngModel)]="imageUrlsRaw" name="imageUrls" rows="3"></textarea>
         </label>
 
-        @if (error(); as e) { <p class="error">{{ e }}</p> }
+        @if (error(); as e) {
+          <p class="error">{{ e }}</p>
+        }
 
         <button type="submit" [disabled]="saving() || body.trim().length < 10">
           {{ saving() ? 'Saving...' : 'Save changes' }}
@@ -40,21 +53,48 @@ import { ReviewItem } from '../models';
       <p>Review not found.</p>
     }
   `,
-  styles: [`
-    label { display: block; margin: 0.75rem 0; }
-    input[type=text], textarea {
-      display: block; width: 100%; padding: 0.5rem; margin-top: 0.25rem;
-      border: 1px solid #ccc; border-radius: 4px; font: inherit;
-    }
-    button {
-      padding: 0.5rem 1rem; background: #2563eb; color: #fff;
-      border: none; border-radius: 4px; cursor: pointer; font: inherit;
-    }
-    button:disabled { background: #93c5fd; cursor: not-allowed; }
-    .muted { color: #666; font-size: 0.9rem; }
-    .error { color: #b91c1c; }
-    .link { color: #2563eb; text-decoration: none; }
-  `],
+  styles: [
+    `
+      label {
+        display: block;
+        margin: 0.75rem 0;
+      }
+      input[type='text'],
+      textarea {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        margin-top: 0.25rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font: inherit;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:disabled {
+        background: #93c5fd;
+        cursor: not-allowed;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.9rem;
+      }
+      .error {
+        color: #b91c1c;
+      }
+      .link {
+        color: #2563eb;
+        text-decoration: none;
+      }
+    `,
+  ],
 })
 export class EditReviewPage {
   private readonly api = inject(ApiService);
@@ -96,7 +136,10 @@ export class EditReviewPage {
   }
 
   private lookupDeep(slug: string, id: string, cursor: string | null) {
-    if (!cursor) { this.notFound.set(true); return; }
+    if (!cursor) {
+      this.notFound.set(true);
+      return;
+    }
     this.api.listReviews(slug, { sort: 'newest', cursor }).subscribe((pg) => {
       const found = pg.items.find((r) => r.id === id);
       if (found) this.fillFrom(found);
@@ -118,7 +161,10 @@ export class EditReviewPage {
     if (!r) return;
     this.saving.set(true);
     this.error.set(null);
-    const imageUrls = this.imageUrlsRaw.split('\n').map((s) => s.trim()).filter(Boolean);
+    const imageUrls = this.imageUrlsRaw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
     this.api
       .editReview(r.id, {
         rating: this.rating,

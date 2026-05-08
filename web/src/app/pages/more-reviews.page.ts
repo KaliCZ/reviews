@@ -39,25 +39,59 @@ type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
     </div>
 
     @for (r of items(); track r.id) {
-      <app-review-card [review]="r" [productSlug]="slug()" (vote)="onVote($event)" (del)="onDelete($event)" />
+      <app-review-card
+        [review]="r"
+        [productSlug]="slug()"
+        (vote)="onVote($event)"
+        (del)="onDelete($event)"
+      />
     } @empty {
-      @if (loaded()) { <p class="muted">No reviews match.</p> }
+      @if (loaded()) {
+        <p class="muted">No reviews match.</p>
+      }
     }
 
     @if (cursor()) {
       <p><button type="button" class="link" (click)="loadMore()">Load more</button></p>
     }
   `,
-  styles: [`
-    h1 { margin: 0 0 1rem; }
-    .controls { display: flex; gap: 1rem; margin-bottom: 1rem; align-items: center; }
-    .controls label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
-    .controls select { padding: 0.25rem; }
-    .muted { color: #666; }
-    .link { background: none; border: none; padding: 0; color: #2563eb; cursor: pointer;
-      font-size: 0.9rem; text-decoration: none; }
-    .link:hover { text-decoration: underline; }
-  `],
+  styles: [
+    `
+      h1 {
+        margin: 0 0 1rem;
+      }
+      .controls {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        align-items: center;
+      }
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.9rem;
+      }
+      .controls select {
+        padding: 0.25rem;
+      }
+      .muted {
+        color: #666;
+      }
+      .link {
+        background: none;
+        border: none;
+        padding: 0;
+        color: #2563eb;
+        cursor: pointer;
+        font-size: 0.9rem;
+        text-decoration: none;
+      }
+      .link:hover {
+        text-decoration: underline;
+      }
+    `,
+  ],
 })
 export class MoreReviewsPage {
   private readonly api = inject(ApiService);

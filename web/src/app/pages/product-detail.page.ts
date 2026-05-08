@@ -11,12 +11,16 @@ import { ProductDetail, ReviewsPage } from '../models';
   template: `
     @if (product(); as p) {
       <article class="product">
-        @if (p.imageUrl) { <img [src]="p.imageUrl" [alt]="p.name" /> }
+        @if (p.imageUrl) {
+          <img [src]="p.imageUrl" [alt]="p.name" />
+        }
         <div>
           <h1>{{ p.name }}</h1>
           <div class="meta">
             <app-star-rating [value]="p.averageRating" />
-            <span class="muted">{{ p.averageRating.toFixed(1) }} · {{ p.reviewCount }} reviews</span>
+            <span class="muted"
+              >{{ p.averageRating.toFixed(1) }} · {{ p.reviewCount }} reviews</span
+            >
           </div>
           <p class="desc">{{ p.description }}</p>
           @if (auth.authenticated()) {
@@ -25,7 +29,9 @@ import { ProductDetail, ReviewsPage } from '../models';
                 Edit your review
               </a>
             } @else {
-              <a [routerLink]="['/products', p.slug, 'review', 'new']" class="btn">Write a review</a>
+              <a [routerLink]="['/products', p.slug, 'review', 'new']" class="btn"
+                >Write a review</a
+              >
             }
           } @else {
             <a [href]="loginHref()" class="btn">Sign in to write a review</a>
@@ -44,7 +50,8 @@ import { ProductDetail, ReviewsPage } from '../models';
               [productSlug]="p.slug"
               [busy]="busy() === r.id"
               (vote)="onVote($event)"
-              (del)="onDelete($event)" />
+              (del)="onDelete($event)"
+            />
           }
           @if (pg.nextCursor) {
             <p>
@@ -57,19 +64,57 @@ import { ProductDetail, ReviewsPage } from '../models';
       <p>Product not found.</p>
     }
   `,
-  styles: [`
-    .product { display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; margin-bottom: 2rem; }
-    .product img { width: 100%; border-radius: 8px; object-fit: cover; }
-    h1 { margin: 0 0 0.5rem; }
-    .meta { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
-    .muted { color: #666; }
-    .desc { line-height: 1.5; margin: 0.5rem 0 1.25rem; }
-    h2 { margin-top: 1.5rem; }
-    .btn { display: inline-block; padding: 0.5rem 1rem; background: #2563eb; color: #fff;
-      border-radius: 4px; text-decoration: none; font-size: 0.95rem; }
-    .btn:hover { background: #1d4ed8; }
-    @media (max-width: 700px) { .product { grid-template-columns: 1fr; } }
-  `],
+  styles: [
+    `
+      .product {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+      .product img {
+        width: 100%;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+      }
+      .meta {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .muted {
+        color: #666;
+      }
+      .desc {
+        line-height: 1.5;
+        margin: 0.5rem 0 1.25rem;
+      }
+      h2 {
+        margin-top: 1.5rem;
+      }
+      .btn {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        background: #2563eb;
+        color: #fff;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 0.95rem;
+      }
+      .btn:hover {
+        background: #1d4ed8;
+      }
+      @media (max-width: 700px) {
+        .product {
+          grid-template-columns: 1fr;
+        }
+      }
+    `,
+  ],
 })
 export class ProductDetailPage {
   private readonly api = inject(ApiService);
@@ -96,7 +141,9 @@ export class ProductDetailPage {
   private fetchAll(slug: string) {
     this.api.getProduct(slug).subscribe({
       next: (p) => this.product.set(p),
-      error: (err) => { if (err.status === 404) this.notFound.set(true); },
+      error: (err) => {
+        if (err.status === 404) this.notFound.set(true);
+      },
     });
     this.api.listReviews(slug).subscribe((pg) => this.page.set(pg));
   }

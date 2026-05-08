@@ -14,21 +14,39 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
           class="star"
           [class.filled]="s <= rounded()"
           [disabled]="!interactive()"
-          (click)="onPick(s)">★</button>
+          (click)="onPick(s)"
+        >
+          ★
+        </button>
       }
     </span>
   `,
-  styles: [`
-    .stars { display: inline-flex; gap: 2px; }
-    .star {
-      background: none; border: none; padding: 0;
-      font-size: 1.2rem; color: #ccc; cursor: default;
-      line-height: 1;
-    }
-    .star.filled { color: #f5a623; }
-    .interactive .star { cursor: pointer; }
-    .interactive .star:disabled { cursor: default; }
-  `],
+  styles: [
+    `
+      .stars {
+        display: inline-flex;
+        gap: 2px;
+      }
+      .star {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: 1.2rem;
+        color: #ccc;
+        cursor: default;
+        line-height: 1;
+      }
+      .star.filled {
+        color: #f5a623;
+      }
+      .interactive .star {
+        cursor: pointer;
+      }
+      .interactive .star:disabled {
+        cursor: default;
+      }
+    `,
+  ],
 })
 export class StarRating {
   readonly value = input(0);

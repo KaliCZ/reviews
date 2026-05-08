@@ -32,23 +32,65 @@ import { ProductSummary } from '../models';
       }
     </ul>
   `,
-  styles: [`
-    h1 { margin: 0 0 0.25rem; }
-    .muted { color: #666; margin-bottom: 1.5rem; }
-    .grid { list-style: none; padding: 0; display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 1rem; }
-    .card { border: 1px solid #e5e5e5; border-radius: 8px; overflow: hidden;
-      background: #fff; transition: box-shadow .15s; }
-    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); }
-    .card-link { color: inherit; text-decoration: none; display: block; }
-    .card img { width: 100%; height: 140px; object-fit: cover; display: block; }
-    .card-body { padding: 0.75rem; }
-    .card h2 { font-size: 1rem; margin: 0 0 0.4rem; line-height: 1.25; }
-    .meta { display: flex; align-items: center; gap: 0.5rem; }
-    .count { color: #666; font-size: 0.85rem; }
-    .empty { color: #888; }
-  `],
+  styles: [
+    `
+      h1 {
+        margin: 0 0 0.25rem;
+      }
+      .muted {
+        color: #666;
+        margin-bottom: 1.5rem;
+      }
+      .grid {
+        list-style: none;
+        padding: 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 1rem;
+      }
+      .card {
+        border: 1px solid #e5e5e5;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #fff;
+        transition: box-shadow 0.15s;
+      }
+      .card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+      .card-link {
+        color: inherit;
+        text-decoration: none;
+        display: block;
+      }
+      .card img {
+        width: 100%;
+        height: 140px;
+        object-fit: cover;
+        display: block;
+      }
+      .card-body {
+        padding: 0.75rem;
+      }
+      .card h2 {
+        font-size: 1rem;
+        margin: 0 0 0.4rem;
+        line-height: 1.25;
+      }
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .count {
+        color: #666;
+        font-size: 0.85rem;
+      }
+      .empty {
+        color: #888;
+      }
+    `,
+  ],
 })
 export class ProductListPage {
   private readonly api = inject(ApiService);
@@ -57,7 +99,10 @@ export class ProductListPage {
 
   constructor() {
     this.api.listProducts().subscribe({
-      next: (rows) => { this.products.set(rows); this.loaded.set(true); },
+      next: (rows) => {
+        this.products.set(rows);
+        this.loaded.set(true);
+      },
       error: () => this.loaded.set(true),
     });
   }

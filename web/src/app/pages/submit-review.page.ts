@@ -10,41 +10,59 @@ import { ProductDetail } from '../models';
   imports: [FormsModule, RouterLink, StarRating, TurnstileComponent],
   template: `
     @if (product(); as p) {
-      <p><a [routerLink]="['/products', p.slug]" class="link">← Back to {{ p.name }}</a></p>
+      <p>
+        <a [routerLink]="['/products', p.slug]" class="link">← Back to {{ p.name }}</a>
+      </p>
       <h1>Write a review for {{ p.name }}</h1>
 
       <form (submit)="submit($event)">
-        <label>Your rating
+        <label
+          >Your rating
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
 
-        <label>Title (optional)
+        <label
+          >Title (optional)
           <input type="text" [(ngModel)]="title" name="title" maxlength="120" />
         </label>
 
-        <label>Review
-          <textarea [(ngModel)]="body" name="body" rows="6" required minlength="10" maxlength="4000"></textarea>
+        <label
+          >Review
+          <textarea
+            [(ngModel)]="body"
+            name="body"
+            rows="6"
+            required
+            minlength="10"
+            maxlength="4000"
+          ></textarea>
         </label>
 
-        <label>Image URLs (one per line, optional)
-          <textarea [(ngModel)]="imageUrlsRaw" name="imageUrls" rows="3"
-            placeholder="https://..."></textarea>
+        <label
+          >Image URLs (one per line, optional)
+          <textarea
+            [(ngModel)]="imageUrlsRaw"
+            name="imageUrls"
+            rows="3"
+            placeholder="https://..."
+          ></textarea>
         </label>
 
         @if (siteKey(); as sk) {
           <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
         }
 
-        @if (error(); as e) { <p class="error">{{ e }}</p> }
+        @if (error(); as e) {
+          <p class="error">{{ e }}</p>
+        }
 
-        <button type="submit"
-          [disabled]="!canSubmit() || submitting()">
+        <button type="submit" [disabled]="!canSubmit() || submitting()">
           {{ submitting() ? 'Submitting...' : 'Submit review' }}
         </button>
         @if (rating === 1 || rating === 2 || rating === 5) {
           <p class="muted">
-            Reviews at this rating go through moderation before they appear.
-            You can track approval in the Temporal UI.
+            Reviews at this rating go through moderation before they appear. You can track approval
+            in the Temporal UI.
           </p>
         }
       </form>
@@ -52,21 +70,48 @@ import { ProductDetail } from '../models';
       <p>Product not found.</p>
     }
   `,
-  styles: [`
-    label { display: block; margin: 0.75rem 0; }
-    input[type=text], textarea {
-      display: block; width: 100%; padding: 0.5rem; margin-top: 0.25rem;
-      border: 1px solid #ccc; border-radius: 4px; font: inherit;
-    }
-    button {
-      padding: 0.5rem 1rem; background: #2563eb; color: #fff;
-      border: none; border-radius: 4px; cursor: pointer; font: inherit;
-    }
-    button:disabled { background: #93c5fd; cursor: not-allowed; }
-    .error { color: #b91c1c; }
-    .muted { color: #666; font-size: 0.9rem; }
-    .link { color: #2563eb; text-decoration: none; }
-  `],
+  styles: [
+    `
+      label {
+        display: block;
+        margin: 0.75rem 0;
+      }
+      input[type='text'],
+      textarea {
+        display: block;
+        width: 100%;
+        padding: 0.5rem;
+        margin-top: 0.25rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font: inherit;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:disabled {
+        background: #93c5fd;
+        cursor: not-allowed;
+      }
+      .error {
+        color: #b91c1c;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.9rem;
+      }
+      .link {
+        color: #2563eb;
+        text-decoration: none;
+      }
+    `,
+  ],
 })
 export class SubmitReviewPage {
   private readonly api = inject(ApiService);
@@ -93,16 +138,19 @@ export class SubmitReviewPage {
       if (!s) return;
       this.api.getProduct(s).subscribe({
         next: (p) => this.product.set(p),
-        error: (err) => { if (err.status === 404) this.notFound.set(true); },
+        error: (err) => {
+          if (err.status === 404) this.notFound.set(true);
+        },
       });
     });
   }
 
   canSubmit(): boolean {
     return (
-      this.body.trim().length >= 10
-      && this.rating >= 1 && this.rating <= 5
-      && this.turnstileToken.length > 0
+      this.body.trim().length >= 10 &&
+      this.rating >= 1 &&
+      this.rating <= 5 &&
+      this.turnstileToken.length > 0
     );
   }
 
@@ -113,7 +161,10 @@ export class SubmitReviewPage {
 
     this.submitting.set(true);
     this.error.set(null);
-    const imageUrls = this.imageUrlsRaw.split('\n').map((s) => s.trim()).filter(Boolean);
+    const imageUrls = this.imageUrlsRaw
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     this.api
       .submitReview({

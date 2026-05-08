@@ -37,7 +37,12 @@ const angularApp = new AngularNodeAppEngine();
 
 declare module 'express-session' {
   interface SessionData {
-    tokenSet?: { access_token: string; refresh_token?: string; id_token?: string; expires_at?: number };
+    tokenSet?: {
+      access_token: string;
+      refresh_token?: string;
+      id_token?: string;
+      expires_at?: number;
+    };
     user?: { sub: string; name?: string; email?: string };
     codeVerifier?: string;
     returnTo?: string;
@@ -132,8 +137,7 @@ async function buildApp(): Promise<Application> {
     }
     const codeVerifier = generators.codeVerifier();
     req.session.codeVerifier = codeVerifier;
-    req.session.returnTo =
-      typeof req.query['returnTo'] === 'string' ? req.query['returnTo'] : '/';
+    req.session.returnTo = typeof req.query['returnTo'] === 'string' ? req.query['returnTo'] : '/';
     const url = oidcClient.authorizationUrl({
       scope: 'openid profile email offline_access',
       code_challenge: generators.codeChallenge(codeVerifier),
@@ -149,11 +153,9 @@ async function buildApp(): Promise<Application> {
     }
     try {
       const params = oidcClient.callbackParams(req);
-      const tokenSet = await oidcClient.callback(
-        `http://localhost:${port}/auth/callback`,
-        params,
-        { code_verifier: req.session.codeVerifier },
-      );
+      const tokenSet = await oidcClient.callback(`http://localhost:${port}/auth/callback`, params, {
+        code_verifier: req.session.codeVerifier,
+      });
       const claims = tokenSet.claims();
       req.session.tokenSet = {
         access_token: tokenSet.access_token!,
@@ -235,7 +237,9 @@ async function buildApp(): Promise<Application> {
   // middleware on the same prefix.
   app.use((req: Request, _res: Response, next: NextFunction) => {
     if (!req.url.startsWith('/api')) return next();
-    ensureFreshToken(req).then(() => next()).catch(next);
+    ensureFreshToken(req)
+      .then(() => next())
+      .catch(next);
   });
 
   app.use(
@@ -269,9 +273,7 @@ async function buildApp(): Promise<Application> {
   app.use((req, res, next) => {
     angularApp
       .handle(req)
-      .then((response) =>
-        response ? writeResponseToNodeResponse(response, res) : next(),
-      )
+      .then((response) => (response ? writeResponseToNodeResponse(response, res) : next()))
       .catch(next);
   });
 
