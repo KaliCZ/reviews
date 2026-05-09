@@ -140,14 +140,6 @@ Mutating actions all go through Temporal. Four workflows in `backend/shared/Work
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 
-### Why a separate worker process
-
-Workers are the unit of horizontal scale for Temporal — they scale independently from the API. Workflow code also has versioning semantics distinct from API deploys (active workflows pin to the worker version that started them), and tangling that with the API release cycle is painful.
-
-### Why Angular SSR, not CSR
-
-Product and review pages need to be crawlable for SEO with content rendered server-side. CSR tanks organic discovery. The same Express server doubles as the BFF, so SSR and OIDC share one Node process.
-
 ### Cache shape
 
 Three Redis surfaces, all invalidated by the workflow that mutates them:
