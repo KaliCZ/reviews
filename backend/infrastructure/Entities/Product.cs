@@ -22,5 +22,8 @@ public class Product
     public NonEmptyString? ImageUrl { get; private set; }
     public DateTime CreatedAtUtc { get; private set; }
 
+    public int ReviewCount { get; private set; }
+    public double AverageRating { get; private set; }
+
     public ICollection<Review> Reviews { get; private set; } = new List<Review>();
 }

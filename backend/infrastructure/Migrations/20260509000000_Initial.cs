@@ -30,7 +30,9 @@ namespace Reviews.Infrastructure.Migrations
                     Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     Description = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
                     ImageUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()"),
+                    ReviewCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
+                    AverageRating = table.Column<double>(type: "double precision", nullable: false, defaultValue: 0d)
                 },
                 constraints: table =>
                 {

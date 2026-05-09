@@ -39,6 +39,8 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.Property(p => p.Description).IsRequired().HasMaxLength(DescriptionMaxLength);
             e.Property(p => p.ImageUrl).HasMaxLength(ImageUrlMaxLength);
             e.Property(p => p.CreatedAtUtc).HasDefaultValueSql("NOW()");
+            e.Property(p => p.ReviewCount).HasDefaultValue(0);
+            e.Property(p => p.AverageRating).HasDefaultValue(0d);
         });
 
         b.Entity<Review>(e =>

@@ -78,6 +78,15 @@ public static class Seeder
                 db.Reviews.Add(review);
             }
             await db.SaveChangesAsync(ct);
+
+            await db.Products.ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.ReviewCount, p => p.Reviews
+                    .Count(r => r.Status == ReviewStatus.Approved))
+                .SetProperty(p => p.AverageRating, p => p.Reviews
+                    .Where(r => r.Status == ReviewStatus.Approved)
+                    .Average(r => (double?)(short)r.Rating) ?? 0),
+                ct);
+
             log.LogInformation("Seeded {Products} products and {Reviews} reviews",
                 SeedDefinitions.Products().Count(), seedReviews.Count);
         }

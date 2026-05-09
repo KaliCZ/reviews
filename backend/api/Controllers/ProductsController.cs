@@ -46,8 +46,8 @@ public class ProductsController(
                 Slug = p.Slug,
                 Name = p.Name,
                 ImageUrl = p.ImageUrl,
-                AverageRating = p.Reviews.Where(r => r.Status == ReviewStatus.Approved).Average(r => (double?)(short)r.Rating) ?? 0,
-                ReviewCount = p.Reviews.Count(r => r.Status == ReviewStatus.Approved),
+                AverageRating = p.AverageRating,
+                ReviewCount = p.ReviewCount,
             })
             .ToListAsync(ct);
 
@@ -82,8 +82,8 @@ public class ProductsController(
                     p.Name,
                     p.Description,
                     p.ImageUrl,
-                    Avg = p.Reviews.Where(r => r.Status == ReviewStatus.Approved).Average(r => (double?)(short)r.Rating) ?? 0,
-                    Count = p.Reviews.Count(r => r.Status == ReviewStatus.Approved)
+                    p.AverageRating,
+                    p.ReviewCount,
                 })
                 .SingleOrDefaultAsync(ct);
             if (p is null) return NotFound();
@@ -95,8 +95,8 @@ public class ProductsController(
                 Name = p.Name,
                 Description = p.Description,
                 ImageUrl = p.ImageUrl,
-                AverageRating = p.Avg,
-                ReviewCount = p.Count,
+                AverageRating = p.AverageRating,
+                ReviewCount = p.ReviewCount,
                 MyReviewId = null,
             };
 
