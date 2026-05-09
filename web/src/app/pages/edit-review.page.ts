@@ -4,25 +4,26 @@ import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
 import { Limits, ReviewItem } from '../models';
+import { TPipe } from '../pipes/t.pipe';
+import { I18nService } from '../services/i18n.service';
 
 @Component({
-  imports: [FormsModule, RouterLink, StarRating],
+  imports: [FormsModule, RouterLink, StarRating, TPipe],
   template: `
     @if (review(); as r) {
-      <p><a [routerLink]="['/products', slug()]" class="link">← Back</a></p>
-      <h1>Edit your review</h1>
-      <p class="muted">
-        Edits to reviews older than an hour go through moderator approval before they apply. The
-        Temporal UI is where moderators send approve/reject signals.
+      <p>
+        <a [routerLink]="['/products', slug()]" class="link">{{ 'common.back' | t }}</a>
       </p>
+      <h1>{{ 'edit.heading' | t }}</h1>
+      <p class="muted">{{ 'edit.moderationNotice' | t }}</p>
 
       <form (submit)="save($event)">
         <label
-          >Your rating
+          >{{ 'submit.rating' | t }}
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
         <label class="field">
-          Title
+          {{ 'submit.title' | t }}
           <input
             type="text"
             [(ngModel)]="title"
@@ -35,7 +36,7 @@ import { Limits, ReviewItem } from '../models';
           {{ title.length }}/{{ Limits.titleMax }}
         </small>
         <label class="field">
-          Review
+          {{ 'submit.body' | t }}
           <textarea
             [(ngModel)]="body"
             name="body"
@@ -57,13 +58,15 @@ import { Limits, ReviewItem } from '../models';
         </small>
 
         <fieldset>
-          <legend>Photos (up to {{ Limits.maxImages }})</legend>
+          <legend>{{ 'edit.photos' | t: { n: Limits.maxImages } }}</legend>
           @if (imageUrls.length > 0) {
             <ul class="uploaded">
               @for (u of imageUrls; track u) {
                 <li>
-                  <img [src]="u" alt="review image" />
-                  <button type="button" (click)="removeImage(u)">Remove</button>
+                  <img [src]="u" [alt]="'reviewCard.imageAlt' | t" />
+                  <button type="button" (click)="removeImage(u)">
+                    {{ 'common.remove' | t }}
+                  </button>
                 </li>
               }
             </ul>
@@ -76,7 +79,7 @@ import { Limits, ReviewItem } from '../models';
             [disabled]="imageUrls.length >= Limits.maxImages"
           />
           <p class="muted">
-            Each image must be {{ Limits.maxImageBytes / (1024 * 1024) }} MB or less.
+            {{ 'submit.photosLimit' | t: { mb: Limits.maxImageBytes / (1024 * 1024) } }}
           </p>
           @if (uploadError(); as ue) {
             <p class="error">{{ ue }}</p>
@@ -97,11 +100,11 @@ import { Limits, ReviewItem } from '../models';
             body.length > Limits.bodyMax
           "
         >
-          {{ saving() ? 'Saving...' : 'Save changes' }}
+          {{ saving() ? ('common.saving' | t) : ('common.save' | t) }}
         </button>
       </form>
     } @else if (notFound()) {
-      <p>Review not found.</p>
+      <p>{{ 'edit.notFound' | t }}</p>
     }
   `,
   styles: [
@@ -196,6 +199,7 @@ import { Limits, ReviewItem } from '../models';
 export class EditReviewPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly i18n = inject(I18nService);
 
   readonly slug = input.required<string>();
   readonly reviewId = input.required<string>();
@@ -257,7 +261,7 @@ export class EditReviewPage {
     const slotsRemaining = Limits.maxImages - this.imageUrls.length;
     if (files.length > slotsRemaining) {
       this.uploadError.set(
-        `You can attach at most ${Limits.maxImages} images (${slotsRemaining} remaining).`,
+        this.i18n.t('submit.tooManyImages', { max: Limits.maxImages, remaining: slotsRemaining }),
       );
       return;
     }
@@ -265,12 +269,17 @@ export class EditReviewPage {
     for (const f of files) {
       if (f.size > Limits.maxImageBytes) {
         this.uploadError.set(
-          `${f.name} is too large (max ${Limits.maxImageBytes / (1024 * 1024)} MB).`,
+          this.i18n.t('submit.imageTooLarge', {
+            name: f.name,
+            mb: Limits.maxImageBytes / (1024 * 1024),
+          }),
         );
         return;
       }
       if (!Limits.allowedImageTypes.includes(f.type as (typeof Limits.allowedImageTypes)[number])) {
-        this.uploadError.set(`${f.name}: unsupported type ${f.type || 'unknown'}.`);
+        this.uploadError.set(
+          this.i18n.t('submit.imageBadType', { name: f.name, type: f.type || 'unknown' }),
+        );
         return;
       }
     }
@@ -278,7 +287,8 @@ export class EditReviewPage {
     for (const f of files) {
       this.api.uploadImage(f).subscribe({
         next: (res) => this.imageUrls.push(res.url),
-        error: (err) => this.uploadError.set(err.error ?? err.message ?? 'Upload failed'),
+        error: (err) =>
+          this.uploadError.set(err.error ?? err.message ?? this.i18n.t('submit.uploadFailed')),
       });
     }
   }
@@ -303,7 +313,7 @@ export class EditReviewPage {
       .subscribe({
         next: () => this.router.navigate(['/products', this.slug()]),
         error: (err) => {
-          this.error.set(err.error ?? err.message ?? 'Save failed');
+          this.error.set(err.error ?? err.message ?? this.i18n.t('edit.saveFailed'));
           this.saving.set(false);
         },
       });

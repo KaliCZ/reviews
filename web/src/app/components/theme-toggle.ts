@@ -1,5 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { ThemeService, ThemeChoice } from '../services/theme.service';
+import { I18nService } from '../services/i18n.service';
 
 // system → light → dark → system. Icon reflects the resolved (system-aware) theme.
 @Component({
@@ -41,6 +42,7 @@ import { ThemeService, ThemeChoice } from '../services/theme.service';
 })
 export class ThemeToggle {
   protected readonly theme = inject(ThemeService);
+  private readonly i18n = inject(I18nService);
 
   cycle(): void {
     const next: Record<ThemeChoice, ThemeChoice> = {
@@ -52,8 +54,8 @@ export class ThemeToggle {
   }
 
   title(): string {
-    if (this.theme.choice() === 'system') return 'Theme: system (click for light)';
-    if (this.theme.choice() === 'light') return 'Theme: light (click for dark)';
-    return 'Theme: dark (click for system)';
+    if (this.theme.choice() === 'system') return this.i18n.t('theme.titleSystem');
+    if (this.theme.choice() === 'light') return this.i18n.t('theme.titleLight');
+    return this.i18n.t('theme.titleDark');
   }
 }

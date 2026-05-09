@@ -4,10 +4,11 @@ import { RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { AuthService } from '../services/auth.service';
 import { ReviewItem } from '../models';
+import { TPipe } from '../pipes/t.pipe';
 
 @Component({
   selector: 'app-review-card',
-  imports: [DatePipe, RouterLink, StarRating],
+  imports: [DatePipe, RouterLink, StarRating, TPipe],
   template: `
     <article class="review">
       <header>
@@ -23,7 +24,7 @@ import { ReviewItem } from '../models';
       @if (review().imageUrls.length > 0) {
         <div class="thumbs">
           @for (url of review().imageUrls; track url) {
-            <img [src]="url" alt="review photo" loading="lazy" />
+            <img [src]="url" [alt]="'reviewCard.imageAlt' | t" loading="lazy" />
           }
         </div>
       }
@@ -34,6 +35,7 @@ import { ReviewItem } from '../models';
             class="vote"
             [class.active]="review().myVote === true"
             [disabled]="!auth.authenticated() || busy()"
+            [title]="!auth.authenticated() ? ('vote.signInToVote' | t) : null"
             (click)="cast(true)"
           >
             ▲
@@ -44,6 +46,7 @@ import { ReviewItem } from '../models';
             class="vote"
             [class.active]="review().myVote === false"
             [disabled]="!auth.authenticated() || busy()"
+            [title]="!auth.authenticated() ? ('vote.signInToVote' | t) : null"
             (click)="cast(false)"
           >
             ▼
@@ -54,7 +57,7 @@ import { ReviewItem } from '../models';
             <a
               [routerLink]="['/products', productSlug(), 'review', review().id, 'edit']"
               class="link"
-              >Edit</a
+              >{{ 'common.edit' | t }}</a
             >
             <button
               type="button"
@@ -62,7 +65,7 @@ import { ReviewItem } from '../models';
               (click)="del.emit(review().id)"
               [disabled]="busy()"
             >
-              Delete
+              {{ 'common.delete' | t }}
             </button>
           </div>
         }

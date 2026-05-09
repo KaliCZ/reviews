@@ -5,9 +5,11 @@ import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { ProductDetail, ReviewsPage } from '../models';
+import { TPipe } from '../pipes/t.pipe';
+import { I18nService } from '../services/i18n.service';
 
 @Component({
-  imports: [RouterLink, StarRating, ReviewCard],
+  imports: [RouterLink, StarRating, ReviewCard, TPipe],
   template: `
     @if (product(); as p) {
       <article class="product">
@@ -26,23 +28,23 @@ import { ProductDetail, ReviewsPage } from '../models';
           @if (auth.authenticated()) {
             @if (p.myReviewId) {
               <a [routerLink]="['/products', p.slug, 'review', p.myReviewId, 'edit']" class="btn">
-                Edit your review
+                {{ 'products.editYourReview' | t }}
               </a>
             } @else {
-              <a [routerLink]="['/products', p.slug, 'review', 'new']" class="btn"
-                >Write a review</a
-              >
+              <a [routerLink]="['/products', p.slug, 'review', 'new']" class="btn">{{
+                'products.writeReview' | t
+              }}</a>
             }
           } @else {
-            <a [href]="loginHref()" class="btn">Sign in to write a review</a>
+            <a [href]="loginHref()" class="btn">{{ 'products.signInToReview' | t }}</a>
           }
         </div>
       </article>
 
-      <h2>Reviews</h2>
+      <h2>{{ 'products.reviewsHeading' | t }}</h2>
       @if (page(); as pg) {
         @if (pg.items.length === 0) {
-          <p class="muted">No reviews yet — be the first.</p>
+          <p class="muted">{{ 'products.noReviews' | t }}</p>
         } @else {
           @for (r of pg.items; track r.id) {
             <app-review-card
@@ -55,13 +57,15 @@ import { ProductDetail, ReviewsPage } from '../models';
           }
           @if (pg.totalCount > pg.items.length) {
             <p>
-              <a [routerLink]="['/products', p.slug, 'reviews']" class="btn">More reviews →</a>
+              <a [routerLink]="['/products', p.slug, 'reviews']" class="btn">{{
+                'products.moreReviews' | t
+              }}</a>
             </p>
           }
         }
       }
     } @else if (notFound()) {
-      <p>Product not found.</p>
+      <p>{{ 'products.notFound' | t }}</p>
     }
   `,
   styles: [
@@ -119,6 +123,7 @@ import { ProductDetail, ReviewsPage } from '../models';
 export class ProductDetailPage {
   private readonly api = inject(ApiService);
   protected readonly auth = inject(AuthService);
+  private readonly i18n = inject(I18nService);
 
   readonly slug = input.required<string>();
 
@@ -163,7 +168,7 @@ export class ProductDetailPage {
   }
 
   onDelete(id: string) {
-    if (!confirm('Delete this review? Reviews older than an hour need moderator approval.')) return;
+    if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.busy.set(id);
     this.api.deleteReview(id).subscribe({
       next: () => {
