@@ -28,15 +28,6 @@ public class ReviewEntityTests
     }
 
     [Fact]
-    public void Empty_body_is_a_compile_or_runtime_error()
-    {
-        // The StrongTypes contract: ToNonEmpty throws for empty input. The
-        // Review ctor parameter is NonEmptyString, so the failure is at the
-        // call site, not deep inside the entity.
-        Assert.Throws<ArgumentException>(() => "".ToNonEmpty());
-    }
-
-    [Fact]
     public void ApplyEdit_updates_fields()
     {
         var review = new Review(

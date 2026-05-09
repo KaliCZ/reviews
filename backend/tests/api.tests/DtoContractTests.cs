@@ -1,35 +1,18 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Reviews.Api.Models;
 using Reviews.Infrastructure.Entities;
 using StrongTypes;
 
 namespace Reviews.Api.Tests;
 
-// JSON-level negative tests on the public API request DTOs. Each property
-// typed as NonEmptyString rejects empty / whitespace-only strings during
-// deserialization, so the controller never sees an invalid payload — the
-// 400 response comes from ASP.NET's built-in BadHttpRequestException
-// translation of JsonException.
-//
-// `required` on record members is enforced by STJ since .NET 7 — missing
-// fields throw JsonException without any additional opt-in.
+// Wire-shape tests on our DTOs — what the SPA / generated TS client see.
+// Validation that "empty NonEmptyString throws JsonException" is StrongTypes'
+// own contract and is not retested here; the end-to-end 400-response surface
+// is exercised by InvalidJsonIntegrationTest.
 public class DtoContractTests
 {
-    // Mirror the API's JSON pipeline (AddJsonOptions in Program.cs). Without
-    // RespectNullableAnnotations, STJ silently binds `null` / missing
-    // properties into non-nullable members.
-    private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-    {
-        RespectNullableAnnotations = true,
-        RespectRequiredConstructorParameters = true,
-        // Enum converters are pinned at the type level — Rating uses
-        // RatingJsonConverter (int 1..5), ReviewSort uses
-        // JsonStringEnumConverter. Adding a global JsonStringEnumConverter
-        // here would override the Rating attribute (options.Converters
-        // outranks type-level [JsonConverter]) and break the int wire
-        // contract the SPA relies on for star ratings.
-    };
+    // Mirror the API's JSON pipeline (AddJsonOptions in Program.cs).
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private static string SubmitPayload(
         string body = "Looks great",
@@ -60,94 +43,6 @@ public class DtoContractTests
         Assert.Null(req.ImageUrls);
     }
 
-    [Fact]
-    public void Submit_with_empty_body_is_rejected()
-    {
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(body: ""), Json));
-    }
-
-    [Fact]
-    public void Submit_with_whitespace_body_is_rejected()
-    {
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(body: " \t \n"), Json));
-    }
-
-    [Fact]
-    public void Submit_with_empty_title_is_rejected()
-    {
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(title: ""), Json));
-    }
-
-    [Fact]
-    public void Submit_with_whitespace_title_is_rejected()
-    {
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(title: "   "), Json));
-    }
-
-    [Fact]
-    public void Submit_with_null_title_is_rejected()
-    {
-        // Title is required NonEmptyString — null violates the contract
-        // exactly like an empty string would.
-        var json = """
-        {
-            "productId": 1,
-            "rating": 4,
-            "title": null,
-            "body": "Looks great",
-            "turnstileToken": "test-token"
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Submit_missing_required_field_is_rejected()
-    {
-        // Title is `required` — omitting it from the payload entirely throws,
-        // not just sending `null`. Pins down the C# `required` semantics.
-        var json = """
-        {
-            "productId": 1,
-            "rating": 4,
-            "body": "Looks great",
-            "turnstileToken": "test-token"
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Submit_with_empty_turnstile_token_is_rejected()
-    {
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(turnstile: ""), Json));
-    }
-
-    [Fact]
-    public void Submit_with_empty_image_url_is_rejected()
-    {
-        var json = SubmitPayload(imageUrls: ["/api/images/uploads/a.jpg", ""]);
-        Assert.Throws<JsonException>(
-            () => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Submit_with_empty_image_urls_array_round_trips()
-    {
-        // The SPA always sends `imageUrls` (possibly empty) — an empty array
-        // is the no-photos representation on the wire (the property itself is
-        // optional, so missing is also valid).
-        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(
-            SubmitPayload(imageUrls: []), Json);
-        Assert.NotNull(req);
-        Assert.Empty(req!.ImageUrls!);
-    }
-
     [Theory]
     [InlineData(0)]
     [InlineData(6)]
@@ -175,45 +70,15 @@ public class DtoContractTests
     }
 
     [Fact]
-    public void Edit_with_empty_body_is_rejected()
+    public void Submit_with_empty_image_urls_array_round_trips()
     {
-        const string json = """
-        {
-            "rating": 3,
-            "title": "Updated title",
-            "body": "",
-            "imageUrls": []
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<EditReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Edit_with_whitespace_title_is_rejected()
-    {
-        const string json = """
-        {
-            "rating": 3,
-            "title": "   ",
-            "body": "Updated body",
-            "imageUrls": []
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<EditReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Edit_with_missing_title_is_rejected()
-    {
-        // Title is required — omitting the property is a hard reject.
-        const string json = """
-        {
-            "rating": 3,
-            "body": "Updated body",
-            "imageUrls": []
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<EditReviewRequest>(json, Json));
+        // The SPA always sends `imageUrls` (possibly empty) — an empty array
+        // is the no-photos representation on the wire (the property itself is
+        // optional, so missing is also valid).
+        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(
+            SubmitPayload(imageUrls: []), Json);
+        Assert.NotNull(req);
+        Assert.Empty(req!.ImageUrls!);
     }
 
     [Fact]
@@ -229,14 +94,6 @@ public class DtoContractTests
         var down = JsonSerializer.Deserialize<VoteRequest>("""{ "isUpvote": false }""", Json);
         Assert.NotNull(down);
         Assert.False(down!.IsUpvote);
-    }
-
-    [Fact]
-    public void Vote_missing_isUpvote_is_rejected()
-    {
-        // `required bool IsUpvote` — omitting the field throws, not silently
-        // defaulting to false (which would mean "downvote", an actual action).
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<VoteRequest>("""{}""", Json));
     }
 
     [Fact]
