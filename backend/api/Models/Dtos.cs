@@ -3,20 +3,6 @@ using StrongTypes;
 
 namespace Reviews.Api.Models;
 
-// `required` policy — asymmetric on purpose:
-//   * Request DTOs KEEP `required` so System.Text.Json throws on missing fields
-//     at deserialization (runtime wire validation).
-//   * Response DTOs DROP `required` and use `= default!` instead. Swashbuckle's
-//     `NonNullableReferenceTypesAsRequired()` (Program.cs) still populates the
-//     OpenAPI `required` array from C# nullability annotations.
-//
-// NonEmptyString policy — also asymmetric:
-//   * Request DTOs use NonEmptyString where blank is invalid (the converter
-//     rejects empty/whitespace at deserialization).
-//   * Response DTOs only use it for values projected straight from EF entities
-//     that already carry it. Synthesised values (workflow ids, blob URLs) stay
-//     as plain `string`.
-
 public record ProductSummary
 {
     public long Id { get; init; }
