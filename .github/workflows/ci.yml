@@ -56,8 +56,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test (BFF)
-        run: npm run test:bff
+      - name: Test
+        run: npm test
 
   e2e:
     name: E2E
