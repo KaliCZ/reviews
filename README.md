@@ -2,13 +2,11 @@
 
 A product reviews platform: browse a catalog, read SSR-rendered product pages, sign in, then submit / edit / delete / vote on reviews.
 
-Built as a deliberately complete vertical slice rather than a toy CRUD app:
-
 - Real OIDC auth via ZITADEL, surfaced to the SPA through the **BFF pattern** so tokens never reach the browser.
-- Mutating actions run through **durable Temporal workflows**, so async moderation (the 1-and-5-star and edit-after-1h gates) is built in by construction, not bolted on.
+- Mutating actions run through **durable Temporal workflows**, so async moderation (like approval process) is built in.
 - Reads are **cached in Redis** with workflow-driven invalidation — no TTL guesswork on hot pages.
 
-The four user flows the product is built around are described in [docs/flows.md](docs/flows.md).
+The user-facing flows — sign-in, browse, view, paginate, submit, edit, delete, vote, image upload — are described in [docs/flows.md](docs/flows.md).
 
 ## Stack
 
@@ -221,3 +219,4 @@ Playwright *can* drive the Temporal UI — log in, find the workflow, click **Se
 - **TODO: denormalize review `count` and `average_rating` onto `Product`.** The catalog list and product detail compute these on the fly today (and the Redis cache hides the cost most of the time). The Temporal workflows already fan out on every review write, so the right place to maintain the denormalized columns is inside those activities — see [#5 (denormalized rating maintenance)](https://github.com/KaliCZ/reviews/issues/5) for the design notes.
 - **TODO: Postgres Row-Level Security as a second authorization layer.** Today, ownership checks for edit/delete/vote live in the API and workflow activities — `currentUser.User!.Id` compared against `Review.AuthorId` before mutating. That's correct but single-layer: a missed check in a future controller is a cross-author write. RLS policies on `reviews.reviews` (and `reviews.review_votes`) keyed off a per-request `SET LOCAL app.current_user_id = '<guid>'` would catch it at the database. Needs (a) a request-scoped EF interceptor that issues the `SET LOCAL` before any query in the transaction, (b) a separate non-RLS role for migrations/seeder/worker activities that legitimately operate cross-user, (c) policies written so anonymous reads (catalog, review listings) still work — likely `USING (true)` for SELECT and tighter `WITH CHECK` for INSERT/UPDATE/DELETE.
 - **TODO: per-review translation.** Reviews are submitted in whatever the author wrote, but no language metadata is stored and there's no translate UI. A real implementation needs (a) server-side language detection at submit time (e.g. CLD3 or a backend call), (b) inline translation on demand — Chrome's `Translator` API where available, with a backend translation service (caching by `(review_id, target_lang)`) as the fallback.
+- **TODO: comment threads on reviews.** Today reviews are isolated: you can vote on one but not respond to it. The natural extension is a flat (or shallow-nested) comment thread per review — useful for an author clarifying a complaint, the brand owner replying with context, or other shoppers asking follow-ups. Schema-wise that's a `review_comments` table keyed `(review_id, comment_id)` with author + body + timestamps; the moderation gate could mirror the review submit flow (heuristic-tagged buckets through Temporal), and the cache surface needs a new key family or a comment-count denormalisation on `reviews`.
