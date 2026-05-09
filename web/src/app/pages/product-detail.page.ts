@@ -42,6 +42,9 @@ import { I18nService } from '../services/i18n.service';
       </article>
 
       <h2>{{ 'products.reviewsHeading' | t }}</h2>
+      @if (actionError(); as msg) {
+        <p class="error" role="alert">{{ msg }}</p>
+      }
       @if (page(); as pg) {
         @if (pg.items.length === 0) {
           <p class="muted">{{ 'products.noReviews' | t }}</p>
@@ -112,6 +115,13 @@ import { I18nService } from '../services/i18n.service';
       .btn:hover {
         background: #1d4ed8;
       }
+      .error {
+        background: var(--color-error-container, #fee2e2);
+        color: var(--color-on-error-container, #991b1b);
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        margin: 0.5rem 0;
+      }
       @media (max-width: 700px) {
         .product {
           grid-template-columns: 1fr;
@@ -131,6 +141,7 @@ export class ProductDetailPage {
   protected readonly page = signal<ReviewsPage | null>(null);
   protected readonly notFound = signal(false);
   protected readonly busy = signal<string | null>(null);
+  protected readonly actionError = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -156,6 +167,7 @@ export class ProductDetailPage {
 
   onVote(e: { id: string; isUpvote: boolean }) {
     this.busy.set(e.id);
+    this.actionError.set(null);
     this.api.voteReview(e.id, e.isUpvote).subscribe({
       next: () => {
         // Workflow runs async; the worker invalidates the cache so a quick
@@ -163,19 +175,37 @@ export class ProductDetailPage {
         setTimeout(() => this.fetchAll(this.slug()), 400);
         this.busy.set(null);
       },
-      error: () => this.busy.set(null),
+      error: (err) => {
+        this.actionError.set(this.errorMessage(err, 'vote.voteFailed'));
+        this.busy.set(null);
+      },
     });
   }
 
   onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.busy.set(id);
+    this.actionError.set(null);
     this.api.deleteReview(id).subscribe({
       next: () => {
         setTimeout(() => this.fetchAll(this.slug()), 400);
         this.busy.set(null);
       },
-      error: () => this.busy.set(null),
+      error: (err) => {
+        this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
+        this.busy.set(null);
+      },
     });
+  }
+
+  private errorMessage(
+    err: { status?: number; error?: unknown; message?: string },
+    fallback: string,
+  ): string {
+    const body = typeof err.error === 'string' ? err.error : null;
+    const status = err.status ? `${err.status}` : '';
+    const detail = body || err.message || '';
+    const base = this.i18n.t(fallback);
+    return detail ? `${base} (${[status, detail].filter(Boolean).join(' ')})` : base;
   }
 }
