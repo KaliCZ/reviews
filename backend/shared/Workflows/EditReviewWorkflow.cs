@@ -1,12 +1,13 @@
 using StrongTypes;
 using Temporalio.Workflows;
+using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Shared;
 
 public record EditReviewInput(
     Guid ReviewId,
     Guid AuthorId,
-    short Rating,
+    Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
@@ -55,8 +56,8 @@ public class EditReviewWorkflow
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { lookup.ProductId },
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { lookup.ProductSlug },
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "applied";

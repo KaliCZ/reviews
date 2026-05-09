@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
+using StrongTypes;
 
 namespace Reviews.Api.Services;
 
@@ -12,38 +13,51 @@ namespace Reviews.Api.Services;
 // the same `sub` always yields the same Guid — safe to use as a stable
 // AuthorId/VoterId across requests and restarts.
 //
-// Display name comes from `name` / `preferred_username` claims, with a
-// fallback to email-local-part. ZITADEL's default profile scope yields all
-// three.
+// The User record is itself non-nullable in shape (every field required) — the
+// nullability lives one level up: the accessor returns `User?`, and `null`
+// means "no authenticated viewer". Callers narrow once and then have a
+// fully-populated user instead of dancing around three nullable fields.
 public interface ICurrentUser
 {
-    Guid? Id { get; }
-    string? Name { get; }
-    string? Sub { get; }
-    bool IsAuthenticated { get; }
+    User? User { get; }
+}
+
+// Display name comes from `name` / `preferred_username` claims, with a
+// fallback to email-local-part. ZITADEL's default profile scope yields all
+// three. NonEmptyString on Sub/Name keeps the contract honest — if the IdP
+// ever returns a blank claim we fail at construction rather than later.
+public sealed record User
+{
+    public required Guid Id { get; init; }
+    public required NonEmptyString Sub { get; init; }
+    public required NonEmptyString Name { get; init; }
 }
 
 public class CurrentUser : ICurrentUser
 {
-    public Guid? Id { get; }
-    public string? Name { get; }
-    public string? Sub { get; }
-    public bool IsAuthenticated => Id is not null;
+    public User? User { get; }
 
     public CurrentUser(IHttpContextAccessor accessor)
     {
-        var user = accessor.HttpContext?.User;
-        if (user?.Identity?.IsAuthenticated is not true) return;
+        var principal = accessor.HttpContext?.User;
+        if (principal?.Identity?.IsAuthenticated is not true) return;
 
-        Sub = user.FindFirstValue(ClaimTypes.NameIdentifier)
-              ?? user.FindFirstValue("sub");
-        if (string.IsNullOrEmpty(Sub)) return;
+        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                  ?? principal.FindFirstValue("sub");
+        if (string.IsNullOrEmpty(sub)) return;
 
-        Id = SubToGuid(Sub);
-        Name = user.FindFirstValue("name")
-            ?? user.FindFirstValue("preferred_username")
-            ?? user.FindFirstValue(ClaimTypes.Name)
-            ?? user.FindFirstValue(ClaimTypes.Email)?.Split('@')[0];
+        var name = principal.FindFirstValue("name")
+            ?? principal.FindFirstValue("preferred_username")
+            ?? principal.FindFirstValue(ClaimTypes.Name)
+            ?? principal.FindFirstValue(ClaimTypes.Email)?.Split('@')[0]
+            ?? "Anonymous";
+
+        User = new User
+        {
+            Id = SubToGuid(sub),
+            Sub = sub.ToNonEmpty(),
+            Name = name.ToNonEmpty(),
+        };
     }
 
     public static Guid SubToGuid(string sub)

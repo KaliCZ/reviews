@@ -53,7 +53,7 @@ import { ProductDetail, ReviewsPage } from '../models';
               (del)="onDelete($event)"
             />
           }
-          @if (pg.nextCursor) {
+          @if (pg.totalCount > pg.items.length) {
             <p>
               <a [routerLink]="['/products', p.slug, 'reviews']" class="btn">More reviews →</a>
             </p>
@@ -153,9 +153,9 @@ export class ProductDetailPage {
     return `/auth/login?returnTo=${ret}`;
   }
 
-  onVote(e: { id: string; value: 1 | -1 }) {
+  onVote(e: { id: string; isUpvote: boolean }) {
     this.busy.set(e.id);
-    this.api.voteReview(e.id, e.value).subscribe({
+    this.api.voteReview(e.id, e.isUpvote).subscribe({
       next: () => {
         // Optimistic refresh — the workflow runs async, but the cache is
         // invalidated by the worker; a quick re-fetch usually catches the

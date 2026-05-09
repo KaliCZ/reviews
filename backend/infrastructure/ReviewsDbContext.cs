@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Infrastructure;
@@ -45,12 +46,22 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
         {
             e.ToTable("reviews");
             e.HasKey(r => r.Id);
-            e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
+            // Application-side UUIDv7 generation (Sequential.NewGuid) — keep
+            // ValueGeneratedNever so EF doesn't try to fill in a Guid.NewGuid()
+            // default when callers forget. The seed factory and the controller
+            // both supply the value explicitly.
+            e.Property(r => r.Id).ValueGeneratedNever();
             e.Property(r => r.AuthorName).IsRequired().HasMaxLength(AuthorNameMaxLength);
             e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
             e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
-            e.Property(r => r.Rating);
+
+            // Rating is the `Rating` enum on the CLR side, smallint on disk.
+            // Member values 1..5 line up with the storage encoding so the
+            // existing CHECK on numeric range still applies.
+            e.Property(r => r.Rating)
+                .HasConversion<short>()
+                .HasColumnType("smallint");
             // CHECK constraints reference column names verbatim — quote
             // PascalCase identifiers so Postgres treats them case-sensitively
             // the way EF Core stores them.
@@ -94,10 +105,8 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 .HasFilter($"\"Status\" <> {(int)ReviewStatus.Deleted}")
                 .HasDatabaseName("uq_reviews_product_author");
 
-            // Sort indexes for keyset pagination. Each carries the (id)
-            // tiebreaker so pagination is fully deterministic. Filtered to
-            // Approved (int 1) so they stay tight (no pending/rejected/deleted
-            // noise).
+            // Sort indexes for the three approved-only listings. Each carries
+            // the (id) tiebreaker so paging stays deterministic.
             var approvedFilter = $"\"Status\" = {(int)ReviewStatus.Approved}";
             e.HasIndex(r => new { r.ProductId, r.CreatedAt, r.Id })
                 .HasDatabaseName("idx_reviews_newest")
@@ -119,8 +128,8 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             // Composite PK (review_id, voter_id) is what makes flip-vote a
             // single UPSERT and prevents double-voting at the storage layer.
             e.HasKey(v => new { v.ReviewId, v.VoterId });
+            e.Property(v => v.IsUpvote).HasColumnName("IsUpvote");
             e.Property(v => v.CreatedAt).HasDefaultValueSql("NOW()");
-            e.ToTable(t => t.HasCheckConstraint("ck_review_votes_value", "\"Value\" IN (-1, 1)"));
 
             e.HasOne(v => v.Review)
                 .WithMany(r => r.Votes)

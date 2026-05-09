@@ -17,7 +17,7 @@ public static class ReviewActivityNames
     public const string ApplyReviewEdit = "ApplyReviewEdit";
     public const string SoftDeleteReview = "SoftDeleteReview";
     public const string UpsertVote = "UpsertVote";
-    public const string RefreshFirstPageCache = "RefreshFirstPageCache";
+    public const string InvalidateProductCaches = "InvalidateProductCaches";
 }
 
 // Signal-payload shared by every "needs human approval" workflow. Reason is
@@ -26,4 +26,11 @@ public static class ReviewActivityNames
 public record ModerationDecision(bool Approved, string? Reason);
 
 // Returned by LookupReview so the workflow can decide auto-apply vs moderation.
-public record ReviewLookupResult(bool Found, bool OwnedByAuthor, long ProductId, DateTime CreatedAt);
+// Slug travels with it so the post-write cache invalidation can address its
+// keys (which are slug-keyed, see ReviewsCacheKeys) without the workflow
+// having to do its own DB lookup.
+public record ReviewLookupResult(bool Found, bool OwnedByAuthor, long ProductId, string ProductSlug, DateTime CreatedAt);
+
+// Returned by UpsertVote — null when the review didn't exist; otherwise the
+// product slug whose caches now need invalidating.
+public record VoteResult(bool ReviewFound, string ProductSlug);

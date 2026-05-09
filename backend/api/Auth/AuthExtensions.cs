@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using Reviews.Api.Services;
 
@@ -41,57 +43,50 @@ internal sealed class ZitadelDockerInternalHandler(Uri publicAuthority, Uri inte
 
 public static class AuthExtensions
 {
+    // Single attribute the controllers tag onto write endpoints. The framework
+    // ties it to the policy registered under the same name in
+    // AddReviewsRateLimiting.
     public const string WriteRateLimitPolicy = "write";
 
-    // JwtBearer against ZITADEL. The BFF (Angular SSR) terminates the OIDC
-    // code flow and forwards an `Authorization: Bearer …` header to us; we
-    // validate the JWT against ZITADEL's JWKS (auto-discovered from the
-    // issuer's `.well-known/openid-configuration`).
+    // JwtBearer against ZITADEL. Configuration keys:
+    //   Auth:IssuerUrl          — public OIDC issuer (the one in JWTs).
+    //   Auth:IssuerReachableUrl — issuer URL reachable from inside the
+    //                             container; defaults to IssuerUrl. When the
+    //                             two differ the backchannel handler kicks in.
+    //   Auth:Audience           — OIDC client_id this API expects.
+    //   Auth:RequireHttps       — discovery-over-HTTPS gate (true in prod).
     //
-    // Issuer + audience come from the ZITADEL bootstrap step (a one-shot init
-    // container provisions the OIDC app and writes the values to a shared
-    // env file mounted at /run/secrets/zitadel.env in compose).
-    public static IServiceCollection AddReviewsAuth(this IServiceCollection services, IConfiguration config, IHostEnvironment env)
+    // Owned by us — set by appsettings, AppHost, or docker-compose. None get
+    // defaulted at runtime: a misconfigured env should fail loudly at
+    // startup, not silently in some code branch.
+    public static IServiceCollection AddReviewsAuth(this IServiceCollection services, IConfiguration config)
     {
-        // ZITADEL_* names match what zitadel-bootstrap writes into
-        // /run/secrets/zitadel.env; Auth:* are the config-style equivalents
-        // for non-bootstrapped runs (Aspire dashboard, ad-hoc dotnet run).
-        // ZITADEL_* names match what zitadel-bootstrap writes into
-        // /run/secrets/zitadel.env; Auth:* are the config-style equivalents.
-        var issuer = config["Auth:Issuer"] ?? config["ZITADEL_ISSUER"]
-            ?? throw new InvalidOperationException("Auth issuer not configured (set Auth:Issuer or ZITADEL_ISSUER)");
-        var audience = config["Auth:Audience"] ?? config["ZITADEL_CLIENT_ID"]
-            ?? throw new InvalidOperationException("Auth audience not configured (set Auth:Audience or ZITADEL_CLIENT_ID)");
+        var issuerUrl = Required(config, "Auth:IssuerUrl");
+        var audience = Required(config, "Auth:Audience");
+        var requireHttps = Required(config, "Auth:RequireHttps").Equals("true", StringComparison.OrdinalIgnoreCase);
+        var issuerReachableUrl = config["Auth:IssuerReachableUrl"];
 
-        // The IdP's public URL (the issuer in JWTs) and its docker-internal
-        // URL might differ (compose: `http://localhost:8080` vs
-        // `http://zitadel:8080`). When they do, every backchannel call from
-        // JwtBearer routes through the rewriting handler above; otherwise
-        // we don't bother and JwtBearer talks to the issuer directly.
-        var internalAuthority = config["Auth:InternalAuthority"] ?? config["ZITADEL_INTERNAL_URL"];
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
             {
-                options.Authority = issuer;
+                options.Authority = issuerUrl;
                 options.Audience = audience;
-                // Dev / compose run ZITADEL on plain HTTP. Toggle via config
-                // so real prod (HTTPS issuer) keeps the default-on guard.
-                options.RequireHttpsMetadata = config.GetValue("Auth:RequireHttps", !env.IsDevelopment());
+                options.RequireHttpsMetadata = requireHttps;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidIssuer = issuer,
+                    ValidIssuer = issuerUrl,
                     ValidateAudience = true,
                     ValidAudience = audience,
                     ValidateLifetime = true,
                     NameClaimType = "name"
                 };
-                if (!string.IsNullOrEmpty(internalAuthority)
-                    && !string.Equals(internalAuthority, issuer, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(issuerReachableUrl)
+                    && !string.Equals(issuerReachableUrl, issuerUrl, StringComparison.OrdinalIgnoreCase))
                 {
                     options.BackchannelHttpHandler = new ZitadelDockerInternalHandler(
-                        publicAuthority: new Uri(issuer),
-                        internalAuthority: new Uri(internalAuthority))
+                        publicAuthority: new Uri(issuerUrl),
+                        internalAuthority: new Uri(issuerReachableUrl))
                     {
                         InnerHandler = new HttpClientHandler()
                     };
@@ -106,10 +101,14 @@ public static class AuthExtensions
         return services;
     }
 
-    // Rate-limits write endpoints by (user_id || ip), so a logged-in spammer
-    // and an anon spammer both get capped, but legitimate parallel users
-    // don't share a bucket. Reads are not rate-limited — they're the hot path
-    // and already cache-fronted.
+    // Two independent fixed-window buckets ANDed via DualWindowLimiter:
+    // every write request must fit BOTH the per-user window (30/min) and the
+    // per-IP window (60/min). Per-user catches the logged-in spammer
+    // regardless of IP rotation; per-IP catches the multi-account attacker
+    // fanning out from one address.
+    //
+    // Anonymous writers (rare; /api/reviews requires auth) skip the per-user
+    // bucket and only see the IP one.
     public static IServiceCollection AddReviewsRateLimiting(this IServiceCollection services) =>
         services.AddRateLimiter(options =>
         {
@@ -118,19 +117,118 @@ public static class AuthExtensions
             {
                 var sub = http.User.FindFirst("sub")?.Value
                           ?? http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                // Compose the partition key from BOTH dimensions so an attacker
-                // can't sidestep by rotating IPs while logged in, or by logging
-                // in/out from one IP.
                 var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                var key = sub is null ? $"ip:{ip}" : $"user:{sub}|ip:{ip}";
 
-                return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = 30,                      // 30 writes/min/partition
-                    Window = TimeSpan.FromMinutes(1),
-                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                    QueueLimit = 0,                        // reject immediately, no queueing
-                });
+                // Compose a partition key so the framework hands every (user,
+                // ip) tuple the same shared limiter — but the limiter itself
+                // looks up its underlying buckets from process-wide caches
+                // keyed only by user OR only by IP, so a user spanning many
+                // IPs still shares the user bucket and an IP spanning many
+                // users still shares the IP bucket.
+                var key = sub is null ? $"anon|{ip}" : $"{sub}|{ip}";
+                return RateLimitPartition.Get<string>(key, _ => DualWindowLimiter.For(sub, ip));
             });
         });
+
+    private static string Required(IConfiguration config, string key) =>
+        config[key] ?? throw new InvalidOperationException($"Configuration value '{key}' is required and was not set.");
+}
+
+// AND-composes a per-user and a per-IP fixed-window limiter for a single
+// request. The two underlying FixedWindowRateLimiter instances live in
+// process-wide caches keyed by user-sub and IP respectively, so every
+// request from the same user shares the same per-user bucket regardless of
+// IP — and same for IP across users.
+//
+// On TryAcquire: ask both, succeed only if both succeed; if one rejects after
+// the other granted, dispose the granted lease (release the permit) so the
+// uncombined permit isn't accidentally consumed.
+internal sealed class DualWindowLimiter : RateLimiter
+{
+    private const int PerUserPermits = 30;
+    private const int PerIpPermits = 60;
+    private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
+
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> UserBuckets = new();
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> IpBuckets = new();
+
+    private readonly FixedWindowRateLimiter? userBucket;
+    private readonly FixedWindowRateLimiter ipBucket;
+
+    private DualWindowLimiter(FixedWindowRateLimiter? userBucket, FixedWindowRateLimiter ipBucket)
+    {
+        this.userBucket = userBucket;
+        this.ipBucket = ipBucket;
+    }
+
+    public static DualWindowLimiter For(string? sub, string ip)
+    {
+        var user = sub is null ? null : UserBuckets.GetOrAdd(sub, _ => new FixedWindowRateLimiter(NewWindowOptions(PerUserPermits)));
+        var ipB = IpBuckets.GetOrAdd(ip, _ => new FixedWindowRateLimiter(NewWindowOptions(PerIpPermits)));
+        return new DualWindowLimiter(user, ipB);
+    }
+
+    private static FixedWindowRateLimiterOptions NewWindowOptions(int permits) => new()
+    {
+        PermitLimit = permits,
+        Window = Window,
+        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+        QueueLimit = 0,
+        AutoReplenishment = true,
+    };
+
+    public override TimeSpan? IdleDuration => null;
+
+    public override RateLimiterStatistics? GetStatistics() => null;
+
+    protected override RateLimitLease AttemptAcquireCore(int permitCount)
+    {
+        var ipLease = ipBucket.AttemptAcquire(permitCount);
+        if (!ipLease.IsAcquired) return ipLease;
+
+        if (userBucket is null) return ipLease;
+        var userLease = userBucket.AttemptAcquire(permitCount);
+        if (!userLease.IsAcquired)
+        {
+            // IP grant rolled back so it doesn't consume a permit the user
+            // bucket already denied.
+            ipLease.Dispose();
+            return userLease;
+        }
+
+        return new BothLease(ipLease, userLease);
+    }
+
+    protected override async ValueTask<RateLimitLease> AcquireAsyncCore(int permitCount, CancellationToken cancellationToken)
+    {
+        var ipLease = await ipBucket.AcquireAsync(permitCount, cancellationToken);
+        if (!ipLease.IsAcquired) return ipLease;
+
+        if (userBucket is null) return ipLease;
+        var userLease = await userBucket.AcquireAsync(permitCount, cancellationToken);
+        if (!userLease.IsAcquired)
+        {
+            ipLease.Dispose();
+            return userLease;
+        }
+
+        return new BothLease(ipLease, userLease);
+    }
+
+    private sealed class BothLease(RateLimitLease ip, RateLimitLease user) : RateLimitLease
+    {
+        public override bool IsAcquired => true;
+        public override IEnumerable<string> MetadataNames => Array.Empty<string>();
+        public override bool TryGetMetadata(string metadataName, out object? metadata)
+        {
+            metadata = null;
+            return false;
+        }
+        protected override void Dispose(bool disposing)
+        {
+            if (!disposing) return;
+            ip.Dispose();
+            user.Dispose();
+        }
+    }
 }

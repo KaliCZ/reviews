@@ -23,15 +23,18 @@ var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var images = storage.AddBlobs("images");
 
 // Bind-mount paths used to share state between zitadel and the bootstrap
-// container, plus the env file the api and web read at startup. Host
-// directories — Aspire's project resources don't support container-style
-// bind mounts, but they do run on the host so they can just read these
-// directly via path. The web (JS) project doesn't get container bind-mounts
-// either, same reason.
+// container, plus the per-key secret files the api reads via KeyPerFile.
+// Host directories — Aspire's project resources don't support container-style
+// bind mounts, but they do run on the host so they can read these directly
+// via path. The web (JS) project doesn't get container bind-mounts either,
+// same reason.
+//
+// The KeyPerFile config provider in api/Program.cs reads /run/secrets/* in
+// containerized runs; in Aspire we point the same convention at the host
+// path via API_SECRETS_DIR.
 const string zitadelSecrets = "../../infra/zitadel/.secrets";
 const string appSecrets = "../../infra/zitadel/.app-secrets";
 var appSecretsAbs = Path.GetFullPath(appSecrets);
-var zitadelEnvFile = Path.Combine(appSecretsAbs, "zitadel.env");
 
 // Pinned: ZITADEL v4 (July 2025) made LoginV2 the default; the v2 login UI
 // is a separate Next.js app not bundled in this image. v2.71.2 is the last
@@ -99,15 +102,17 @@ var temporalConnString = ReferenceExpression.Create(
 
 // API owns migrations + seed; worker waits for API health before it tries
 // to query against the schema.
+//
+// API_SECRETS_DIR points the api's KeyPerFile config provider at the host
+// folder where zitadel-bootstrap drops its per-key output files (one file
+// per config key — see infra/zitadel/bootstrap.sh). That replaces the prior
+// dotenv hack; the framework's KeyPerFile is the standard for "external
+// secrets in a directory."
 var api = builder.AddProject<Projects.api>("api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
-    // Both the API and the BFF look at $ZITADEL_ENV_FILE for the bootstrap
-    // output (DotEnvLoader / dotenv); pointing at the absolute host path is
-    // what makes auth land inside the project process from outside the
-    // bootstrap container.
-    .WithEnvironment("ZITADEL_ENV_FILE", zitadelEnvFile)
+    .WithEnvironment("API_SECRETS_DIR", appSecretsAbs)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
@@ -123,7 +128,9 @@ var workerService = builder.AddProject<Projects.worker>("worker")
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
-    .WithEnvironment("ZITADEL_ENV_FILE", zitadelEnvFile)
+    // BFF (Express) reads ZITADEL_* env vars; bootstrap writes a kv file
+    // alongside the per-key files for backwards compat with the JS side.
+    .WithEnvironment("ZITADEL_ENV_FILE", Path.Combine(appSecretsAbs, "zitadel.env"))
     // In Aspire (no docker network in front of the BFF) both URLs collapse
     // to the same localhost reference; compose differs because that route
     // crosses container boundaries.

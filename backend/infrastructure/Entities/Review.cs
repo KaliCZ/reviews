@@ -19,8 +19,8 @@ public enum ReviewStatus
 }
 
 // Aggregate root for a single review of a product. Invariants enforced by:
-//   - the public constructor (rating range; non-empty body/author come for
-//     free from NonEmptyString),
+//   - the public constructor (Rating is an enum so 1..5 is now a type-system
+//     guarantee; non-empty body/author come from NonEmptyString),
 //   - mutation methods (ApplyEdit / Approve / Reject / SoftDelete),
 //   - the partial unique index in ReviewsDbContext (one live review per author).
 //
@@ -38,13 +38,11 @@ public class Review
         long productId,
         Guid authorId,
         NonEmptyString authorName,
-        short rating,
+        Rating rating,
         NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<NonEmptyString> imageUrls)
     {
-        if (rating is < 1 or > 5)
-            throw new ArgumentOutOfRangeException(nameof(rating), rating, "Rating must be between 1 and 5");
         ArgumentNullException.ThrowIfNull(imageUrls);
 
         Id = id;
@@ -66,7 +64,7 @@ public class Review
     public Guid AuthorId { get; private set; }
     public NonEmptyString AuthorName { get; private set; } = null!;
 
-    public short Rating { get; private set; }
+    public Rating Rating { get; private set; }
     public NonEmptyString Title { get; private set; } = null!;
     public NonEmptyString Body { get; private set; } = null!;
 
@@ -88,10 +86,8 @@ public class Review
     // Apply an author-driven edit. Doesn't change Status — an edit to an
     // already-Approved review stays Approved; an edit to a Pending one stays
     // Pending until the workflow signals through.
-    public void ApplyEdit(short rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
+    public void ApplyEdit(Rating rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
     {
-        if (rating is < 1 or > 5)
-            throw new ArgumentOutOfRangeException(nameof(rating), rating, "Rating must be between 1 and 5");
         ArgumentNullException.ThrowIfNull(imageUrls);
 
         Rating = rating;
@@ -128,10 +124,11 @@ public class Review
     // infrastructure assembly — production paths must go through the public
     // ctor + workflow.
     internal static Review CreateSeed(
+        Guid id,
         long productId,
         Guid authorId,
         NonEmptyString authorName,
-        short rating,
+        Rating rating,
         NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<string> imageUrls,
@@ -140,6 +137,7 @@ public class Review
         DateTime createdAt) =>
         new()
         {
+            Id = id,
             ProductId = productId,
             AuthorId = authorId,
             AuthorName = authorName,

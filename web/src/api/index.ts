@@ -1,15 +1,8 @@
-// Re-export the generated OpenAPI types as the canonical DTO surface for the
-// SPA. This file is the only place outside `schema.d.ts` that imports the
-// generated module — components import the named aliases below so a future
-// regen affects exactly one file.
-
-import type { components } from './schema';
-
-// Server-emitted required strings come back as plain `string`. Optional
-// strings come back as `string | undefined` (the spec marks them `nullable:
-// true`); we widen to `string | null | undefined` for ergonomic narrowing in
-// templates that already treat `null` as "absent".
-type S = components['schemas'];
+// Hand-written wire DTOs that mirror the API. Kept in sync with the .NET DTOs
+// in `backend/api/Models/Dtos.cs`. Previously generated from the OpenAPI spec
+// via openapi-typescript; the generated `schema.d.ts` still ships for callers
+// that want the raw spec shape, but the SPA imports from this file for the
+// trimmed/named surface its components actually use.
 
 // Limits the API enforces — re-stated here so the SPA can size form fields
 // and validate before submitting. Keep in sync with ReviewsDbContext on the
@@ -24,19 +17,100 @@ export const Limits = {
   allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const,
 } as const;
 
-export type ProductSummary = S['ProductSummary'];
-export type ProductDetail = S['ProductDetail'];
-export type ReviewItem = S['ReviewItem'];
-export type ReviewsPage = S['ReviewsPage'];
-export type SubmitReviewRequest = S['SubmitReviewRequest'];
-export type EditReviewRequest = S['EditReviewRequest'];
-export type VoteRequest = S['VoteRequest'];
-export type AcceptedResponse = S['AcceptedResponse'];
-export type ConfigResponse = S['ConfigResponse'];
-export type UploadedImage = S['UploadedImage'];
+// Wire enum for the reviews listing sort key. Backend serialises the C#
+// enum via JsonStringEnumConverter; case-insensitive on read so lowercase
+// also works.
+export type ReviewSort = 'Newest' | 'Helpful' | 'Highest' | 'Lowest';
 
-// Shapes used by SPA-only state (auth metadata from the BFF, not the upstream
-// API) — no OpenAPI counterpart. Lives here so consumers have one import.
+// Star rating on the wire — integer 1..5 enforced by RatingJsonConverter on
+// the API side. SPA uses a plain number.
+export type Rating = 1 | 2 | 3 | 4 | 5;
+
+export interface ProductSummary {
+  id: number;
+  slug: string;
+  name: string;
+  imageUrl: string | null;
+  averageRating: number;
+  reviewCount: number;
+}
+
+export interface ProductDetail {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+  imageUrl: string | null;
+  averageRating: number;
+  reviewCount: number;
+  myReviewId: string | null;
+}
+
+export interface ReviewItem {
+  id: string;
+  productId: number;
+  authorId: string;
+  authorName: string;
+  rating: Rating;
+  title: string;
+  body: string;
+  imageUrls: string[];
+  score: number;
+  createdAt: string;
+  updatedAt: string;
+  // True = upvote, false = downvote, null = no vote from current viewer.
+  myVote: boolean | null;
+  mine: boolean;
+}
+
+// Offset-pagination payload — the SPA can render a real "page X of Y" UI
+// instead of forward-only cursor links.
+export interface ReviewsPage {
+  items: ReviewItem[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+}
+
+// Request DTOs leave rating as `number` so SPA forms (which already track
+// 0..5 via the star widget) don't need a cast at every submit. The API
+// enforces 1..5 at the wire layer via RatingJsonConverter — invalid
+// integers come back as 400 before the controller runs.
+export interface SubmitReviewRequest {
+  productId: number;
+  rating: number;
+  title: string;
+  body: string;
+  imageUrls?: string[];
+  turnstileToken: string;
+}
+
+export interface EditReviewRequest {
+  rating: number;
+  title: string;
+  body: string;
+  imageUrls?: string[];
+}
+
+export interface VoteRequest {
+  isUpvote: boolean;
+}
+
+export interface AcceptedResponse {
+  workflowId: string;
+  status: string;
+}
+
+export interface ConfigResponse {
+  turnstileSiteKey: string;
+}
+
+export interface UploadedImage {
+  url: string;
+}
+
+// SPA-only state (auth metadata from the BFF, not the upstream API) — no
+// OpenAPI counterpart. Lives here so consumers have one import.
 export interface AuthMe {
   authenticated: boolean;
   user?: { sub: string; name?: string; email?: string };

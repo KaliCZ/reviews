@@ -20,12 +20,8 @@ public class ReviewActivities(
     IConnectionMultiplexer redis,
     ILogger<ReviewActivities> logger)
 {
-    // Page-1 cache key, shared with the API. The API populates it on a miss;
-    // mutating workflows blow it away here so the next read rebuilds.
-    private static string FirstPageKey(long productId) => $"reviews:product:{productId}:page:1";
-
     [Activity(ReviewActivityNames.PersistReview)]
-    public async Task PersistAsync(SubmitReviewInput input)
+    public async Task<string> PersistAsync(SubmitReviewInput input)
     {
         // Constructor enforces the rating/body invariants; status defaults to
         // Pending. The Approve activity flips it later in the workflow.
@@ -43,12 +39,22 @@ public class ReviewActivities(
         logger.LogInformation(
             "Persisted review {ReviewId} (Pending) for product {ProductId}",
             input.ReviewId, input.ProductId);
+
+        // Resolve the slug once and hand it back so the workflow can address
+        // its cache-invalidation activity by slug without a second lookup.
+        // SingleAsync: PK lookup, exactly one row exists.
+        return await db.Products
+            .AsNoTracking()
+            .Where(p => p.Id == input.ProductId)
+            .Select(p => p.Slug.Value)
+            .SingleAsync();
     }
 
     [Activity(ReviewActivityNames.ApproveReview)]
     public async Task ApproveAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        // SingleOrDefault: PK lookup; either the row exists or it doesn't.
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null)
         {
             logger.LogWarning("Approve: review {ReviewId} not found", reviewId);
@@ -62,7 +68,7 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.RejectReview)]
     public async Task RejectAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null)
         {
             logger.LogWarning("Reject: review {ReviewId} not found", reviewId);
@@ -79,23 +85,25 @@ public class ReviewActivities(
         var row = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == reviewId && r.Status != ReviewStatus.Deleted)
-            .Select(r => new { r.AuthorId, r.ProductId, r.CreatedAt })
-            .FirstOrDefaultAsync();
+            .Select(r => new { r.AuthorId, r.ProductId, ProductSlug = r.Product.Slug.Value, r.CreatedAt })
+            .SingleOrDefaultAsync();
 
         if (row is null)
-            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, CreatedAt: default);
+            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, ProductSlug: string.Empty, CreatedAt: default);
 
-        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.CreatedAt);
+        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.ProductSlug, row.CreatedAt);
     }
 
     [Activity(ReviewActivityNames.ApplyReviewEdit)]
     public async Task ApplyEditAsync(EditReviewInput input)
     {
+        // SingleOrDefault — composite filter on PK + AuthorId + alive status
+        // narrows to at most one row.
         var review = await db.Reviews
             .Where(r => r.Id == input.ReviewId
                      && r.AuthorId == input.AuthorId
                      && r.Status != ReviewStatus.Deleted)
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
         if (review is null)
         {
             logger.LogWarning("ApplyEdit: review {ReviewId} not found / not owned by {Author}", input.ReviewId, input.AuthorId);
@@ -110,7 +118,7 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.SoftDeleteReview)]
     public async Task SoftDeleteAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null) return;
         review.SoftDelete();
         await db.SaveChangesAsync();
@@ -118,17 +126,17 @@ public class ReviewActivities(
     }
 
     [Activity(ReviewActivityNames.UpsertVote)]
-    public async Task<long?> UpsertVoteAsync(VoteInput input)
+    public async Task<VoteResult> UpsertVoteAsync(VoteInput input)
     {
-        // Resolve product_id and confirm the review is live in the same shot.
+        // Resolve product slug and confirm the review is live in the same shot.
         // Pinning to Approved means votes can't accrue on deleted/rejected/
         // pending reviews even if a stale client tried.
-        var productId = await db.Reviews
+        var slug = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == input.ReviewId && r.Status == ReviewStatus.Approved)
-            .Select(r => (long?)r.ProductId)
-            .FirstOrDefaultAsync();
-        if (productId is null) return null;
+            .Select(r => (string?)r.Product.Slug.Value)
+            .SingleOrDefaultAsync();
+        if (slug is null) return new VoteResult(false, string.Empty);
 
         await using var tx = await db.Database.BeginTransactionAsync();
 
@@ -136,37 +144,43 @@ public class ReviewActivities(
         // INSERT … ON CONFLICT … is clearer for a single-statement upsert
         // and keeps the round-trip count down.
         await db.Database.ExecuteSqlInterpolatedAsync($@"
-            INSERT INTO reviews.review_votes (""ReviewId"", ""VoterId"", ""Value"", ""CreatedAt"")
-            VALUES ({input.ReviewId}, {input.VoterId}, {input.Value}, NOW())
+            INSERT INTO reviews.review_votes (""ReviewId"", ""VoterId"", ""IsUpvote"", ""CreatedAt"")
+            VALUES ({input.ReviewId}, {input.VoterId}, {input.IsUpvote}, NOW())
             ON CONFLICT (""ReviewId"", ""VoterId"")
-            DO UPDATE SET ""Value"" = EXCLUDED.""Value"", ""CreatedAt"" = NOW()");
+            DO UPDATE SET ""IsUpvote"" = EXCLUDED.""IsUpvote"", ""CreatedAt"" = NOW()");
 
         // Recompute denormalized score from the source-of-truth vote rows so
         // it self-heals on every vote (any drift is corrected within a tick).
+        // Each vote contributes +1 (upvote) or -1 (downvote).
         await db.Database.ExecuteSqlInterpolatedAsync($@"
             UPDATE reviews.reviews
                SET ""Score"" = COALESCE((
-                   SELECT SUM(""Value"") FROM reviews.review_votes WHERE ""ReviewId"" = {input.ReviewId}
+                   SELECT SUM(CASE WHEN ""IsUpvote"" THEN 1 ELSE -1 END)
+                     FROM reviews.review_votes
+                    WHERE ""ReviewId"" = {input.ReviewId}
                ), 0),
                    ""UpdatedAt"" = NOW()
              WHERE ""Id"" = {input.ReviewId}");
 
         await tx.CommitAsync();
         logger.LogInformation(
-            "Upserted vote ({Value}) by {Voter} on review {Review} (product {Product})",
-            input.Value, input.VoterId, input.ReviewId, productId);
-        return productId;
+            "Upserted vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
+            input.IsUpvote, input.VoterId, input.ReviewId, slug);
+        return new VoteResult(true, slug);
     }
 
-    [Activity(ReviewActivityNames.RefreshFirstPageCache)]
-    public async Task RefreshFirstPageCacheAsync(long productId)
+    [Activity(ReviewActivityNames.InvalidateProductCaches)]
+    public async Task InvalidateProductCachesAsync(string productSlug)
     {
         // Invalidate-and-let-next-read-rebuild beats compute-and-write here:
-        // the workflow doesn't have to know the cached payload's exact shape,
-        // and a cache miss on the next request is the cheapest possible repair.
-        var deleted = await redis.GetDatabase().KeyDeleteAsync(FirstPageKey(productId));
+        // the workflow doesn't have to know the cached payloads' shapes, and
+        // a cache miss on the next request is the cheapest possible repair.
+        var keys = ReviewsCacheKeys.AffectedBy(productSlug)
+            .Select(k => (RedisKey)k)
+            .ToArray();
+        var deleted = await redis.GetDatabase().KeyDeleteAsync(keys);
         logger.LogInformation(
-            "Invalidated first-page cache for product {ProductId} (existed: {Existed})",
-            productId, deleted);
+            "Invalidated {Count}/{Total} cache keys for product {Slug}",
+            deleted, keys.Length, productSlug);
     }
 }

@@ -6,6 +6,7 @@ import {
   ConfigResponse,
   ProductDetail,
   ProductSummary,
+  ReviewSort,
   ReviewsPage,
   SubmitReviewRequest,
   EditReviewRequest,
@@ -15,10 +16,6 @@ import {
 // Thin wrapper around HttpClient — pure URL/payload shape, no business logic.
 // All calls go through `/api/*`, which the BFF proxies to the upstream API
 // after attaching the user's Bearer token.
-//
-// Request/response shapes are imported from `web/src/api`, which is generated
-// from the OpenAPI spec — no hand-written DTO drift between the SPA and the
-// upstream API.
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -35,12 +32,18 @@ export class ApiService {
     return this.http.get<ProductDetail>(`/api/products/${encodeURIComponent(slug)}`);
   }
 
+  // Offset pagination + multi-rating filter (rating params repeat: ?rating=4&rating=5).
+  // The sort enum lands as its C# member name (Newest / Helpful / Highest /
+  // Lowest); the API is case-insensitive on read.
   listReviews(slug: string, params: ReviewListParams = {}): Observable<ReviewsPage> {
     const q = new URLSearchParams();
     if (params.sort) q.set('sort', params.sort);
-    if (params.rating != null) q.set('rating', String(params.rating));
+    if (params.ratings && params.ratings.length > 0) {
+      for (const r of params.ratings) q.append('rating', String(r));
+    }
     if (params.hasPhotos) q.set('hasPhotos', 'true');
-    if (params.cursor) q.set('cursor', params.cursor);
+    if (params.page != null) q.set('page', String(params.page));
+    if (params.pageSize != null) q.set('pageSize', String(params.pageSize));
     const qs = q.toString();
     return this.http.get<ReviewsPage>(
       `/api/products/${encodeURIComponent(slug)}/reviews${qs ? `?${qs}` : ''}`,
@@ -59,15 +62,14 @@ export class ApiService {
     return this.http.delete<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}`);
   }
 
-  voteReview(id: string, value: 1 | -1): Observable<AcceptedResponse> {
+  // True = upvote, false = downvote — matches the boolean wire shape the API
+  // settled on after dropping the prior tri-state ±1 short.
+  voteReview(id: string, isUpvote: boolean): Observable<AcceptedResponse> {
     return this.http.post<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`, {
-      value,
+      isUpvote,
     });
   }
 
-  // Uploads a single image and returns the URL to embed in a review. The API
-  // gates content type and size; this wrapper just drops the file into a
-  // FormData payload (no body type — multipart is built by the browser).
   uploadImage(file: File): Observable<UploadedImage> {
     const fd = new FormData();
     fd.append('file', file);
@@ -76,8 +78,9 @@ export class ApiService {
 }
 
 export interface ReviewListParams {
-  sort?: 'newest' | 'helpful' | 'highest' | 'lowest';
-  rating?: number | null;
+  sort?: ReviewSort;
+  ratings?: number[];
   hasPhotos?: boolean;
-  cursor?: string;
+  page?: number;
+  pageSize?: number;
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
 using StrongTypes;
 

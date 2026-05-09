@@ -36,9 +36,9 @@ import { ReviewItem } from '../models';
           <button
             type="button"
             class="vote"
-            [class.active]="review().myVote === 1"
+            [class.active]="review().myVote === true"
             [disabled]="!auth.authenticated() || busy()"
-            (click)="cast(1)"
+            (click)="cast(true)"
           >
             ▲
           </button>
@@ -46,9 +46,9 @@ import { ReviewItem } from '../models';
           <button
             type="button"
             class="vote"
-            [class.active]="review().myVote === -1"
+            [class.active]="review().myVote === false"
             [disabled]="!auth.authenticated() || busy()"
-            (click)="cast(-1)"
+            (click)="cast(false)"
           >
             ▼
           </button>
@@ -172,7 +172,7 @@ export class ReviewCard {
   readonly productSlug = input.required<string>();
   readonly busy = input(false);
 
-  readonly vote = output<{ id: string; value: 1 | -1 }>();
+  readonly vote = output<{ id: string; isUpvote: boolean }>();
   readonly del = output<string>();
 
   // API computes this server-side (current viewer's hashed `sub` vs review
@@ -180,8 +180,8 @@ export class ReviewCard {
   // this flag is purely about UI affordances.
   readonly isMine = computed(() => this.review().mine);
 
-  cast(value: 1 | -1) {
+  cast(isUpvote: boolean) {
     if (!this.auth.authenticated()) return;
-    this.vote.emit({ id: this.review().id, value });
+    this.vote.emit({ id: this.review().id, isUpvote });
   }
 }

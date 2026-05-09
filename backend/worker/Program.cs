@@ -15,10 +15,7 @@ builder.AddServiceDefaults();
 // owned by the API (it runs the migrations on startup behind an advisory
 // lock); the worker just connects and uses what's there.
 builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
-{
-    opts.UseNpgsql(o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
-    opts.UseStrongTypes();
-});
+    opts.UseNpgsql().UseStrongTypes());
 builder.AddRedisClient(connectionName: "cache");
 
 var temporalAddress = builder.Configuration.GetConnectionString("temporal")

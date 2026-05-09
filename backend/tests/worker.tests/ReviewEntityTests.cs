@@ -5,8 +5,8 @@ namespace Reviews.Worker.Tests;
 
 // Entity-level invariants. The Review ctor takes NonEmptyString for the
 // author / title / body, so empty strings are rejected at the type system
-// level (they can't be constructed). Rating is a primitive short, so the
-// range guard is checked separately.
+// level (they can't be constructed). Rating is now an enum (1..5 by member),
+// so the prior runtime range guard is gone — the type carries the constraint.
 public class ReviewEntityTests
 {
     [Fact]
@@ -17,31 +17,14 @@ public class ReviewEntityTests
             productId: 1,
             authorId: Guid.NewGuid(),
             authorName: "Alice".ToNonEmpty(),
-            rating: 4,
+            rating: Rating.Four,
             title: "Solid".ToNonEmpty(),
             body: "Tried it for a week, no complaints.".ToNonEmpty(),
             imageUrls: []);
 
         Assert.Equal("Alice", review.AuthorName.Value);
         Assert.Equal(ReviewStatus.Pending, review.Status);
-    }
-
-    [Theory]
-    [InlineData((short)0)]
-    [InlineData((short)6)]
-    [InlineData((short)-1)]
-    [InlineData((short)100)]
-    public void Rating_outside_one_to_five_is_rejected(short rating)
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: rating,
-            title: "T".ToNonEmpty(),
-            body: "Body".ToNonEmpty(),
-            imageUrls: []));
+        Assert.Equal(Rating.Four, review.Rating);
     }
 
     [Fact]
@@ -54,19 +37,68 @@ public class ReviewEntityTests
     }
 
     [Fact]
-    public void ApplyEdit_rejects_invalid_rating()
+    public void ApplyEdit_updates_fields()
     {
         var review = new Review(
             id: Guid.NewGuid(),
             productId: 1,
             authorId: Guid.NewGuid(),
             authorName: "Alice".ToNonEmpty(),
-            rating: 4,
+            rating: Rating.Four,
             title: "T".ToNonEmpty(),
             body: "Body".ToNonEmpty(),
             imageUrls: []);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            review.ApplyEdit(0, "T".ToNonEmpty(), "Body".ToNonEmpty(), []));
+        review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), []);
+
+        Assert.Equal(Rating.Two, review.Rating);
+        Assert.Equal("Updated", review.Title.Value);
+        Assert.Equal("New body", review.Body.Value);
+    }
+
+    [Fact]
+    public void Approve_then_soft_delete_then_approve_throws()
+    {
+        var review = new Review(
+            id: Guid.NewGuid(),
+            productId: 1,
+            authorId: Guid.NewGuid(),
+            authorName: "Alice".ToNonEmpty(),
+            rating: Rating.Five,
+            title: "T".ToNonEmpty(),
+            body: "Body".ToNonEmpty(),
+            imageUrls: []);
+
+        review.Approve();
+        Assert.Equal(ReviewStatus.Approved, review.Status);
+
+        review.SoftDelete();
+        Assert.Equal(ReviewStatus.Deleted, review.Status);
+
+        // SoftDelete is terminal — re-approving should refuse so an audit
+        // trail of "this review was approved, then deleted, then…" can't be
+        // re-written.
+        Assert.Throws<InvalidOperationException>(() => review.Approve());
+    }
+
+    [Fact]
+    public void Vote_records_signed_score_contribution()
+    {
+        // ReviewVote is a boolean (true=upvote, false=downvote); the entity
+        // exposes ScoreContribution so the score-recompute path doesn't have
+        // to know the bool→±1 mapping.
+        var up = new ReviewVote(Guid.NewGuid(), Guid.NewGuid(), isUpvote: true);
+        Assert.Equal(1, up.ScoreContribution);
+
+        var down = new ReviewVote(Guid.NewGuid(), Guid.NewGuid(), isUpvote: false);
+        Assert.Equal(-1, down.ScoreContribution);
+
+        // Flip is the runtime-mutating path used by the activity when a
+        // user changes their vote (the SQL UPSERT is the storage hot path
+        // but tests pin the entity behaviour for any future EF-tracking
+        // callers).
+        up.Flip(false);
+        Assert.False(up.IsUpvote);
+        Assert.Equal(-1, up.ScoreContribution);
     }
 }

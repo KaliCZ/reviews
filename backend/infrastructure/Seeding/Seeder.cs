@@ -1,7 +1,6 @@
 using Azure.Storage.Blobs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Reviews.Infrastructure.Entities;
 using StrongTypes;
@@ -9,14 +8,13 @@ using StrongTypes;
 namespace Reviews.Infrastructure.Seeding;
 
 // Idempotent seed run: products + reviews (with image blobs uploaded to
-// Azurite). Wrapped under the same advisory lock as the migration runner —
-// it's pointless to make the seed itself "smart" about concurrent callers
-// when we already have a serialization primitive in front of it.
+// Azurite). Wrapped under a Postgres advisory lock so concurrent callers
+// (e.g. multiple API replicas booting at once) serialize on the seed step.
 public static class Seeder
 {
     public const string BlobContainer = "review-images";
 
-    private const long LockKey = 738_293_741_829_011L; // distinct from MigrationRunner key
+    private const long LockKey = 738_293_741_829_011L;
 
     public static async Task RunAsync(IServiceProvider services, CancellationToken ct = default)
     {
@@ -24,7 +22,7 @@ public static class Seeder
         var sp = scope.ServiceProvider;
         var db = sp.GetRequiredService<ReviewsDbContext>();
         var blobs = sp.GetRequiredService<BlobServiceClient>();
-        var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("seed-images");
+        var http = sp.GetRequiredService<SeedImageDownloader>();
         var log = sp.GetRequiredService<ILogger<ReviewsDbContext>>();
 
         var conn = db.Database.GetDbConnection();
@@ -80,6 +78,7 @@ public static class Seeder
                 // "starts as Pending" invariant; restricted to this assembly.
                 var imageUrls = sr.ImageSeeds.Select(BuildPublicUrl).ToList();
                 var review = Review.CreateSeed(
+                    id:         Sequential.NewGuid(),
                     productId:  sr.ProductId,
                     authorId:   sr.AuthorId,
                     authorName: sr.AuthorName.ToNonEmpty(),
@@ -103,20 +102,33 @@ public static class Seeder
             var p = unlock.CreateParameter();
             p.ParameterName = "key"; p.Value = LockKey;
             unlock.Parameters.Add(p);
-            try { await unlock.ExecuteNonQueryAsync(ct); } catch { /* best effort */ }
+            try
+            {
+                await unlock.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                // Closing the connection drops the session-level advisory
+                // lock anyway, so this isn't fatal — but a failure here is a
+                // signal that something odd happened (network blip, rollback
+                // mid-finally), and the alternative of swallowing silently
+                // makes investigation in production harder than it needs
+                // to be.
+                log.LogError(ex, "Failed to release seed advisory lock {LockKey}; lock will be released on connection close", LockKey);
+            }
             await conn.CloseAsync();
         }
     }
 
     private static async Task UploadIfMissingAsync(
-        BlobContainerClient container, HttpClient http, string seed, CancellationToken ct)
+        BlobContainerClient container, SeedImageDownloader http, string seed, CancellationToken ct)
     {
         var blob = container.GetBlobClient(BlobName(seed));
         if (await blob.ExistsAsync(ct)) return;
 
         // picsum.photos returns a stable image per `seed` so re-runs across
-        // dev machines look identical. 600x400 is fine for review thumbnails.
-        using var response = await http.GetAsync($"https://picsum.photos/seed/{seed}/800/500", ct);
+        // dev machines look identical. 800x500 is fine for review thumbnails.
+        using var response = await http.GetAsync(seed, ct);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         await blob.UploadAsync(stream, overwrite: true, cancellationToken: ct);

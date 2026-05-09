@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Reviews.Api.Models;
+using Reviews.Infrastructure.Entities;
 using StrongTypes;
 
 namespace Reviews.Api.Tests;
@@ -9,27 +11,36 @@ namespace Reviews.Api.Tests;
 // deserialization, so the controller never sees an invalid payload — the
 // 400 response comes from ASP.NET's built-in BadHttpRequestException
 // translation of JsonException.
+//
+// `required` on record members is enforced by STJ since .NET 7 — missing
+// fields throw JsonException without any additional opt-in.
 public class DtoContractTests
 {
     // Mirror the API's JSON pipeline (AddJsonOptions in Program.cs). Without
     // RespectNullableAnnotations, STJ silently binds `null` / missing
-    // properties into non-nullable record parameters; with it, they throw
-    // JsonException on the wire — same shape the controller sees.
+    // properties into non-nullable members.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true,
+        // Enum converters are pinned at the type level — Rating uses
+        // RatingJsonConverter (int 1..5), ReviewSort uses
+        // JsonStringEnumConverter. Adding a global JsonStringEnumConverter
+        // here would override the Rating attribute (options.Converters
+        // outranks type-level [JsonConverter]) and break the int wire
+        // contract the SPA relies on for star ratings.
     };
 
     private static string SubmitPayload(
         string body = "Looks great",
         string title = "Solid",
         string turnstile = "test-token",
+        int rating = 4,
         string[]? imageUrls = null) =>
         $$"""
         {
             "productId": 1,
-            "rating": 4,
+            "rating": {{rating}},
             "title": {{JsonSerializer.Serialize(title)}},
             "body": {{JsonSerializer.Serialize(body)}},
             "imageUrls": {{(imageUrls is null ? "null" : JsonSerializer.Serialize(imageUrls))}},
@@ -45,6 +56,7 @@ public class DtoContractTests
         Assert.Equal("Solid", req!.Title.Value);
         Assert.Equal("Looks great", req.Body.Value);
         Assert.Equal("test-token", req.TurnstileToken.Value);
+        Assert.Equal(Rating.Four, req.Rating);
         Assert.Null(req.ImageUrls);
     }
 
@@ -80,13 +92,28 @@ public class DtoContractTests
     public void Submit_with_null_title_is_rejected()
     {
         // Title is required NonEmptyString — null violates the contract
-        // exactly like an empty string. `null` triggers the converter just
-        // the same as a too-short value would.
+        // exactly like an empty string would.
         var json = """
         {
             "productId": 1,
             "rating": 4,
             "title": null,
+            "body": "Looks great",
+            "turnstileToken": "test-token"
+        }
+        """;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
+    }
+
+    [Fact]
+    public void Submit_missing_required_field_is_rejected()
+    {
+        // Title is `required` — omitting it from the payload entirely throws,
+        // not just sending `null`. Pins down the C# `required` semantics.
+        var json = """
+        {
+            "productId": 1,
+            "rating": 4,
             "body": "Looks great",
             "turnstileToken": "test-token"
         }
@@ -112,13 +139,39 @@ public class DtoContractTests
     [Fact]
     public void Submit_with_empty_image_urls_array_round_trips()
     {
-        // The SPA always sends `imageUrls` (possibly empty) — RespectRequired-
-        // ConstructorParameters would reject a missing key, so this pins down
-        // that an empty array is the no-photos representation on the wire.
+        // The SPA always sends `imageUrls` (possibly empty) — an empty array
+        // is the no-photos representation on the wire (the property itself is
+        // optional, so missing is also valid).
         var req = JsonSerializer.Deserialize<SubmitReviewRequest>(
             SubmitPayload(imageUrls: []), Json);
         Assert.NotNull(req);
         Assert.Empty(req!.ImageUrls!);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    [InlineData(-1)]
+    [InlineData(99)]
+    public void Submit_with_out_of_range_rating_is_rejected(int rating)
+    {
+        // RatingJsonConverter enforces 1..5 at the wire layer — out-of-range
+        // ints fail at deserialization, before the controller runs. No
+        // controller needs an "is the rating between 1 and 5" check anywhere.
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(rating: rating), Json));
+    }
+
+    [Theory]
+    [InlineData(1, Rating.One)]
+    [InlineData(2, Rating.Two)]
+    [InlineData(3, Rating.Three)]
+    [InlineData(4, Rating.Four)]
+    [InlineData(5, Rating.Five)]
+    public void Submit_accepts_valid_integer_ratings(int wire, Rating expected)
+    {
+        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(rating: wire), Json);
+        Assert.Equal(expected, req!.Rating);
     }
 
     [Fact]
@@ -152,8 +205,7 @@ public class DtoContractTests
     [Fact]
     public void Edit_with_missing_title_is_rejected()
     {
-        // Title is required — omitting the property leaves it null, which
-        // the NonEmptyString converter rejects.
+        // Title is required — omitting the property is a hard reject.
         const string json = """
         {
             "rating": 3,
@@ -165,18 +217,43 @@ public class DtoContractTests
     }
 
     [Fact]
-    public void Vote_request_carries_only_value()
+    public void Vote_request_carries_boolean()
     {
-        // VoteRequest is a primitive `short` — controller-level validation
-        // rejects values outside ±1, but the JSON layer doesn't constrain.
-        var ok = JsonSerializer.Deserialize<VoteRequest>("""{ "value": 1 }""", Json);
-        Assert.NotNull(ok);
-        Assert.Equal((short)1, ok!.Value);
+        // Replaced the prior tri-state short (+1/-1) with a bool — true =
+        // upvote, false = downvote. Captures the binary nature without a
+        // runtime range guard.
+        var up = JsonSerializer.Deserialize<VoteRequest>("""{ "isUpvote": true }""", Json);
+        Assert.NotNull(up);
+        Assert.True(up!.IsUpvote);
 
-        // Bogus values still parse — caller's responsibility.
-        var bogus = JsonSerializer.Deserialize<VoteRequest>("""{ "value": 7 }""", Json);
-        Assert.NotNull(bogus);
-        Assert.Equal((short)7, bogus!.Value);
+        var down = JsonSerializer.Deserialize<VoteRequest>("""{ "isUpvote": false }""", Json);
+        Assert.NotNull(down);
+        Assert.False(down!.IsUpvote);
+    }
+
+    [Fact]
+    public void Vote_missing_isUpvote_is_rejected()
+    {
+        // `required bool IsUpvote` — omitting the field throws, not silently
+        // defaulting to false (which would mean "downvote", an actual action).
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<VoteRequest>("""{}""", Json));
+    }
+
+    [Fact]
+    public void ReviewSort_round_trips_named_strings()
+    {
+        // Generated TS clients see a string union — pin the names so a
+        // future enum reorder doesn't silently break the wire contract.
+        // JsonStringEnumConverter with default naming uses the C# member
+        // name (PascalCase). The SPA matches on these names.
+        var sort = JsonSerializer.Deserialize<ReviewSort>("\"Helpful\"", Json);
+        Assert.Equal(ReviewSort.Helpful, sort);
+        sort = JsonSerializer.Deserialize<ReviewSort>("\"helpful\"", Json);
+        // Default JsonStringEnumConverter is case-insensitive on read.
+        Assert.Equal(ReviewSort.Helpful, sort);
+
+        var serialised = JsonSerializer.Serialize(ReviewSort.Lowest, Json);
+        Assert.Equal("\"Lowest\"", serialised);
     }
 
     [Fact]

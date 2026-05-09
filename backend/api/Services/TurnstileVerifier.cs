@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
+using Reviews.Api.Controllers;
 
 namespace Reviews.Api.Services;
 
@@ -19,7 +21,7 @@ public interface ITurnstileVerifier
 
 public class TurnstileVerifier(
     HttpClient http,
-    IConfiguration config,
+    IOptions<TurnstileOptions> options,
     ILogger<TurnstileVerifier> logger) : ITurnstileVerifier
 {
     private static readonly Uri SiteVerifyUrl =
@@ -27,14 +29,9 @@ public class TurnstileVerifier(
 
     public async Task<bool> VerifyAsync(string token, string? remoteIp, CancellationToken ct)
     {
-        var secret = config["Turnstile:SecretKey"];
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            // Misconfiguration is loud rather than a silent allow. If you
-            // genuinely want to bypass Turnstile in dev, set the test keys.
-            logger.LogError("Turnstile:SecretKey not configured — denying submission");
-            return false;
-        }
+        // TurnstileOptions binding is validated at startup (ValidateOnStart),
+        // so by the time this runs SecretKey is guaranteed non-empty.
+        var secret = options.Value.SecretKey;
 
         var form = new Dictionary<string, string>
         {

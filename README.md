@@ -139,14 +139,14 @@ The mutating flows from `docs/flows.md` map onto four Temporal workflows in `bac
 
 | Workflow | Moderation gate | Activities |
 |---|---|---|
-| `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject` signal; 3 and 4 auto-persist | `PersistReview`, `RefreshFirstPageCache` |
-| `EditReviewWorkflow` | Edits to reviews >1h old wait for moderator signal | `LookupReview`, `ApplyReviewEdit`, `RefreshFirstPageCache` |
-| `DeleteReviewWorkflow` | Same 1h moderation cutoff | `LookupReview`, `SoftDeleteReview`, `RefreshFirstPageCache` |
-| `RateReviewWorkflow` | None — votes are uncontentious | `UpsertVote` (UPSERT + score recompute in one tx), `RefreshFirstPageCache` |
+| `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject` signal; 3 and 4 auto-persist | `PersistReview`, `InvalidateProductCaches` |
+| `EditReviewWorkflow` | Edits to reviews >1h old wait for moderator signal | `LookupReview`, `ApplyReviewEdit`, `InvalidateProductCaches` |
+| `DeleteReviewWorkflow` | Same 1h moderation cutoff | `LookupReview`, `SoftDeleteReview`, `InvalidateProductCaches` |
+| `RateReviewWorkflow` | None — votes are uncontentious | `UpsertVote` (UPSERT + score recompute in one tx), `InvalidateProductCaches` |
 
 There's no admin UI yet. Moderator approval happens by **opening the pending workflow in the Temporal UI** (<http://localhost:8233>) and sending a typed `Approve` or `Reject` signal. The workflow's `WaitConditionAsync` resumes from there — that's the whole moderation surface, deliberately kept thin so a real admin tool can replace it without changing the durable contract.
 
-The cache invariant is workflow-owned: the `RefreshFirstPageCache` activity blows away the page-1 Redis key after every mutation, and the next read repopulates from Postgres. Crash between persist and cache-refresh? Temporal retries the failed activity, not the whole flow.
+The cache invariant is workflow-owned: the `InvalidateProductCaches` activity blows away the page-1 Redis key after every mutation, and the next read repopulates from Postgres. Crash between persist and cache-refresh? Temporal retries the failed activity, not the whole flow.
 
 ### Why a separate worker process
 
@@ -159,7 +159,15 @@ This is a reviews platform — product and review pages need to be crawlable for
 
 ### Cache shape
 
-Page-1 review listings (default sort=newest, no filters) get cached at `reviews:product:{id}:page:1` with a 1h TTL. The cached payload deliberately strips per-viewer fields (`MyVote`, `Mine`); on read, the API merges those in via a single PK lookup against `review_votes`. Other sorts/filters/pages go straight to Postgres — sort × filter × page would explode the cache cardinality, and the long tail isn't worth it.
+Three slug-keyed Redis surfaces, all invalidated by `InvalidateProductCachesActivity` after every workflow that mutates a review:
+
+| Key | What it caches | TTL |
+|---|---|---|
+| `products:list` | Catalog list payload (`ProductSummary[]`) | 15 min |
+| `products:slug:{slug}` | Product detail without per-viewer fields | 1 hour |
+| `reviews:slug:{slug}:page:1` | First page of reviews (default sort, no filters) | 1 hour |
+
+Read-path order matters: each endpoint **checks Redis first**, then falls back to Postgres on miss and writes-through. The previous order (look up the product row, then check cache) defeated the cache for every cold request. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read via single PK lookups. Sorts, filters, and pages past 1 go straight to Postgres — `sort × filter × page` would explode cache cardinality, and the long tail isn't worth it. Cache keys live in `Reviews.Infrastructure.ReviewsCacheKeys` — single source of truth shared by the API (writes) and worker activities (invalidations).
 
 ## Verifying the run
 
@@ -200,3 +208,5 @@ Playwright *can* drive the Temporal UI — log in, find the workflow, click **Se
 - Roles / permissions beyond "authenticated" (a "moderator" claim that gates a workflow's signal endpoints).
 - Reconciliation job for the denormalized `score` column (it's already self-healing on every vote, but a periodic full-reconcile is cheap insurance).
 - Direct-to-Azurite uploads for user review images (currently the seed uploads images; user submissions accept image URLs as text).
+- **TODO: serve review images via a CDN.** Today the API streams every blob byte through `ImagesController.Get` so the browser-visible URL stays environment-agnostic. Production should swap to a CDN (CloudFront / Cloudflare / Azure Front Door) keyed by the same blob path; the controller stays only as a fallback for private-asset egress. Stored URLs become CDN URLs with no DB-side change.
+- **TODO: denormalize review `count` and `average_rating` onto `Product`.** The catalog list and product detail compute these on the fly today (and the Redis cache hides the cost most of the time). The Temporal workflows already fan out on every review write, so the right place to maintain the denormalized columns is inside those activities — see [#5 (denormalized rating maintenance)](https://github.com/KaliCZ/reviews/issues/5) for the design notes.

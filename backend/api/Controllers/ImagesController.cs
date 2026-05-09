@@ -1,9 +1,11 @@
+using System.IO;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Reviews.Api.Models;
+using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using StrongTypes;
 
@@ -17,10 +19,11 @@ namespace Reviews.Api.Controllers;
 //   2. We can later add access control (private blobs, auth, watermarking)
 //      without churning every URL stored in the DB.
 //
-// Trade-off: API is in the hot path for image bytes. For a production catalog
-// you'd swap to direct CDN URLs and store those instead. Acceptable for the
-// kickoff — the indirection is cheap and the simplicity is worth more than
-// the bandwidth.
+// TODO: replace this passthrough with a CDN. The API is on the hot path for
+// every review image byte today; production should serve images from a CDN
+// (CloudFront / Cloudflare / Front Door) keyed by the same blob path. The
+// stored URLs (`/api/images/...`) become CDN URLs; the controller stays as a
+// fallback / private-asset egress only.
 [ApiController]
 [Route("api/[controller]")]
 public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController> logger) : ControllerBase
@@ -31,6 +34,11 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
     // request limits can be relaxed by middleware, the Length check can't.
     public const long MaxImageBytes = 2L * 1024 * 1024;
 
+    // Allow-list keyed by content type. The blob keeps the *uploader's
+    // original filename extension* so the link is human-meaningful when
+    // someone right-clicks → save-as. The content-type is what the browser
+    // and our renderer actually use for sniffing — the extension is a hint,
+    // not a contract.
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
@@ -69,6 +77,11 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
     // the SPA stores in the review's ImageUrls. Rejects payloads larger than
     // 2 MiB and content types outside the allow-list (the SPA disables the
     // file picker for everything else, but the server is the real gate).
+    //
+    // The blob key is `uploads/{uuidv7}{extension}` — UUIDv7 for time-ordered
+    // blob enumeration, and the *uploader's original extension* preserved
+    // verbatim so the URL stays self-describing. Sanitised down to letters,
+    // digits and a single leading dot to keep the blob path safe.
     [Authorize]
     [HttpPost]
     [RequestSizeLimit(MaxImageBytes)]
@@ -84,14 +97,8 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         if (file.ContentType is null || !AllowedContentTypes.Contains(file.ContentType))
             return BadRequest($"Unsupported content type. Allowed: {string.Join(", ", AllowedContentTypes)}.");
 
-        var ext = file.ContentType switch
-        {
-            "image/png" => "png",
-            "image/webp" => "webp",
-            "image/gif" => "gif",
-            _ => "jpg",
-        };
-        var key = $"uploads/{Guid.NewGuid():N}.{ext}";
+        var ext = SafeExtension(file.FileName);
+        var key = $"uploads/{Sequential.NewGuid():N}{ext}";
 
         var container = blobs.GetBlobContainerClient(Seeder.BlobContainer);
         await container.CreateIfNotExistsAsync(cancellationToken: ct);
@@ -108,6 +115,24 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         logger.LogInformation("Uploaded review image {Key} ({Bytes} bytes, {Type})",
             key, file.Length, file.ContentType);
 
-        return Ok(new UploadedImage($"/api/images/{key}".ToNonEmpty()));
+        return Ok(new UploadedImage { Url = $"/api/images/{key}".ToNonEmpty() });
+    }
+
+    // Take the original filename's extension (lower-cased), strip anything
+    // outside [a-z0-9], and cap at 5 chars (".jpeg" is the longest allowed
+    // image extension). Empty input returns an empty string — the file still
+    // uploads, the URL just has no suffix.
+    private static string SafeExtension(string? originalFileName)
+    {
+        if (string.IsNullOrWhiteSpace(originalFileName)) return string.Empty;
+        var ext = Path.GetExtension(originalFileName);
+        if (string.IsNullOrEmpty(ext)) return string.Empty;
+        // Drop the leading dot, keep alnum only, lowercase, then re-add the dot.
+        var clean = new string(ext.AsSpan(1).ToArray()
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .Take(5)
+            .ToArray());
+        return clean.Length == 0 ? string.Empty : "." + clean;
     }
 }

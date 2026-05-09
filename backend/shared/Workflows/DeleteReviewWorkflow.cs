@@ -47,8 +47,8 @@ public class DeleteReviewWorkflow
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { lookup.ProductId },
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { lookup.ProductSlug },
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "deleted";

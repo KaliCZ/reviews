@@ -92,8 +92,14 @@ import { Limits, ProductDetail } from '../models';
           <p class="error">{{ e }}</p>
         }
 
-        <button type="submit" [disabled]="!canSubmit() || submitting()">
-          {{ submitting() ? 'Submitting...' : 'Submit review' }}
+        <button type="submit" [disabled]="!canSubmit() || submitting() || uploadsInFlight() > 0">
+          @if (submitting()) {
+            Submitting…
+          } @else if (uploadsInFlight() > 0) {
+            Waiting for {{ uploadsInFlight() }} upload(s)…
+          } @else {
+            Submit review
+          }
         </button>
         @if (rating === 1 || rating === 2 || rating === 5) {
           <p class="muted">
@@ -208,7 +214,15 @@ export class SubmitReviewPage {
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
+  // Counts in-flight upload calls. The submit button stays disabled while
+  // this is > 0 — submitting before an upload finishes would either drop
+  // the image (URL not yet known) or race the form's image-list state.
+  protected readonly uploadsInFlight = signal(0);
 
+  // SPA-side keeps the rating as a plain number (1..5) — the API's
+  // RatingJsonConverter rejects out-of-range integers at the wire boundary,
+  // so no client-side narrowing buys us anything but TypeScript ceremony at
+  // every star-click handler.
   protected rating = 5;
   protected title = '';
   protected body = '';
@@ -237,7 +251,8 @@ export class SubmitReviewPage {
       this.body.length <= Limits.bodyMax &&
       this.rating >= 1 &&
       this.rating <= 5 &&
-      this.turnstileToken.length > 0
+      this.turnstileToken.length > 0 &&
+      this.uploadsInFlight() === 0
     );
   }
 
@@ -270,9 +285,16 @@ export class SubmitReviewPage {
     }
 
     for (const f of files) {
+      this.uploadsInFlight.update((n) => n + 1);
       this.api.uploadImage(f).subscribe({
-        next: (res) => this.uploadedUrls.push(res.url),
-        error: (err) => this.uploadError.set(err.error ?? err.message ?? 'Upload failed'),
+        next: (res) => {
+          this.uploadedUrls.push(res.url);
+          this.uploadsInFlight.update((n) => n - 1);
+        },
+        error: (err) => {
+          this.uploadError.set(err.error ?? err.message ?? 'Upload failed');
+          this.uploadsInFlight.update((n) => n - 1);
+        },
       });
     }
   }

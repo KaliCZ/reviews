@@ -1,28 +1,34 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Reviews.Api.Auth;
+using Reviews.Api.Controllers;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using StrongTypes.EfCore;
 using StrongTypes.OpenApi.Swashbuckle;
 
-// zitadel-bootstrap writes ZITADEL_ISSUER / ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET
-// into /run/secrets/zitadel.env (compose) or the path at $ZITADEL_ENV_FILE
-// (Aspire) at runtime. Pull them into process env before building config.
-DotEnvLoader.LoadDefaults();
-
 var builder = WebApplication.CreateBuilder(args);
+
+// Per-key file configuration provider — reads every regular file under the
+// secrets directory as a single config key. Filenames use the
+// `Section__Sub` convention (becomes `Section:Sub` when surfaced to
+// IConfiguration). The zitadel-bootstrap container writes its OIDC outputs
+// into this directory at runtime; environment variables are loaded by the
+// hosting framework on their own and need no custom plumbing.
+//
+// In docker-compose this is the bind-mounted /run/secrets/. In Aspire (host
+// process, not a container) the AppHost passes API_SECRETS_DIR pointing at
+// the same host folder.
+var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
+builder.Configuration.AddKeyPerFile(directoryPath: secretsDir, optional: true);
 
 builder.AddServiceDefaults();
 
-// EF Core via Aspire's Npgsql integration — same connection-name plumbing
-// (`reviews`) as the raw Npgsql client; this just adds a typed DbContext
-// alongside. Health checks, OTel, and resilience come along for free.
+// EF Core via Aspire's Npgsql integration. Default migrations history table
+// is fine — the DB is isolated per-environment, no cross-app collision risk
+// to design around.
 builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
-{
-    opts.UseNpgsql(o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
-    opts.UseStrongTypes();
-});
+    opts.UseNpgsql().UseStrongTypes());
 
 builder.AddRedisClient(connectionName: "cache");
 
@@ -30,9 +36,10 @@ builder.AddRedisClient(connectionName: "cache");
 // the "images" connection (Azurite locally, real Azure Blob in prod).
 builder.AddAzureBlobServiceClient("images");
 
-// HttpClientFactory for the seed-time picsum downloader. Named so the seed
-// path can ask for it specifically; defaults are fine.
-builder.Services.AddHttpClient("seed-images");
+// Typed HttpClient for the seed-time picsum downloader. Registered against the
+// concrete Seeder type so the seeder gets its own client instance with its
+// own resilience / pooling defaults.
+builder.Services.AddHttpClient<SeedImageDownloader>();
 
 var temporalAddress = builder.Configuration.GetConnectionString("temporal")
     ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
@@ -45,9 +52,17 @@ builder.Services.AddTemporalClient(options =>
     options.Namespace = "default";
 });
 
+// Bind + validate the Turnstile section at startup. ValidateOnStart turns
+// "missing key" into a boot-time crash instead of a request-time silent
+// failure.
+builder.Services.AddOptions<TurnstileOptions>()
+    .Bind(builder.Configuration.GetSection(TurnstileOptions.Section))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
 // Auth (ZITADEL JwtBearer), CurrentUser, Turnstile.
-builder.Services.AddReviewsAuth(builder.Configuration, builder.Environment);
-// Rate limiting on the write policy — IP + user_id partition, fixed window.
+builder.Services.AddReviewsAuth(builder.Configuration);
+// Per-user + per-IP rate limiting, applied to the write controller.
 builder.Services.AddReviewsRateLimiting();
 
 builder.Services.AddHealthChecks().AddInfraHealthChecks();
@@ -55,10 +70,12 @@ builder.Services.AddHealthChecks().AddInfraHealthChecks();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // Enums on the wire as their string names — generated TS clients
-        // get readable union literals (`'newest' | 'helpful' | …`) instead
-        // of bare integers.
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        // Enum wire formats are picked per-type via [JsonConverter]:
+        //   - ReviewSort  → string names (JsonStringEnumConverter)
+        //   - Rating      → int 1..5 with range validation (RatingJsonConverter)
+        // Registering JsonStringEnumConverter globally would override the
+        // Rating attribute and break the int wire format the SPA relies on,
+        // so we don't add it here.
 
         // Treat C#'s nullable annotations as enforceable on the wire: a JSON
         // payload that omits a non-nullable property (or sends `null` for
@@ -76,13 +93,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Reviews API", Version = "v1" });
-    // Surface C#'s nullability into the spec — `string` is required, `string?`
-    // is optional, ditto for the StrongTypes wrappers. Without this,
-    // Swashbuckle marks every property as optional and the generated TS
-    // client lets every field be undefined.
+    // Surface C#'s nullability into the spec so `string` is required and
+    // `string?` optional. `required`-marked record properties propagate
+    // through Swashbuckle's standard schema inspector — no custom filter
+    // needed.
     options.SupportNonNullableReferenceTypes();
     options.AddStrongTypes();
-    options.SchemaFilter<RequireNonNullableSchemaFilter>();
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -106,14 +122,18 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Migrate + seed before accepting traffic. Both are advisory-lock-protected
-// so it's safe to run from multiple API replicas — the first wins, the rest
-// see "no pending migrations / products already seeded" and continue.
-// Configurable via Reviews:AutoApply for production deployments where a
-// dedicated migration step is preferred.
+// Migrate + seed before accepting traffic. EF Core's MigrateAsync is
+// idempotent and concurrency-safe at the schema-application level; the seed
+// runner uses an advisory lock for the cross-replica path. Configurable via
+// Reviews:AutoApply for production deployments where a dedicated migration
+// step is preferred.
 if (app.Configuration.GetValue("Reviews:AutoApply", true))
 {
-    await MigrationRunner.ApplyAsync(app.Services);
+    await using (var scope = app.Services.CreateAsyncScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ReviewsDbContext>();
+        await db.Database.MigrateAsync();
+    }
     await Seeder.RunAsync(app.Services);
 }
 

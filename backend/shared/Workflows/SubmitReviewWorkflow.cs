@@ -1,5 +1,6 @@
 using StrongTypes;
 using Temporalio.Workflows;
+using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Shared;
 
@@ -8,7 +9,7 @@ public record SubmitReviewInput(
     long ProductId,
     Guid AuthorId,
     NonEmptyString AuthorName,
-    short Rating,
+    Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
@@ -22,8 +23,8 @@ public record SubmitReviewInput(
 //     to Approved; on Reject they flip to Rejected (the row stays in the DB
 //     as the audit trail).
 //
-// The workflow is the durability boundary: persist + status flip + first-page
-// cache refresh run as separate retried activities, so a crash mid-write can't
+// The workflow is the durability boundary: persist + status flip + cache
+// invalidation run as separate retried activities, so a crash mid-write can't
 // leave the cache and DB out of sync.
 [Workflow]
 public class SubmitReviewWorkflow
@@ -52,13 +53,16 @@ public class SubmitReviewWorkflow
     {
         // Persist as Pending — the only path that creates Review rows. Done
         // first so the moderator UI (which reads from the DB) can surface the
-        // pending row while the workflow waits for a signal.
-        await Workflow.ExecuteActivityAsync(
+        // pending row while the workflow waits for a signal. PersistReview
+        // returns the product slug so we can invalidate the right cache keys
+        // without a follow-up lookup.
+        var slug = await Workflow.ExecuteActivityAsync<string>(
             ReviewActivityNames.PersistReview,
             new object[] { input },
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
-        var needsModeration = input.Rating is 1 or 2 or 5;
+        var rating = input.Rating;
+        var needsModeration = rating is Rating.One or Rating.Two or Rating.Five;
         if (needsModeration)
         {
             await Workflow.WaitConditionAsync(() => decision is not null);
@@ -80,8 +84,8 @@ public class SubmitReviewWorkflow
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { input.ProductId },
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { slug },
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "approved";
