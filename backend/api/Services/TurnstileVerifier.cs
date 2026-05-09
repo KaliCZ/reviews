@@ -25,7 +25,7 @@ public class TurnstileVerifier(
     ILogger<TurnstileVerifier> logger) : ITurnstileVerifier
 {
     private static readonly Uri SiteVerifyUrl =
-        new("https://challenges.cloudflare.com/turnstile/v0/siteverify");
+        new Uri("https://challenges.cloudflare.com/turnstile/v0/siteverify");
 
     public async Task<bool> VerifyAsync(string token, string? remoteIp, CancellationToken ct)
     {

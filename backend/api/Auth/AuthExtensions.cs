@@ -149,8 +149,8 @@ internal sealed class DualWindowLimiter : RateLimiter
     private const int PerIpPermits = 60;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
-    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> UserBuckets = new();
-    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> IpBuckets = new();
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> UserBuckets = new ConcurrentDictionary<string, FixedWindowRateLimiter>();
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> IpBuckets = new ConcurrentDictionary<string, FixedWindowRateLimiter>();
 
     private readonly FixedWindowRateLimiter? userBucket;
     private readonly FixedWindowRateLimiter ipBucket;
@@ -168,7 +168,7 @@ internal sealed class DualWindowLimiter : RateLimiter
         return new DualWindowLimiter(user, ipB);
     }
 
-    private static FixedWindowRateLimiterOptions NewWindowOptions(int permits) => new()
+    private static FixedWindowRateLimiterOptions NewWindowOptions(int permits) => new FixedWindowRateLimiterOptions
     {
         PermitLimit = permits,
         Window = Window,

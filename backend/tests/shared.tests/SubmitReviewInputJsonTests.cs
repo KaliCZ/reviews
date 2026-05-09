@@ -16,7 +16,7 @@ public class SubmitReviewInputJsonTests
     // Mirror the API's JSON pipeline (Program.cs AddJsonOptions): respect
     // C#'s nullable annotations so missing / null fields on a non-nullable
     // record parameter throw JsonException, not bind silently.
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true,

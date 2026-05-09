@@ -41,7 +41,7 @@ public class ProductsController(
     private static readonly TimeSpan ListCacheTtl = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromHours(1);
     private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(1);
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
     // GET /api/products — list of all products with summary stats. Cached
     // for 15 min and invalidated on every review mutation; the per-product

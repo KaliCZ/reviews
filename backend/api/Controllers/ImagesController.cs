@@ -39,7 +39,7 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
     // someone right-clicks → save-as. The content-type is what the browser
     // and our renderer actually use for sniffing — the extension is a hint,
     // not a contract.
-    private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> AllowedContentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
         "image/png",

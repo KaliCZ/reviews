@@ -73,7 +73,7 @@ public class Review
     // is enforced at the API boundary; persisting plain strings keeps the
     // mapping straightforward (text[] vs. a NonEmptyString-element collection
     // would need a custom value comparer per-element).
-    public List<string> ImageUrls { get; private set; } = new();
+    public List<string> ImageUrls { get; private set; } = new List<string>();
 
     public ReviewStatus Status { get; private set; } = ReviewStatus.Pending;
     public int Score { get; private set; }
@@ -145,7 +145,7 @@ public class Review
         int score,
         ReviewStatus status,
         DateTime createdAt) =>
-        new()
+        new Review
         {
             Id = id,
             ProductId = productId,

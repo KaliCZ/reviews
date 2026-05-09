@@ -68,7 +68,7 @@ public class ReviewsController(
 
         var handle = await temporal.StartWorkflowAsync(
             (SubmitReviewWorkflow wf) => wf.RunAsync(input),
-            new(id: $"submit-review-{reviewId:N}", taskQueue: ReviewQueues.TaskQueue));
+            new WorkflowOptions(id: $"submit-review-{reviewId:N}", taskQueue: ReviewQueues.TaskQueue));
 
         return Accepted(new AcceptedResponse(handle.Id, "submitted"));
     }
@@ -90,7 +90,7 @@ public class ReviewsController(
 
         var handle = await temporal.StartWorkflowAsync(
             (EditReviewWorkflow wf) => wf.RunAsync(input),
-            new(id: $"edit-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
+            new WorkflowOptions(id: $"edit-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
 
         return Accepted(new AcceptedResponse(handle.Id, "edit-submitted"));
     }
@@ -101,7 +101,7 @@ public class ReviewsController(
         var input = new DeleteReviewInput(id, currentUser.User!.Id);
         var handle = await temporal.StartWorkflowAsync(
             (DeleteReviewWorkflow wf) => wf.RunAsync(input),
-            new(id: $"delete-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
+            new WorkflowOptions(id: $"delete-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
         return Accepted(new AcceptedResponse(handle.Id, "delete-submitted"));
     }
 
@@ -119,7 +119,7 @@ public class ReviewsController(
         // fetch-or-create on the row, so it's safe to be the only writer.
         var handle = await temporal.StartWorkflowAsync(
             (RateReviewWorkflow wf) => wf.RunAsync(input),
-            new(id: $"vote-{id:N}-{user.Id:N}", taskQueue: ReviewQueues.TaskQueue)
+            new WorkflowOptions(id: $"vote-{id:N}-{user.Id:N}", taskQueue: ReviewQueues.TaskQueue)
             {
                 IdConflictPolicy = Temporalio.Api.Enums.V1.WorkflowIdConflictPolicy.UseExisting,
             });

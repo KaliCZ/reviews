@@ -37,14 +37,14 @@ public class SubmitReviewWorkflow
     [WorkflowSignal(ApproveSignal)]
     public Task ApproveAsync(string? reason)
     {
-        decision = new(true, reason);
+        decision = new ModerationDecision(true, reason);
         return Task.CompletedTask;
     }
 
     [WorkflowSignal(RejectSignal)]
     public Task RejectAsync(string? reason)
     {
-        decision = new(false, reason);
+        decision = new ModerationDecision(false, reason);
         return Task.CompletedTask;
     }
 
@@ -59,7 +59,7 @@ public class SubmitReviewWorkflow
         var slug = await Workflow.ExecuteActivityAsync<string>(
             ReviewActivityNames.PersistReview,
             new object[] { input },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         var rating = input.Rating;
         var needsModeration = rating is Rating.One or Rating.Two or Rating.Five;
@@ -71,7 +71,7 @@ public class SubmitReviewWorkflow
                 await Workflow.ExecuteActivityAsync(
                     ReviewActivityNames.RejectReview,
                     new object[] { input.ReviewId },
-                    new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+                    new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
                 // No cache refresh on reject — Rejected rows aren't visible
                 // anyway (the listing index is partial on Status = Approved).
                 return "rejected";
@@ -81,12 +81,12 @@ public class SubmitReviewWorkflow
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.ApproveReview,
             new object[] { input.ReviewId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.InvalidateProductCaches,
             new object[] { slug },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "approved";
     }

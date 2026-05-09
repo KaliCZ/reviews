@@ -19,7 +19,7 @@ public class DtoContractTests
     // Mirror the API's JSON pipeline (AddJsonOptions in Program.cs). Without
     // RespectNullableAnnotations, STJ silently binds `null` / missing
     // properties into non-nullable members.
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true,

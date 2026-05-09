@@ -18,10 +18,10 @@ public class DeleteReviewWorkflow
     private ModerationDecision? decision;
 
     [WorkflowSignal(ApproveSignal)]
-    public Task ApproveAsync(string? reason) { decision = new(true, reason); return Task.CompletedTask; }
+    public Task ApproveAsync(string? reason) { decision = new ModerationDecision(true, reason); return Task.CompletedTask; }
 
     [WorkflowSignal(RejectSignal)]
-    public Task RejectAsync(string? reason) { decision = new(false, reason); return Task.CompletedTask; }
+    public Task RejectAsync(string? reason) { decision = new ModerationDecision(false, reason); return Task.CompletedTask; }
 
     [WorkflowRun]
     public async Task<string> RunAsync(DeleteReviewInput input)
@@ -29,7 +29,7 @@ public class DeleteReviewWorkflow
         var lookup = await Workflow.ExecuteActivityAsync<ReviewLookupResult>(
             ReviewActivityNames.LookupReview,
             new object[] { input.ReviewId, input.AuthorId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         if (lookup.Found is false || lookup.OwnedByAuthor is false)
             return "forbidden";
@@ -44,12 +44,12 @@ public class DeleteReviewWorkflow
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.SoftDeleteReview,
             new object[] { input.ReviewId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.InvalidateProductCaches,
             new object[] { lookup.ProductSlug },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "deleted";
     }

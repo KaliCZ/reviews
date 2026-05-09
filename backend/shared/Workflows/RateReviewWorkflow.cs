@@ -23,14 +23,14 @@ public class RateReviewWorkflow
         var result = await Workflow.ExecuteActivityAsync<VoteResult>(
             ReviewActivityNames.RecordVote,
             new object[] { input },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         if (!result.ReviewFound) return "review-not-found";
 
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.InvalidateProductCaches,
             new object[] { result.ProductSlug },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "voted";
     }
