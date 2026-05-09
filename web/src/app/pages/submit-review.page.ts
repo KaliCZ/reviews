@@ -30,10 +30,10 @@ import { Limits, ProductDetail } from '../models';
             required
             [maxlength]="Limits.titleMax"
           />
-          <small class="counter" [class.over]="title.length > Limits.titleMax">
-            {{ title.length }}/{{ Limits.titleMax }}
-          </small>
         </label>
+        <small class="counter" [class.over]="title.length > Limits.titleMax">
+          {{ title.length }}/{{ Limits.titleMax }}
+        </small>
 
         <label class="field">
           Review
@@ -45,17 +45,17 @@ import { Limits, ProductDetail } from '../models';
             [minlength]="Limits.bodyMin"
             [maxlength]="Limits.bodyMax"
           ></textarea>
-          <small
-            class="counter"
-            [class.over]="body.length > Limits.bodyMax"
-            [class.under]="body.trim().length > 0 && body.trim().length < Limits.bodyMin"
-          >
-            {{ body.length }}/{{ Limits.bodyMax }}
-            @if (body.trim().length > 0 && body.trim().length < Limits.bodyMin) {
-              · {{ Limits.bodyMin }} min
-            }
-          </small>
         </label>
+        <small
+          class="counter"
+          [class.over]="body.length > Limits.bodyMax"
+          [class.under]="body.trim().length > 0 && body.trim().length < Limits.bodyMin"
+        >
+          {{ body.length }}/{{ Limits.bodyMax }}
+          @if (body.trim().length > 0 && body.trim().length < Limits.bodyMin) {
+            · {{ Limits.bodyMin }} min
+          }
+        </small>
 
         <fieldset>
           <legend>Photos (optional, up to {{ Limits.maxImages }})</legend>
