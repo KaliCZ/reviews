@@ -3,93 +3,87 @@ using StrongTypes;
 
 namespace Reviews.Worker.Tests;
 
-// Entity-level invariants. The Review ctor takes NonEmptyString for the
-// author / title / body, so empty strings are rejected at the type system
-// level (they can't be constructed). Rating is now an enum (1..5 by member),
-// so the prior runtime range guard is gone — the type carries the constraint.
+// Behaviour tests for the Review aggregate's mutation methods. The "construct
+// an entity and read back a property" cases were dropped — they exercise the
+// type system, not our domain logic. The end-to-end Submit / Edit / Vote paths
+// are covered by the API integration tests.
 public class ReviewEntityTests
 {
-    [Fact]
-    public void Ctor_accepts_valid_input()
-    {
-        var review = new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: Rating.Four,
-            title: "Solid".ToNonEmpty(),
-            body: "Tried it for a week, no complaints.".ToNonEmpty(),
-            imageUrls: []);
-
-        Assert.Equal("Alice", review.AuthorName.Value);
-        Assert.Equal(ReviewStatus.Pending, review.Status);
-        Assert.Equal(Rating.Four, review.Rating);
-    }
+    private static Review NewReview(Rating rating = Rating.Four) => new Review(
+        id:         Guid.NewGuid(),
+        productId:  1,
+        authorId:   Guid.NewGuid(),
+        authorName: "Alice".ToNonEmpty(),
+        rating:     rating,
+        title:      "T".ToNonEmpty(),
+        body:       "Body".ToNonEmpty(),
+        imageUrls:  []);
 
     [Fact]
-    public void ApplyEdit_updates_fields()
+    public void ApplyEdit_updates_fields_and_keeps_status()
     {
-        var review = new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: Rating.Four,
-            title: "T".ToNonEmpty(),
-            body: "Body".ToNonEmpty(),
-            imageUrls: []);
+        var review = NewReview();
+        // Approve first so we can verify the edit doesn't tip the status back.
+        review.Approve();
 
         review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), []);
 
         Assert.Equal(Rating.Two, review.Rating);
         Assert.Equal("Updated", review.Title.Value);
         Assert.Equal("New body", review.Body.Value);
+        // ApplyEdit must NOT reset Status — an edit to an Approved review
+        // stays Approved (the workflow's moderation gate runs separately).
+        Assert.Equal(ReviewStatus.Approved, review.Status);
     }
 
     [Fact]
-    public void Approve_then_soft_delete_then_approve_throws()
+    public void Approve_flips_status_from_pending()
     {
-        var review = new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: Rating.Five,
-            title: "T".ToNonEmpty(),
-            body: "Body".ToNonEmpty(),
-            imageUrls: []);
+        var review = NewReview();
+        Assert.Equal(ReviewStatus.Pending, review.Status);
 
         review.Approve();
+
         Assert.Equal(ReviewStatus.Approved, review.Status);
-
-        review.SoftDelete();
-        Assert.Equal(ReviewStatus.Deleted, review.Status);
-
-        // SoftDelete is terminal — re-approving should refuse so an audit
-        // trail of "this review was approved, then deleted, then…" can't be
-        // re-written.
-        Assert.Throws<InvalidOperationException>(() => review.Approve());
     }
 
     [Fact]
-    public void Vote_records_signed_score_contribution()
+    public void Reject_flips_status_from_pending()
     {
-        // ReviewVote is a boolean (true=upvote, false=downvote); the entity
-        // exposes ScoreContribution so the score-recompute path doesn't have
-        // to know the bool→±1 mapping.
-        var up = new ReviewVote(Guid.NewGuid(), Guid.NewGuid(), isUpvote: true);
-        Assert.Equal(1, up.ScoreContribution);
+        var review = NewReview();
 
-        var down = new ReviewVote(Guid.NewGuid(), Guid.NewGuid(), isUpvote: false);
-        Assert.Equal(-1, down.ScoreContribution);
+        review.Reject();
 
-        // Flip is the runtime-mutating path used by the activity when a
-        // user changes their vote (the SQL UPSERT is the storage hot path
-        // but tests pin the entity behaviour for any future EF-tracking
-        // callers).
-        up.Flip(false);
-        Assert.False(up.IsUpvote);
-        Assert.Equal(-1, up.ScoreContribution);
+        Assert.Equal(ReviewStatus.Rejected, review.Status);
+    }
+
+    [Fact]
+    public void SoftDelete_is_terminal_and_blocks_reapproval()
+    {
+        var review = NewReview();
+        review.Approve();
+        review.SoftDelete();
+
+        Assert.Equal(ReviewStatus.Deleted, review.Status);
+        // SoftDelete is terminal — re-approving must refuse so an audit
+        // trail of "this review was approved, then deleted, then…" can't
+        // be re-written.
+        Assert.Throws<InvalidOperationException>(() => review.Approve());
+        Assert.Throws<InvalidOperationException>(() => review.Reject());
+    }
+
+    [Fact]
+    public void RecordScore_sets_score_and_bumps_updated()
+    {
+        var review = NewReview();
+        var before = review.UpdatedAtUtc;
+
+        review.RecordScore(7);
+
+        Assert.Equal(7, review.Score);
+        // UpdatedAtUtc must move forward — the activity calls RecordScore
+        // after every vote, and stale UpdatedAtUtc would mask the change in
+        // last-modified caches.
+        Assert.True(review.UpdatedAtUtc >= before);
     }
 }

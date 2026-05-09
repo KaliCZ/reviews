@@ -1,0 +1,399 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using Reviews.Infrastructure.Entities;
+using Reviews.Shared;
+using StrongTypes;
+
+namespace Reviews.Api.Tests.Integration;
+
+// Real-everything integration suite. All bodies / responses are raw JSON —
+// no typed-DTO deserialization here. The point is that a wire-shape change
+// (e.g. renaming `createdAtUtc` to `createdAt`) breaks these tests loudly,
+// which a typed-DTO round-trip would silently absorb.
+//
+// See IntegrationTestFixture for the container + host setup.
+[Collection(IntegrationTestCollection.Name)]
+public class ApiIntegrationTests(IntegrationTestFixture fx)
+{
+    private static readonly Regex SubmitWorkflowIdPattern = new(
+        @"^submit-review-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
+    private static readonly Regex EditWorkflowIdPattern = new(
+        @"^edit-review-[0-9a-fA-F]{32}-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
+    private static readonly Regex VoteWorkflowIdPattern = new(
+        @"^vote-[0-9a-fA-F]{32}-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
+
+    // -- /api/products (list) --------------------------------------------
+
+    [Fact]
+    public async Task Get_products_returns_seeded_catalog()
+    {
+        var response = await fx.ApiClient.GetAsync("/api/products");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal(JsonValueKind.Array, root.ValueKind);
+        Assert.True(root.GetArrayLength() >= 10, $"expected at least 10 seeded products, got {root.GetArrayLength()}");
+
+        // Pin every wire field on every row — drift in any name fails here.
+        foreach (var item in root.EnumerateArray())
+        {
+            AssertString(item, "slug");
+            AssertString(item, "name");
+            AssertNumber(item, "averageRating");
+            AssertNumber(item, "reviewCount");
+        }
+    }
+
+    // -- /api/products/{slug} (detail) -----------------------------------
+
+    [Fact]
+    public async Task Get_product_detail_returns_full_shape()
+    {
+        var response = await fx.ApiClient.GetAsync("/api/products/sony-wh-1000xm5");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal("sony-wh-1000xm5", root.GetProperty("slug").GetString());
+        AssertString(root, "name");
+        AssertString(root, "description");
+        Assert.True(root.GetProperty("averageRating").GetDouble() > 0);
+        Assert.True(root.GetProperty("reviewCount").GetInt32() > 0);
+        // Test user hasn't reviewed anything yet (different sub from any seed).
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("myReviewId").ValueKind);
+    }
+
+    // -- /api/config -----------------------------------------------------
+
+    [Fact]
+    public async Task Get_config_returns_turnstile_site_key()
+    {
+        var response = await fx.ApiClient.GetAsync("/api/config");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var key = doc.RootElement.GetProperty("turnstileSiteKey").GetString();
+        Assert.False(string.IsNullOrEmpty(key));
+    }
+
+    // -- /api/products/{slug}/reviews (listing) --------------------------
+
+    [Fact]
+    public async Task Get_product_reviews_returns_paged_items()
+    {
+        var response = await fx.ApiClient.GetAsync("/api/products/sony-wh-1000xm5/reviews");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        Assert.Equal(1, root.GetProperty("page").GetInt32());
+        Assert.True(root.GetProperty("pageSize").GetInt32() > 0);
+        Assert.True(root.GetProperty("totalCount").GetInt32() >= 5); // seed has 5 for this product
+        var items = root.GetProperty("items");
+        Assert.Equal(JsonValueKind.Array, items.ValueKind);
+        Assert.True(items.GetArrayLength() > 0);
+
+        // Pin per-item wire shape — including the `Utc`-suffixed dates which
+        // the SPA depends on for unambiguous timezone handling.
+        foreach (var item in items.EnumerateArray())
+        {
+            AssertString(item, "id");
+            AssertNumber(item, "productId");
+            AssertString(item, "title");
+            AssertString(item, "body");
+            AssertNumber(item, "rating");
+            AssertString(item, "createdAtUtc");
+            AssertString(item, "updatedAtUtc");
+            // myVote should be JSON null for an unvoted review by the test user.
+            Assert.Contains(item.GetProperty("myVote").ValueKind, new[] { JsonValueKind.Null, JsonValueKind.True, JsonValueKind.False });
+            Assert.Equal(JsonValueKind.False, item.GetProperty("mine").ValueKind);
+        }
+    }
+
+    // -- POST /api/reviews (auto-approve) --------------------------------
+
+    [Fact]
+    public async Task Submit_4_star_review_persists_as_approved()
+    {
+        // Pick an unreviewed-by-test-user product (seed Alice owns 1, 2, 4, 6,
+        // 8, 10 — but the test user is a different sub, so all are clean).
+        // We use product 7 to avoid stepping on other tests in the same fixture.
+        const long productId = 7;
+        var (body, expectedTitle, expectedBody) = MakeSubmitPayload(productId, rating: 4);
+        var response = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var workflowId = doc.RootElement.GetProperty("workflowId").GetString()!;
+        Assert.Matches(SubmitWorkflowIdPattern, workflowId);
+        Assert.Equal("submitted", doc.RootElement.GetProperty("status").GetString());
+
+        // Wait for the workflow run to actually finish (auto-approve path).
+        await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
+
+        // Source-of-truth check: the review should be Approved with the
+        // exact title and body we sent.
+        await using var db = fx.CreateDbContext();
+        var review = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+            .SingleAsync();
+        Assert.Equal(ReviewStatus.Approved, review.Status);
+        Assert.Equal(expectedBody, review.Body.Value);
+        Assert.Equal(Rating.Four, review.Rating);
+    }
+
+    // -- POST /api/reviews (5-star, moderation gate) ---------------------
+
+    [Fact]
+    public async Task Submit_5_star_review_waits_for_approve_signal()
+    {
+        const long productId = 5;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 5);
+        var response = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var workflowId = doc.RootElement.GetProperty("workflowId").GetString()!;
+
+        // Pending row should land before the signal fires (the persist activity
+        // runs synchronously inside the submit workflow before WaitConditionAsync).
+        var pending = await fx.WaitForAsync(async () =>
+        {
+            await using var db = fx.CreateDbContext();
+            return await db.Reviews
+                .AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .SingleOrDefaultAsync();
+        }, what: "pending review row");
+        Assert.Equal(ReviewStatus.Pending, pending.Status);
+
+        // Send the moderator approve signal via the real Temporal client.
+        var handle = fx.TemporalClient.GetWorkflowHandle(workflowId);
+        await handle.SignalAsync(SubmitReviewWorkflow.ApproveSignal, new object?[] { (string?)null });
+
+        var result = await handle.GetResultAsync<string>();
+        Assert.Equal("approved", result);
+
+        await using var db = fx.CreateDbContext();
+        var approved = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Id == pending.Id)
+            .SingleAsync();
+        Assert.Equal(ReviewStatus.Approved, approved.Status);
+    }
+
+    // -- POST /api/reviews/{id}/vote --------------------------------------
+
+    [Fact]
+    public async Task Vote_creates_row_then_flip_updates_score()
+    {
+        // Submit a 4-star (auto-approved) review first so the vote target
+        // exists and is in Approved state (RecordVote requires Approved).
+        const long productId = 9;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submitResponse.StatusCode);
+        var submitWorkflowId = JsonDocument.Parse(await submitResponse.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(submitWorkflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews
+                .AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+        }
+
+        // Upvote.
+        var up = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
+            JsonContent("""{"isUpvote": true}"""));
+        Assert.Equal(HttpStatusCode.Accepted, up.StatusCode);
+        using (var d = JsonDocument.Parse(await up.Content.ReadAsStringAsync()))
+        {
+            Assert.Matches(VoteWorkflowIdPattern, d.RootElement.GetProperty("workflowId").GetString()!);
+            Assert.Equal("voted", d.RootElement.GetProperty("status").GetString());
+            await fx.TemporalClient.GetWorkflowHandle(
+                d.RootElement.GetProperty("workflowId").GetString()!).GetResultAsync<string>();
+        }
+
+        await using (var db = fx.CreateDbContext())
+        {
+            var vote = await db.ReviewVotes.AsNoTracking().SingleAsync(v => v.ReviewId == reviewId);
+            Assert.True(vote.IsUpvote);
+            var review = await db.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+            Assert.Equal(1, review.Score);
+        }
+
+        // Flip to downvote — same row updated, score swings to -1. The vote
+        // workflow uses a deterministic id per (review, voter), so the second
+        // call may return a workflow that's already done (UseExisting policy).
+        var down = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
+            JsonContent("""{"isUpvote": false}"""));
+        Assert.Equal(HttpStatusCode.Accepted, down.StatusCode);
+        var downWorkflowId = JsonDocument.Parse(await down.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        // GetResultAsync returns the prior result if the workflow already
+        // completed; otherwise waits for the new run. Either way, by the time
+        // it returns we know the vote write has settled.
+        try { await fx.TemporalClient.GetWorkflowHandle(downWorkflowId).GetResultAsync<string>(); }
+        catch (Temporalio.Exceptions.WorkflowAlreadyStartedException) { /* benign */ }
+
+        // Poll the DB until the flip lands — the second start may join the
+        // existing handle without re-running, so we observe the state instead
+        // of relying on the workflow result.
+        await fx.WaitForAsync<object>(async () =>
+        {
+            await using var db = fx.CreateDbContext();
+            var v = await db.ReviewVotes.AsNoTracking().SingleAsync(v => v.ReviewId == reviewId);
+            return v.IsUpvote ? null : new object();
+        }, what: "downvote flip");
+
+        await using (var db = fx.CreateDbContext())
+        {
+            var review = await db.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+            Assert.Equal(-1, review.Score);
+        }
+    }
+
+    // -- PUT /api/reviews/{id} -------------------------------------------
+
+    [Fact]
+    public async Task Edit_within_one_hour_applies_immediately()
+    {
+        // Create a fresh review (well under the 1h moderation cutoff for
+        // edits) so the edit workflow auto-applies without a signal.
+        const long productId = 8;
+        var (body, originalTitle, _) = MakeSubmitPayload(productId, rating: 3);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+        await fx.TemporalClient.GetWorkflowHandle(
+            JsonDocument.Parse(await submit.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("workflowId").GetString()!).GetResultAsync<string>();
+
+        Guid reviewId;
+        DateTime originalCreatedAt;
+        await using (var db = fx.CreateDbContext())
+        {
+            var row = await db.Reviews.AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == originalTitle.ToNonEmpty())
+                .Select(r => new { r.Id, r.CreatedAtUtc })
+                .SingleAsync();
+            reviewId = row.Id;
+            originalCreatedAt = row.CreatedAtUtc;
+        }
+
+        var newTitle = $"Edited title {Guid.NewGuid():N}";
+        var newBody = $"Edited body {Guid.NewGuid():N}";
+        var editPayload = $$"""
+            {
+              "rating": 2,
+              "title": {{JsonSerializer.Serialize(newTitle)}},
+              "body": {{JsonSerializer.Serialize(newBody)}}
+            }
+            """;
+        var edit = await fx.ApiClient.PutAsync($"/api/reviews/{reviewId}", JsonContent(editPayload));
+        Assert.Equal(HttpStatusCode.Accepted, edit.StatusCode);
+        using var editDoc = JsonDocument.Parse(await edit.Content.ReadAsStringAsync());
+        var editWorkflowId = editDoc.RootElement.GetProperty("workflowId").GetString()!;
+        Assert.Matches(EditWorkflowIdPattern, editWorkflowId);
+        Assert.Equal("edit-submitted", editDoc.RootElement.GetProperty("status").GetString());
+
+        var editResult = await fx.TemporalClient.GetWorkflowHandle(editWorkflowId).GetResultAsync<string>();
+        Assert.Equal("applied", editResult);
+
+        await using var dbCheck = fx.CreateDbContext();
+        var edited = await dbCheck.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+        Assert.Equal(newTitle, edited.Title.Value);
+        Assert.Equal(newBody, edited.Body.Value);
+        Assert.Equal(Rating.Two, edited.Rating);
+        Assert.True(edited.UpdatedAtUtc >= originalCreatedAt,
+            $"UpdatedAtUtc ({edited.UpdatedAtUtc:O}) should be at or after CreatedAtUtc ({originalCreatedAt:O})");
+    }
+
+    // -- POST /api/reviews — negative validation case --------------------
+
+    [Fact]
+    public async Task Empty_post_returns_400_with_validation_problem_details()
+    {
+        // `{}` omits every required property. The first NonEmptyString-typed
+        // member encountered by System.Text.Json throws (StrongTypes' converter
+        // refuses missing/empty), so the framework emits a ValidationProblemDetails
+        // with non-empty `errors`. The exact key set depends on which member
+        // STJ visits first — could be a property-path key, could be `$`/`req`
+        // for a body-level error — so the assertion is that we get a 400 with
+        // a non-empty errors object plus a problem-details title, NOT the
+        // exact key shape.
+        var response = await fx.ApiClient.PostAsync("/api/reviews",
+            new StringContent("{}", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        // ProblemDetails wire shape — pin the field names we hand to the SPA.
+        AssertString(root, "title");
+        AssertString(root, "type");
+        Assert.Equal(400, root.GetProperty("status").GetInt32());
+
+        var errors = root.GetProperty("errors");
+        Assert.Equal(JsonValueKind.Object, errors.ValueKind);
+        var keys = errors.EnumerateObject().ToList();
+        Assert.True(keys.Count > 0, "expected at least one validation error key");
+        // Each error entry is an array of strings — assert the wire shape is
+        // what AspNetCore's default ValidationProblemDetails serializes to.
+        foreach (var k in keys)
+        {
+            Assert.Equal(JsonValueKind.Array, k.Value.ValueKind);
+            Assert.True(k.Value.GetArrayLength() > 0);
+            foreach (var msg in k.Value.EnumerateArray())
+                Assert.Equal(JsonValueKind.String, msg.ValueKind);
+        }
+    }
+
+    // ---- helpers ----
+
+    private static StringContent JsonContent(string raw) =>
+        new StringContent(raw, Encoding.UTF8, "application/json");
+
+    private static void AssertString(JsonElement parent, string property)
+    {
+        var prop = parent.GetProperty(property);
+        Assert.Equal(JsonValueKind.String, prop.ValueKind);
+        Assert.False(string.IsNullOrEmpty(prop.GetString()), $"expected non-empty string at .{property}");
+    }
+
+    private static void AssertNumber(JsonElement parent, string property)
+    {
+        var prop = parent.GetProperty(property);
+        Assert.Equal(JsonValueKind.Number, prop.ValueKind);
+    }
+
+    // Synthesises a unique submit payload — the title carries a Guid so the
+    // DB lookups in tests can find this exact row without colliding with
+    // anything seed or sibling-test inserted.
+    private static (string Body, string Title, string Body2) MakeSubmitPayload(long productId, int rating)
+    {
+        var title = $"Test review {Guid.NewGuid():N}";
+        var body = $"Integration test body {Guid.NewGuid():N}";
+        var json = $$"""
+            {
+              "productId": {{productId}},
+              "rating": {{rating}},
+              "title": {{JsonSerializer.Serialize(title)}},
+              "body": {{JsonSerializer.Serialize(body)}},
+              "turnstileToken": "stub-token"
+            }
+            """;
+        return (json, title, body);
+    }
+}
