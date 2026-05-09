@@ -80,7 +80,8 @@ public static class AuthExtensions
         return services;
     }
 
-    // Per-user (30/min) AND per-IP (60/min). Anonymous writers skip the user bucket.
+    // Per-user (30/min) AND per-IP (60/min). Only attached to [Authorize] endpoints,
+    // so `sub` is always present by the time this runs.
     public static IServiceCollection AddReviewsRateLimiting(this IServiceCollection services) =>
         services.AddRateLimiter(options =>
         {
@@ -88,15 +89,15 @@ public static class AuthExtensions
             options.AddPolicy(WriteRateLimitPolicy, http =>
             {
                 var sub = http.User.FindFirst("sub")?.Value
-                          ?? http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                          ?? http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                          ?? throw new InvalidOperationException("Write rate limit policy requires an authenticated user.");
                 var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
                 // Partition key is per (user, ip) but DualWindowLimiter pulls
                 // its underlying buckets from process-wide caches keyed by
                 // user OR ip alone, so the per-user/per-IP windows stay
                 // shared across IP rotation and account fanout.
-                var key = sub is null ? $"anon|{ip}" : $"{sub}|{ip}";
-                return RateLimitPartition.Get<string>(key, _ => DualWindowLimiter.For(sub, ip));
+                return RateLimitPartition.Get<string>($"{sub}|{ip}", _ => DualWindowLimiter.For(sub, ip));
             });
         });
 
@@ -111,23 +112,23 @@ internal sealed class DualWindowLimiter : RateLimiter
     private const int PerIpPermits = 60;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
 
-    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> UserBuckets = new ConcurrentDictionary<string, FixedWindowRateLimiter>();
-    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> IpBuckets = new ConcurrentDictionary<string, FixedWindowRateLimiter>();
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> UserBuckets = new();
+    private static readonly ConcurrentDictionary<string, FixedWindowRateLimiter> IpBuckets = new();
 
-    private readonly FixedWindowRateLimiter? userBucket;
+    private readonly FixedWindowRateLimiter userBucket;
     private readonly FixedWindowRateLimiter ipBucket;
 
-    private DualWindowLimiter(FixedWindowRateLimiter? userBucket, FixedWindowRateLimiter ipBucket)
+    private DualWindowLimiter(FixedWindowRateLimiter userBucket, FixedWindowRateLimiter ipBucket)
     {
         this.userBucket = userBucket;
         this.ipBucket = ipBucket;
     }
 
-    public static DualWindowLimiter For(string? sub, string ip)
+    public static DualWindowLimiter For(string sub, string ip)
     {
-        var user = sub is null ? null : UserBuckets.GetOrAdd(sub, _ => new FixedWindowRateLimiter(NewWindowOptions(PerUserPermits)));
-        var ipB = IpBuckets.GetOrAdd(ip, _ => new FixedWindowRateLimiter(NewWindowOptions(PerIpPermits)));
-        return new DualWindowLimiter(user, ipB);
+        var userBucket = UserBuckets.GetOrAdd(sub, _ => new FixedWindowRateLimiter(NewWindowOptions(PerUserPermits)));
+        var ipBucket = IpBuckets.GetOrAdd(ip, _ => new FixedWindowRateLimiter(NewWindowOptions(PerIpPermits)));
+        return new DualWindowLimiter(userBucket, ipBucket);
     }
 
     private static FixedWindowRateLimiterOptions NewWindowOptions(int permits) => new FixedWindowRateLimiterOptions
@@ -148,7 +149,6 @@ internal sealed class DualWindowLimiter : RateLimiter
         var ipLease = ipBucket.AttemptAcquire(permitCount);
         if (!ipLease.IsAcquired) return ipLease;
 
-        if (userBucket is null) return ipLease;
         var userLease = userBucket.AttemptAcquire(permitCount);
         if (!userLease.IsAcquired)
         {
@@ -164,7 +164,6 @@ internal sealed class DualWindowLimiter : RateLimiter
         var ipLease = await ipBucket.AcquireAsync(permitCount, cancellationToken);
         if (!ipLease.IsAcquired) return ipLease;
 
-        if (userBucket is null) return ipLease;
         var userLease = await userBucket.AcquireAsync(permitCount, cancellationToken);
         if (!userLease.IsAcquired)
         {
