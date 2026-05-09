@@ -152,12 +152,12 @@ public class ProductsController(
     //   - `rating` is repeatable for multi-select (e.g. ?rating=4&rating=5).
     //   - `page` is 1-based; offset pagination so users can skip directly to
     //     a numbered page (better UX for reviews than opaque cursors).
-    //   - First page of `sort=newest` with no filters is cached in Redis.
+    //   - First page of `sort=helpful` with no filters is cached in Redis.
     [HttpGet("{slug}/reviews")]
     public async Task<ActionResult<ReviewsPage>> GetReviews(
         NonEmptyString slug,
-        [FromQuery] ReviewSort sort = ReviewSort.Newest,
-        [FromQuery(Name = "rating")] int[]? ratings = null,
+        [FromQuery] ReviewSort sort = ReviewSort.Helpful,
+        [FromQuery(Name = "rating")] HashSet<short>? ratings = null,
         [FromQuery] bool? hasPhotos = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = DefaultPageSize,
@@ -167,12 +167,11 @@ public class ProductsController(
         if (pageSize is < 1 or > MaxPageSize) pageSize = DefaultPageSize;
 
         var cache = redis.GetDatabase();
-        var ratingSet = NormalizeRatings(ratings);
         var isFirstPage = page == 1
             && pageSize == DefaultPageSize
-            && ratingSet is null
+            && (ratings is null || ratings.Count == 0)
             && hasPhotos is null
-            && sort == ReviewSort.Newest;
+            && sort == ReviewSort.Helpful;
 
         // Cache lookup BEFORE the product existence check — we cache the
         // 404 absence below (cached productId is null) too, so a slug-typo
@@ -194,7 +193,7 @@ public class ProductsController(
             .SingleOrDefaultAsync(ct);
         if (product is null) return NotFound();
 
-        var built = await BuildPageAsync(product.Id, sort, ratingSet, hasPhotos, page, pageSize, ct);
+        var built = await BuildPageAsync(product.Id, sort, ratings, hasPhotos, page, pageSize, ct);
 
         if (isFirstPage)
         {
@@ -238,12 +237,14 @@ public class ProductsController(
         if (ratings is { Count: > 0 }) q = q.Where(r => ratings.Contains((short)r.Rating));
         if (hasPhotos is true)         q = q.Where(r => r.ImageUrls.Count > 0);
 
+        // Review.Id is a UUIDv7 (Sequential.NewGuid), so OrderBy(Id) IS time-
+        // ordered — no separate CreatedAtUtc tiebreaker needed.
         var ordered = sort switch
         {
             ReviewSort.Helpful => q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
-            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
-            _ /* Newest */     => q.OrderByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
+            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.Id),
+            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.Id),
+            _ /* Newest */     => q.OrderByDescending(r => r.Id),
         };
 
         var total = await q.CountAsync(ct);
@@ -306,13 +307,4 @@ public class ProductsController(
         };
     }
 
-    private static HashSet<short>? NormalizeRatings(int[]? raw)
-    {
-        if (raw is null || raw.Length == 0) return null;
-        var set = new HashSet<short>();
-        foreach (var v in raw)
-            if (v is >= 1 and <= 5)
-                set.Add((short)v);
-        return set.Count == 0 ? null : set;
-    }
 }

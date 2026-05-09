@@ -144,7 +144,7 @@ export class MoreReviewsPage {
   readonly slug = input.required<string>();
 
   protected readonly ratingOptions = RATING_OPTIONS;
-  protected sort: ReviewSort = 'Newest';
+  protected sort: ReviewSort = 'Helpful';
   protected selectedRatings = new Set<number>();
   protected hasPhotos = false;
 

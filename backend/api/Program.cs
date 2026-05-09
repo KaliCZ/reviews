@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Reviews.Api.Auth;
+using Reviews.Api.Configuration;
 using Reviews.Api.Controllers;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
@@ -41,8 +42,7 @@ builder.AddAzureBlobServiceClient("images");
 // own resilience / pooling defaults.
 builder.Services.AddHttpClient<SeedImageDownloader>();
 
-var temporalAddress = builder.Configuration.GetConnectionString("temporal")
-    ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
+var temporalAddress = builder.Configuration.GetRequired<string>("ConnectionStrings:temporal");
 
 // Lazy Temporal client — doesn't open the gRPC connection until first use,
 // so a slow-to-start Temporal at boot doesn't crash the API.

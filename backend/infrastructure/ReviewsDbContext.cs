@@ -116,21 +116,22 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 .HasFilter($"\"Status\" <> {(int)ReviewStatus.Deleted}")
                 .HasDatabaseName("uq_reviews_product_author");
 
-            // Sort indexes for the three approved-only listings. Each carries
-            // the (id) tiebreaker so paging stays deterministic.
+            // Sort indexes for the three approved-only listings. Id is
+            // UUIDv7 (Sequential.NewGuid) so it doubles as a created-at
+            // tiebreaker — no separate CreatedAtUtc column in these indexes.
             var approvedFilter = $"\"Status\" = {(int)ReviewStatus.Approved}";
-            e.HasIndex(r => new { r.ProductId, r.CreatedAtUtc, r.Id })
+            e.HasIndex(r => new { r.ProductId, r.Id })
                 .HasDatabaseName("idx_reviews_newest")
                 .HasFilter(approvedFilter)
-                .IsDescending(false, true, true);
+                .IsDescending(false, true);
             e.HasIndex(r => new { r.ProductId, r.Score, r.Id })
                 .HasDatabaseName("idx_reviews_helpful")
                 .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
-            e.HasIndex(r => new { r.ProductId, r.Rating, r.CreatedAtUtc, r.Id })
+            e.HasIndex(r => new { r.ProductId, r.Rating, r.Id })
                 .HasDatabaseName("idx_reviews_rating")
                 .HasFilter(approvedFilter)
-                .IsDescending(false, true, true, true);
+                .IsDescending(false, true, true);
         });
 
         b.Entity<ReviewVote>(e =>

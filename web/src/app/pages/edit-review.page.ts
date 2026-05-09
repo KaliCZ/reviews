@@ -228,7 +228,7 @@ export class EditReviewPage {
   }
 
   private lookupOnPage(slug: string, id: string, page: number) {
-    this.api.listReviews(slug, { sort: 'Newest', page }).subscribe((pg) => {
+    this.api.listReviews(slug, { sort: 'Helpful', page }).subscribe((pg) => {
       const found = pg.items.find((r) => r.id === id);
       if (found) {
         this.fillFrom(found);

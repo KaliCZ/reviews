@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
+using Reviews.Api.Configuration;
 using Reviews.Api.Services;
 
 namespace Reviews.Api.Auth;
@@ -61,9 +62,9 @@ public static class AuthExtensions
     // startup, not silently in some code branch.
     public static IServiceCollection AddReviewsAuth(this IServiceCollection services, IConfiguration config)
     {
-        var issuerUrl = Required(config, "Auth:IssuerUrl");
-        var audience = Required(config, "Auth:Audience");
-        var requireHttps = Required(config, "Auth:RequireHttps").Equals("true", StringComparison.OrdinalIgnoreCase);
+        var issuerUrl = config.GetRequired<string>("Auth:IssuerUrl");
+        var audience = config.GetRequired<string>("Auth:Audience");
+        var requireHttps = config.GetRequired<bool>("Auth:RequireHttps");
         var issuerReachableUrl = config["Auth:IssuerReachableUrl"];
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -130,8 +131,6 @@ public static class AuthExtensions
             });
         });
 
-    private static string Required(IConfiguration config, string key) =>
-        config[key] ?? throw new InvalidOperationException($"Configuration value '{key}' is required and was not set.");
 }
 
 // AND-composes a per-user and a per-IP fixed-window limiter for a single

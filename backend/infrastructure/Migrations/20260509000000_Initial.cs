@@ -115,16 +115,16 @@ namespace Reviews.Infrastructure.Migrations
                 name: "idx_reviews_newest",
                 schema: "reviews",
                 table: "reviews",
-                columns: new[] { "ProductId", "CreatedAtUtc", "Id" },
-                descending: new[] { false, true, true },
+                columns: new[] { "ProductId", "Id" },
+                descending: new[] { false, true },
                 filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(
                 name: "idx_reviews_rating",
                 schema: "reviews",
                 table: "reviews",
-                columns: new[] { "ProductId", "Rating", "CreatedAtUtc", "Id" },
-                descending: new[] { false, true, true, true },
+                columns: new[] { "ProductId", "Rating", "Id" },
+                descending: new[] { false, true, true },
                 filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(

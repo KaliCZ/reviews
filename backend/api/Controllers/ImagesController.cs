@@ -1,4 +1,3 @@
-using System.IO;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
@@ -97,7 +96,7 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         if (file.ContentType is null || !AllowedContentTypes.Contains(file.ContentType))
             return BadRequest($"Unsupported content type. Allowed: {string.Join(", ", AllowedContentTypes)}.");
 
-        var ext = SafeExtension(file.FileName);
+        var ext = ExtensionFor(file.ContentType);
         var key = $"uploads/{Sequential.NewGuid():N}{ext}";
 
         var container = blobs.GetBlobContainerClient(Seeder.BlobContainer);
@@ -118,21 +117,15 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         return Ok(new UploadedImage($"/api/images/{key}"));
     }
 
-    // Take the original filename's extension (lower-cased), strip anything
-    // outside [a-z0-9], and cap at 5 chars (".jpeg" is the longest allowed
-    // image extension). Empty input returns an empty string — the file still
-    // uploads, the URL just has no suffix.
-    private static string SafeExtension(string? originalFileName)
+    // Canonical extension per allowed content type. The content-type is the
+    // source of truth — already gated by AllowedContentTypes — so the user's
+    // filename extension never drives the blob path.
+    private static string ExtensionFor(string contentType) => contentType switch
     {
-        if (string.IsNullOrWhiteSpace(originalFileName)) return string.Empty;
-        var ext = Path.GetExtension(originalFileName);
-        if (string.IsNullOrEmpty(ext)) return string.Empty;
-        // Drop the leading dot, keep alnum only, lowercase, then re-add the dot.
-        var clean = new string(ext.AsSpan(1).ToArray()
-            .Where(char.IsLetterOrDigit)
-            .Select(char.ToLowerInvariant)
-            .Take(5)
-            .ToArray());
-        return clean.Length == 0 ? string.Empty : "." + clean;
-    }
+        "image/jpeg" => ".jpg",
+        "image/png" => ".png",
+        "image/webp" => ".webp",
+        "image/gif" => ".gif",
+        _ => "",  // unreachable — AllowedContentTypes gates this
+    };
 }
