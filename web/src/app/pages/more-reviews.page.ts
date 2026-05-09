@@ -3,10 +3,32 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
 import { ApiService } from '../services/api.service';
-import { ReviewSort, ReviewsPage } from '../models';
+import { ReviewSort, SortDirection, ReviewsPage } from '../models';
 
 const PAGE_SIZE = 20;
 const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
+
+// Each option compiles down to (sort, direction). Keeping the UI as one
+// dropdown matches the prior shape; the orthogonal API is exposed below.
+type SortOption =
+  | 'date-desc'
+  | 'date-asc'
+  | 'helpful-desc'
+  | 'helpful-asc'
+  | 'rating-desc'
+  | 'rating-asc';
+const SORT_OPTIONS: ReadonlyArray<{
+  value: SortOption;
+  sort: ReviewSort;
+  direction: SortDirection;
+}> = [
+  { value: 'helpful-desc', sort: 'Helpful', direction: 'Desc' },
+  { value: 'helpful-asc', sort: 'Helpful', direction: 'Asc' },
+  { value: 'date-desc', sort: 'Date', direction: 'Desc' },
+  { value: 'date-asc', sort: 'Date', direction: 'Asc' },
+  { value: 'rating-desc', sort: 'Rating', direction: 'Desc' },
+  { value: 'rating-asc', sort: 'Rating', direction: 'Asc' },
+];
 
 @Component({
   imports: [FormsModule, RouterLink, ReviewCard],
@@ -17,11 +39,13 @@ const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
     <div class="controls">
       <label>
         Sort
-        <select [(ngModel)]="sort" (ngModelChange)="reload()">
-          <option value="Newest">Newest</option>
-          <option value="Helpful">Most helpful</option>
-          <option value="Highest">Highest rated</option>
-          <option value="Lowest">Lowest rated</option>
+        <select [(ngModel)]="sortOption" (ngModelChange)="reload()">
+          <option value="helpful-desc">Most helpful</option>
+          <option value="helpful-asc">Least helpful</option>
+          <option value="date-desc">Newest</option>
+          <option value="date-asc">Oldest</option>
+          <option value="rating-desc">Highest rated</option>
+          <option value="rating-asc">Lowest rated</option>
         </select>
       </label>
       <fieldset class="ratings">
@@ -144,7 +168,7 @@ export class MoreReviewsPage {
   readonly slug = input.required<string>();
 
   protected readonly ratingOptions = RATING_OPTIONS;
-  protected sort: ReviewSort = 'Helpful';
+  protected sortOption: SortOption = 'helpful-desc';
   protected selectedRatings = new Set<number>();
   protected hasPhotos = false;
 
@@ -177,9 +201,11 @@ export class MoreReviewsPage {
   }
 
   private loadPage(page: number) {
+    const opt = SORT_OPTIONS.find((o) => o.value === this.sortOption)!;
     this.api
       .listReviews(this.slug(), {
-        sort: this.sort,
+        sort: opt.sort,
+        direction: opt.direction,
         ratings: Array.from(this.selectedRatings),
         hasPhotos: this.hasPhotos,
         page,

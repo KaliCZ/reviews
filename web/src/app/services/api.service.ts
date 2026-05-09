@@ -7,6 +7,7 @@ import {
   ProductDetail,
   ProductSummary,
   ReviewSort,
+  SortDirection,
   ReviewsPage,
   SubmitReviewRequest,
   EditReviewRequest,
@@ -34,6 +35,7 @@ export class ApiService {
   listReviews(slug: string, params: ReviewListParams = {}): Observable<ReviewsPage> {
     const q = new URLSearchParams();
     if (params.sort) q.set('sort', params.sort);
+    if (params.direction) q.set('direction', params.direction);
     if (params.ratings && params.ratings.length > 0) {
       for (const r of params.ratings) q.append('rating', String(r));
     }
@@ -73,6 +75,7 @@ export class ApiService {
 
 export interface ReviewListParams {
   sort?: ReviewSort;
+  direction?: SortDirection;
   ratings?: number[];
   hasPhotos?: boolean;
   page?: number;

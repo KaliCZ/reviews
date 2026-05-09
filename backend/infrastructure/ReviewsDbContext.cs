@@ -102,10 +102,10 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 .HasDatabaseName("idx_reviews_helpful")
                 .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
-            e.HasIndex(r => new { r.ProductId, r.Rating, r.Id })
+            e.HasIndex(r => new { r.ProductId, r.Rating, r.Score, r.Id })
                 .HasDatabaseName("idx_reviews_rating")
                 .HasFilter(approvedFilter)
-                .IsDescending(false, true, true);
+                .IsDescending(false, true, true, true);
         });
 
         b.Entity<ReviewVote>(e =>
