@@ -53,11 +53,11 @@ jobs:
       - name: Format check
         run: npx prettier --check "src/**/*.{ts,html,css,scss,json}"
 
-      - name: Test (BFF)
-        run: npm run test:bff
-
       - name: Build
         run: npm run build
+
+      - name: Test (BFF)
+        run: npm run test:bff
 
   e2e:
     name: E2E
