@@ -27,7 +27,7 @@ public class ProductsController(
     private const int MaxPageSize = 100;
     private static readonly TimeSpan ListCacheTtl = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromHours(1);
-    private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(1);
+    private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(24);
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ProductSummary>>> GetAll(CancellationToken ct)

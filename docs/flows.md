@@ -136,7 +136,7 @@ sequenceDiagram
             R-->>A: cached page (no per-viewer fields)
         else miss
             A->>P: SELECT first page
-            A->>R: SET (TTL: 1h)
+            A->>R: SET (TTL: 24h)
         end
         A->>P: enrich with viewer's MyVote / Mine
         A-->>S: ReviewsPage
