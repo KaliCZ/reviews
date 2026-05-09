@@ -1,13 +1,11 @@
-// Wire DTOs come from `web/src/api`, which is generated from the API's
-// OpenAPI spec by `npm run generate:client`. This file just re-exports the
-// types the components consume so callers don't need to know the codegen
-// path.
-
+// Re-export from web/src/api so component imports stay stable.
 export type {
   ProductSummary,
   ProductDetail,
   ReviewItem,
   ReviewsPage,
+  ReviewSort,
+  Rating,
   SubmitReviewRequest,
   EditReviewRequest,
   VoteRequest,

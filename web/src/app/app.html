@@ -1,11 +1,13 @@
 <header class="topbar">
-  <a routerLink="/" class="brand">Reviews</a>
+  <a routerLink="/" class="brand">{{ 'nav.brand' | t }}</a>
   <nav class="auth">
+    <app-language-toggle />
+    <app-theme-toggle />
     @if (auth.authenticated()) {
-      <span class="who">Hi, {{ auth.displayName() }}</span>
-      <a href="/auth/logout" class="link">Sign out</a>
+      <span class="who">{{ 'nav.greeting' | t: { name: auth.displayName() ?? '' } }}</span>
+      <a href="/auth/logout" class="link">{{ 'nav.signOut' | t }}</a>
     } @else {
-      <a [href]="loginHref()" class="link">Sign in</a>
+      <a [href]="loginHref()" class="link">{{ 'nav.signIn' | t }}</a>
     }
   </nav>
 </header>

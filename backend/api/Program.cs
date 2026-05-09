@@ -1,140 +1,115 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Reviews.Api.Auth;
+using Reviews.Api.Configuration;
+using Reviews.Api.Controllers;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
 using StrongTypes.EfCore;
 using StrongTypes.OpenApi.Swashbuckle;
 
-// zitadel-bootstrap writes ZITADEL_ISSUER / ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET
-// into /run/secrets/zitadel.env (compose) or the path at $ZITADEL_ENV_FILE
-// (Aspire) at runtime. Pull them into process env before building config.
-DotEnvLoader.LoadDefaults();
+namespace Reviews.Api;
 
-var builder = WebApplication.CreateBuilder(args);
-
-builder.AddServiceDefaults();
-
-// EF Core via Aspire's Npgsql integration — same connection-name plumbing
-// (`reviews`) as the raw Npgsql client; this just adds a typed DbContext
-// alongside. Health checks, OTel, and resilience come along for free.
-builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
+public class Program
 {
-    opts.UseNpgsql(o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
-    opts.UseStrongTypes();
-});
-
-builder.AddRedisClient(connectionName: "cache");
-
-// Blob storage for review images. Aspire registers a BlobServiceClient using
-// the "images" connection (Azurite locally, real Azure Blob in prod).
-builder.AddAzureBlobServiceClient("images");
-
-// HttpClientFactory for the seed-time picsum downloader. Named so the seed
-// path can ask for it specifically; defaults are fine.
-builder.Services.AddHttpClient("seed-images");
-
-var temporalAddress = builder.Configuration.GetConnectionString("temporal")
-    ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
-
-// Lazy Temporal client — doesn't open the gRPC connection until first use,
-// so a slow-to-start Temporal at boot doesn't crash the API.
-builder.Services.AddTemporalClient(options =>
-{
-    options.TargetHost = temporalAddress;
-    options.Namespace = "default";
-});
-
-// Auth (ZITADEL JwtBearer), CurrentUser, Turnstile.
-builder.Services.AddReviewsAuth(builder.Configuration, builder.Environment);
-// Rate limiting on the write policy — IP + user_id partition, fixed window.
-builder.Services.AddReviewsRateLimiting();
-
-builder.Services.AddHealthChecks().AddInfraHealthChecks();
-
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
+    public static async Task Main(string[] args)
     {
-        // Enums on the wire as their string names — generated TS clients
-        // get readable union literals (`'newest' | 'helpful' | …`) instead
-        // of bare integers.
-        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        var builder = WebApplication.CreateBuilder(args);
 
-        // Treat C#'s nullable annotations as enforceable on the wire: a JSON
-        // payload that omits a non-nullable property (or sends `null` for
-        // it) fails deserialization with JsonException instead of silently
-        // binding null into a NonEmptyString slot. ASP.NET turns the
-        // exception into a 400 before the action runs.
-        options.JsonSerializerOptions.RespectNullableAnnotations = true;
-        options.JsonSerializerOptions.RespectRequiredConstructorParameters = true;
-    });
+        // Per-key files (filename `Section__Sub` → IConfiguration `Section:Sub`).
+        // The zitadel-bootstrap container writes its OIDC outputs here at runtime.
+        // docker-compose binds /run/secrets/; Aspire passes API_SECRETS_DIR.
+        var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
+        builder.Configuration.AddKeyPerFile(directoryPath: secretsDir, optional: true);
 
-// Swashbuckle's spec generator + UI. Picked over Microsoft.AspNetCore.OpenApi
-// because the StrongTypes integration is cleaner on this pipeline (the skill's
-// openapi.md spells out the rough edges in the Microsoft hooks).
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new OpenApiInfo { Title = "Reviews API", Version = "v1" });
-    // Surface C#'s nullability into the spec — `string` is required, `string?`
-    // is optional, ditto for the StrongTypes wrappers. Without this,
-    // Swashbuckle marks every property as optional and the generated TS
-    // client lets every field be undefined.
-    options.SupportNonNullableReferenceTypes();
-    options.AddStrongTypes();
-    options.SchemaFilter<RequireNonNullableSchemaFilter>();
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "ZITADEL access token (Bearer).",
-    });
-    options.OperationFilter<AuthorizeOperationFilter>();
-});
+        builder.AddServiceDefaults();
 
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy => policy
-        .WithOrigins(builder.Configuration["WEB_ORIGIN"] ?? "http://localhost:4200")
-        .AllowAnyHeader()
-        .AllowAnyMethod()
-        .AllowCredentials()); // BFF forwards Bearer tokens; cookies stay at the BFF
-});
+        builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
+            opts.UseNpgsql().UseStrongTypes());
 
-var app = builder.Build();
+        builder.AddRedisClient(connectionName: "cache");
 
-// Migrate + seed before accepting traffic. Both are advisory-lock-protected
-// so it's safe to run from multiple API replicas — the first wins, the rest
-// see "no pending migrations / products already seeded" and continue.
-// Configurable via Reviews:AutoApply for production deployments where a
-// dedicated migration step is preferred.
-if (app.Configuration.GetValue("Reviews:AutoApply", true))
-{
-    await MigrationRunner.ApplyAsync(app.Services);
-    await Seeder.RunAsync(app.Services);
+        builder.AddAzureBlobServiceClient("images");
+
+        builder.Services.AddHttpClient<SeedImageDownloader>();
+
+        var temporalAddress = builder.Configuration.GetRequired<string>("ConnectionStrings:temporal");
+
+        // Lazy: don't open the gRPC connection until first use, so a slow Temporal doesn't crash boot.
+        builder.Services.AddTemporalClient(options =>
+        {
+            options.TargetHost = temporalAddress;
+            options.Namespace = "default";
+        });
+
+        builder.Services.AddOptions<TurnstileOptions>()
+            .Bind(builder.Configuration.GetSection(TurnstileOptions.Section))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        builder.Services.AddReviewsAuth(builder.Configuration);
+        builder.Services.AddReviewsRateLimiting();
+
+        builder.Services.AddHealthChecks().AddInfraHealthChecks();
+
+        builder.Services.AddControllers();
+
+        builder.Services.AddEndpointsApiExplorer();
+        builder.Services.AddSwaggerGen(options =>
+        {
+            options.SwaggerDoc("v1", new OpenApiInfo { Title = "Reviews API", Version = "v1" });
+            options.SupportNonNullableReferenceTypes();
+            options.NonNullableReferenceTypesAsRequired();
+            options.AddStrongTypes();
+            options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+            {
+                Name = "Authorization",
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                In = ParameterLocation.Header,
+                Description = "ZITADEL access token (Bearer).",
+            });
+            options.OperationFilter<AuthorizeOperationFilter>();
+        });
+
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy => policy
+                .WithOrigins(builder.Configuration["WEB_ORIGIN"] ?? "http://localhost:4200")
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials()); // BFF forwards Bearer tokens; cookies stay at the BFF
+        });
+
+        var app = builder.Build();
+
+        // Migrate + seed before accepting traffic. The seeder uses an advisory lock
+        // to serialize across replicas. Reviews:AutoApply=false defers to a dedicated
+        // migration step in prod.
+        if (app.Configuration.GetValue("Reviews:AutoApply", true))
+        {
+            await using (var scope = app.Services.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<ReviewsDbContext>();
+                await db.Database.MigrateAsync();
+            }
+            await Seeder.RunAsync(app.Services);
+        }
+
+        app.MapDefaultEndpoints();
+
+        app.UseSwagger();
+        app.UseSwaggerUI();
+
+        app.UseCors();
+
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.UseRateLimiter();
+
+        app.MapControllers();
+
+        await app.RunAsync();
+    }
 }
-
-app.MapDefaultEndpoints();
-
-// Spec is always exposed (the SPA's client-codegen step pulls it from a running
-// dev API); Swagger UI is dev-only since prod traffic shouldn't browse it.
-app.UseSwagger();
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwaggerUI();
-}
-
-app.UseCors();
-
-app.UseAuthentication();
-app.UseAuthorization();
-app.UseRateLimiter();
-
-app.MapControllers();
-
-app.Run();
-
-public partial class Program { }

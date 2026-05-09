@@ -1,20 +1,19 @@
 using StrongTypes;
 using Temporalio.Workflows;
+using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Shared;
 
 public record EditReviewInput(
     Guid ReviewId,
     Guid AuthorId,
-    short Rating,
+    Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
 
-// Edits to recent reviews go straight through; edits to reviews older than an
-// hour wait for a moderator signal first. The cutoff exists because once a
-// review has had time to influence other readers' decisions, retroactive
-// rewriting is the kind of thing a moderator should see.
+// Edits within the first hour go straight through; older edits wait for a
+// moderator (retroactive rewrites of already-influential reviews need a look).
 [Workflow]
 public class EditReviewWorkflow
 {
@@ -26,10 +25,10 @@ public class EditReviewWorkflow
     private ModerationDecision? decision;
 
     [WorkflowSignal(ApproveSignal)]
-    public Task ApproveAsync(string? reason) { decision = new(true, reason); return Task.CompletedTask; }
+    public Task ApproveAsync(string? reason) { decision = new ModerationDecision(true, reason); return Task.CompletedTask; }
 
     [WorkflowSignal(RejectSignal)]
-    public Task RejectAsync(string? reason) { decision = new(false, reason); return Task.CompletedTask; }
+    public Task RejectAsync(string? reason) { decision = new ModerationDecision(false, reason); return Task.CompletedTask; }
 
     [WorkflowRun]
     public async Task<string> RunAsync(EditReviewInput input)
@@ -37,12 +36,12 @@ public class EditReviewWorkflow
         var lookup = await Workflow.ExecuteActivityAsync<ReviewLookupResult>(
             ReviewActivityNames.LookupReview,
             new object[] { input.ReviewId, input.AuthorId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         if (lookup.Found is false || lookup.OwnedByAuthor is false)
             return "forbidden";
 
-        var age = Workflow.UtcNow - lookup.CreatedAt;
+        var age = Workflow.UtcNow - lookup.CreatedAtUtc;
         if (age >= ModerationCutoff)
         {
             await Workflow.WaitConditionAsync(() => decision is not null);
@@ -52,12 +51,12 @@ public class EditReviewWorkflow
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.ApplyReviewEdit,
             new object[] { input },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { lookup.ProductId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { lookup.ProductSlug },
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "applied";
     }

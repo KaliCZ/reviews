@@ -4,9 +4,8 @@ namespace Reviews.Shared;
 
 public record DeleteReviewInput(Guid ReviewId, Guid AuthorId);
 
-// Mirror of EditReviewWorkflow's policy: deletes inside the first hour are
-// the user's mistake/cooling-off case and go through immediately. Older
-// deletes get a moderator look — same retroactive-tampering concern.
+// Mirror of EditReviewWorkflow's policy: first-hour deletes go through, older
+// deletes wait for a moderator.
 [Workflow]
 public class DeleteReviewWorkflow
 {
@@ -18,10 +17,10 @@ public class DeleteReviewWorkflow
     private ModerationDecision? decision;
 
     [WorkflowSignal(ApproveSignal)]
-    public Task ApproveAsync(string? reason) { decision = new(true, reason); return Task.CompletedTask; }
+    public Task ApproveAsync(string? reason) { decision = new ModerationDecision(true, reason); return Task.CompletedTask; }
 
     [WorkflowSignal(RejectSignal)]
-    public Task RejectAsync(string? reason) { decision = new(false, reason); return Task.CompletedTask; }
+    public Task RejectAsync(string? reason) { decision = new ModerationDecision(false, reason); return Task.CompletedTask; }
 
     [WorkflowRun]
     public async Task<string> RunAsync(DeleteReviewInput input)
@@ -29,12 +28,12 @@ public class DeleteReviewWorkflow
         var lookup = await Workflow.ExecuteActivityAsync<ReviewLookupResult>(
             ReviewActivityNames.LookupReview,
             new object[] { input.ReviewId, input.AuthorId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         if (lookup.Found is false || lookup.OwnedByAuthor is false)
             return "forbidden";
 
-        var age = Workflow.UtcNow - lookup.CreatedAt;
+        var age = Workflow.UtcNow - lookup.CreatedAtUtc;
         if (age >= ModerationCutoff)
         {
             await Workflow.WaitConditionAsync(() => decision is not null);
@@ -44,12 +43,12 @@ public class DeleteReviewWorkflow
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.SoftDeleteReview,
             new object[] { input.ReviewId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { lookup.ProductId },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { lookup.ProductSlug },
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "deleted";
     }

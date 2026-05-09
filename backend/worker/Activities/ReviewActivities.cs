@@ -8,27 +8,14 @@ using Temporalio.Activities;
 
 namespace Reviews.Worker;
 
-// Each activity owns a small durable step of the review workflows in
-// shared/Workflows. Errors propagate back to Temporal which retries with
-// exponential backoff per its activity-default policy.
-//
-// Activities are scoped — one DbContext per invocation, disposed when the
-// activity returns. UpsertVote uses an explicit transaction since it does
-// multi-step writes that must commit together.
 public class ReviewActivities(
     ReviewsDbContext db,
     IConnectionMultiplexer redis,
     ILogger<ReviewActivities> logger)
 {
-    // Page-1 cache key, shared with the API. The API populates it on a miss;
-    // mutating workflows blow it away here so the next read rebuilds.
-    private static string FirstPageKey(long productId) => $"reviews:product:{productId}:page:1";
-
     [Activity(ReviewActivityNames.PersistReview)]
-    public async Task PersistAsync(SubmitReviewInput input)
+    public async Task<string> PersistAsync(SubmitReviewInput input)
     {
-        // Constructor enforces the rating/body invariants; status defaults to
-        // Pending. The Approve activity flips it later in the workflow.
         var review = new Review(
             id:         input.ReviewId,
             productId:  input.ProductId,
@@ -43,12 +30,20 @@ public class ReviewActivities(
         logger.LogInformation(
             "Persisted review {ReviewId} (Pending) for product {ProductId}",
             input.ReviewId, input.ProductId);
+
+        // Slug returned so the workflow's cache-invalidation activity doesn't
+        // need a second lookup.
+        return await db.Products
+            .AsNoTracking()
+            .Where(p => p.Id == input.ProductId)
+            .Select(p => p.Slug.Value)
+            .SingleAsync();
     }
 
     [Activity(ReviewActivityNames.ApproveReview)]
     public async Task ApproveAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null)
         {
             logger.LogWarning("Approve: review {ReviewId} not found", reviewId);
@@ -62,7 +57,7 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.RejectReview)]
     public async Task RejectAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null)
         {
             logger.LogWarning("Reject: review {ReviewId} not found", reviewId);
@@ -79,13 +74,13 @@ public class ReviewActivities(
         var row = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == reviewId && r.Status != ReviewStatus.Deleted)
-            .Select(r => new { r.AuthorId, r.ProductId, r.CreatedAt })
-            .FirstOrDefaultAsync();
+            .Select(r => new { r.AuthorId, r.ProductId, ProductSlug = r.Product.Slug.Value, r.CreatedAtUtc })
+            .SingleOrDefaultAsync();
 
         if (row is null)
-            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, CreatedAt: default);
+            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, ProductSlug: string.Empty, CreatedAtUtc: default);
 
-        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.CreatedAt);
+        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.ProductSlug, row.CreatedAtUtc);
     }
 
     [Activity(ReviewActivityNames.ApplyReviewEdit)]
@@ -95,7 +90,7 @@ public class ReviewActivities(
             .Where(r => r.Id == input.ReviewId
                      && r.AuthorId == input.AuthorId
                      && r.Status != ReviewStatus.Deleted)
-            .FirstOrDefaultAsync();
+            .SingleOrDefaultAsync();
         if (review is null)
         {
             logger.LogWarning("ApplyEdit: review {ReviewId} not found / not owned by {Author}", input.ReviewId, input.AuthorId);
@@ -110,63 +105,70 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.SoftDeleteReview)]
     public async Task SoftDeleteAsync(Guid reviewId)
     {
-        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null) return;
         review.SoftDelete();
         await db.SaveChangesAsync();
         logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
     }
 
-    [Activity(ReviewActivityNames.UpsertVote)]
-    public async Task<long?> UpsertVoteAsync(VoteInput input)
+    [Activity(ReviewActivityNames.RecordVote)]
+    public async Task<VoteResult> RecordVoteAsync(VoteInput input)
     {
-        // Resolve product_id and confirm the review is live in the same shot.
-        // Pinning to Approved means votes can't accrue on deleted/rejected/
-        // pending reviews even if a stale client tried.
-        var productId = await db.Reviews
+        // Pinning to Approved blocks votes on deleted/rejected/pending reviews
+        // even from a stale client.
+        var slug = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == input.ReviewId && r.Status == ReviewStatus.Approved)
-            .Select(r => (long?)r.ProductId)
-            .FirstOrDefaultAsync();
-        if (productId is null) return null;
+            .Select(r => (string?)r.Product.Slug.Value)
+            .SingleOrDefaultAsync();
+        if (slug is null) return new VoteResult(false, string.Empty);
 
-        await using var tx = await db.Database.BeginTransactionAsync();
+        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext;
+        // that strategy refuses user-initiated transactions unless wrapped in
+        // ExecuteAsync, so vote write + score recompute live in one
+        // strategy-managed unit.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync();
 
-        // EF Core's tracking semantics make the upsert verbose; the raw
-        // INSERT … ON CONFLICT … is clearer for a single-statement upsert
-        // and keeps the round-trip count down.
-        await db.Database.ExecuteSqlInterpolatedAsync($@"
-            INSERT INTO reviews.review_votes (""ReviewId"", ""VoterId"", ""Value"", ""CreatedAt"")
-            VALUES ({input.ReviewId}, {input.VoterId}, {input.Value}, NOW())
-            ON CONFLICT (""ReviewId"", ""VoterId"")
-            DO UPDATE SET ""Value"" = EXCLUDED.""Value"", ""CreatedAt"" = NOW()");
+            var updated = await db.ReviewVotes
+                .Where(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId)
+                .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, input.IsUpvote));
 
-        // Recompute denormalized score from the source-of-truth vote rows so
-        // it self-heals on every vote (any drift is corrected within a tick).
-        await db.Database.ExecuteSqlInterpolatedAsync($@"
-            UPDATE reviews.reviews
-               SET ""Score"" = COALESCE((
-                   SELECT SUM(""Value"") FROM reviews.review_votes WHERE ""ReviewId"" = {input.ReviewId}
-               ), 0),
-                   ""UpdatedAt"" = NOW()
-             WHERE ""Id"" = {input.ReviewId}");
+            if (updated == 0)
+            {
+                db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
+                await db.SaveChangesAsync();
+            }
 
-        await tx.CommitAsync();
+            // Recompute Score from vote rows so it self-heals on every write.
+            await db.Reviews
+                .Where(r => r.Id == input.ReviewId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Score, _ => db.ReviewVotes
+                        .Where(v => v.ReviewId == input.ReviewId)
+                        .Sum(v => v.IsUpvote ? 1 : -1))
+                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow));
+
+            await tx.CommitAsync();
+        });
         logger.LogInformation(
-            "Upserted vote ({Value}) by {Voter} on review {Review} (product {Product})",
-            input.Value, input.VoterId, input.ReviewId, productId);
-        return productId;
+            "Recorded vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
+            input.IsUpvote, input.VoterId, input.ReviewId, slug);
+        return new VoteResult(true, slug);
     }
 
-    [Activity(ReviewActivityNames.RefreshFirstPageCache)]
-    public async Task RefreshFirstPageCacheAsync(long productId)
+    [Activity(ReviewActivityNames.InvalidateProductCaches)]
+    public async Task InvalidateProductCachesAsync(string productSlug)
     {
-        // Invalidate-and-let-next-read-rebuild beats compute-and-write here:
-        // the workflow doesn't have to know the cached payload's exact shape,
-        // and a cache miss on the next request is the cheapest possible repair.
-        var deleted = await redis.GetDatabase().KeyDeleteAsync(FirstPageKey(productId));
+        var keys = ReviewsCacheKeys.AffectedBy(productSlug)
+            .Select(k => (RedisKey)k)
+            .ToArray();
+        var deleted = await redis.GetDatabase().KeyDeleteAsync(keys);
         logger.LogInformation(
-            "Invalidated first-page cache for product {ProductId} (existed: {Existed})",
-            productId, deleted);
+            "Invalidated {Count}/{Total} cache keys for product {Slug}",
+            deleted, keys.Length, productSlug);
     }
 }

@@ -217,31 +217,25 @@ export class EditReviewPage {
       const s = this.slug();
       const id = this.reviewId();
       if (!s || !id) return;
-      // Hydrate from the product's first-page review list. Acceptable
-      // because the only way a user reaches this page is from their own
-      // review on the product page (where it's already loaded). For deep-
-      // links from a notification etc., a /api/reviews/:id endpoint would
-      // be the right add — out of scope for the kickoff.
-      this.api.listReviews(s, { sort: 'newest' }).subscribe((pg) => {
-        const found = pg.items.find((r) => r.id === id);
-        if (!found) {
-          this.lookupDeep(s, id, pg.nextCursor ?? null);
-          return;
-        }
-        this.fillFrom(found);
-      });
+      // No /api/reviews/:id endpoint yet, so page through the listing.
+      // Reachable only from the user's own review on the product page.
+      this.lookupOnPage(s, id, 1);
     });
   }
 
-  private lookupDeep(slug: string, id: string, cursor: string | null) {
-    if (!cursor) {
-      this.notFound.set(true);
-      return;
-    }
-    this.api.listReviews(slug, { sort: 'newest', cursor }).subscribe((pg) => {
+  private lookupOnPage(slug: string, id: string, page: number) {
+    this.api.listReviews(slug, { sort: 'Helpful', page }).subscribe((pg) => {
       const found = pg.items.find((r) => r.id === id);
-      if (found) this.fillFrom(found);
-      else this.lookupDeep(slug, id, pg.nextCursor ?? null);
+      if (found) {
+        this.fillFrom(found);
+        return;
+      }
+      const totalPages = Math.max(1, Math.ceil(pg.totalCount / pg.pageSize));
+      if (page >= totalPages) {
+        this.notFound.set(true);
+        return;
+      }
+      this.lookupOnPage(slug, id, page + 1);
     });
   }
 

@@ -21,6 +21,17 @@
          in prod; Aspire wires the connection string either way. -->
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.2.4" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
+    <!-- UUIDv7 for entity PKs — time-ordered Guids that append monotonically
+         to PG's btree indexes (random Guid PKs cause page splits across the
+         whole index). Same shape (System.Guid, 16 bytes) so wire/storage are
+         unchanged; only the generation strategy differs. -->
+    <PackageReference Include="UUIDNext" Version="4.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Domain primitives the entities and the workflow contracts both share
+         (Rating enum). One-way dep: shared has no knowledge of infrastructure. -->
+    <ProjectReference Include="..\shared\shared.csproj" />
   </ItemGroup>
 
 </Project>

@@ -3,9 +3,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid #e5e5e5;
-  background: #fafafa;
+  border-bottom: 1px solid var(--color-outline-variant);
+  background: var(--color-surface-container);
   font-family:
+    'Inter',
     system-ui,
     -apple-system,
     sans-serif;
@@ -14,7 +15,7 @@
 .brand {
   font-weight: 600;
   font-size: 1.1rem;
-  color: #111;
+  color: var(--color-on-surface);
   text-decoration: none;
 }
 
@@ -25,12 +26,12 @@
 }
 
 .who {
-  color: #444;
+  color: var(--color-on-surface-muted);
   font-size: 0.9rem;
 }
 
 .link {
-  color: #2563eb;
+  color: var(--color-link);
   text-decoration: none;
   font-size: 0.9rem;
 }
@@ -44,8 +45,9 @@
   margin: 2rem auto;
   padding: 0 1.25rem;
   font-family:
+    'Inter',
     system-ui,
     -apple-system,
     sans-serif;
-  color: #111;
+  color: var(--color-on-surface);
 }

@@ -194,14 +194,14 @@ services:
       # both via real values in prod.
       Turnstile__SiteKey: "1x00000000000000000000AA"
       Turnstile__SecretKey: "1x0000000000000000000000000000000AA"
-      # ZITADEL discovery returns its public URL (the host-mapped
-      # `http://localhost:8080`) inside jwks_uri/token_endpoint/etc. From
-      # inside the api container `localhost` resolves to the api itself,
-      # which would 404 the JWKS fetch. Setting this lets the
-      # ZitadelDockerInternalHandler rewrite all backchannel calls to the
-      # docker-internal hostname (with Host header preserved as the public
-      # authority so ZITADEL's vhost routing still matches).
-      ZITADEL_INTERNAL_URL: http://zitadel:8080
+      # ZITADEL's discovery doc returns its public URL (`http://localhost:8080`)
+      # inside jwks_uri/token_endpoint/etc. From inside the api container
+      # `localhost` resolves to the api itself, which would 404 the JWKS
+      # fetch. Auth__IssuerReachableUrl tells the auth pipeline to rewrite
+      # backchannel calls to the docker-internal hostname (Host header
+      # preserved as the public authority so ZITADEL's vhost routing still
+      # matches).
+      Auth__IssuerReachableUrl: http://zitadel:8080
     volumes:
       - ./infra/zitadel/.app-secrets:/run/secrets:ro
     ports:

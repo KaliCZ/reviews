@@ -1,8 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
-// Pure presentational star rating. In display mode, accepts a numeric `value`
-// (0..5, fractional ok) and shows filled/unfilled stars. In input mode
-// (`interactive=true`), each star is clickable and emits `valueChange`.
 @Component({
   selector: 'app-star-rating',
   changeDetection: ChangeDetectionStrategy.OnPush,

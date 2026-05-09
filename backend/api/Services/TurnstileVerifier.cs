@@ -1,17 +1,12 @@
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
+using Reviews.Api.Controllers;
 
 namespace Reviews.Api.Services;
 
-// Cloudflare Turnstile server-side verification. The frontend renders the
-// widget and ends up with a token; the API sends (token, secret) to
-// challenges.cloudflare.com/turnstile/v0/siteverify and gates the request on
-// the response.
-//
-// Dev uses Cloudflare's documented test keys:
-//   - secret: 1x0000000000000000000000000000000AA  (always passes)
-//   - sitekey: 1x00000000000000000000AA            (always passes, visible widget)
-// so we don't have to hand out a real Cloudflare key for local development.
-// Production: swap via configuration; nothing in the code path changes.
+// Cloudflare Turnstile server-side verification. Dev uses Cloudflare's
+// documented test keys (secret 1x0000...AA, sitekey 1x00...AA) which
+// always pass.
 public interface ITurnstileVerifier
 {
     Task<bool> VerifyAsync(string token, string? remoteIp, CancellationToken ct);
@@ -19,22 +14,15 @@ public interface ITurnstileVerifier
 
 public class TurnstileVerifier(
     HttpClient http,
-    IConfiguration config,
+    IOptions<TurnstileOptions> options,
     ILogger<TurnstileVerifier> logger) : ITurnstileVerifier
 {
     private static readonly Uri SiteVerifyUrl =
-        new("https://challenges.cloudflare.com/turnstile/v0/siteverify");
+        new Uri("https://challenges.cloudflare.com/turnstile/v0/siteverify");
 
     public async Task<bool> VerifyAsync(string token, string? remoteIp, CancellationToken ct)
     {
-        var secret = config["Turnstile:SecretKey"];
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            // Misconfiguration is loud rather than a silent allow. If you
-            // genuinely want to bypass Turnstile in dev, set the test keys.
-            logger.LogError("Turnstile:SecretKey not configured — denying submission");
-            return false;
-        }
+        var secret = options.Value.SecretKey;
 
         var form = new Dictionary<string, string>
         {
@@ -60,8 +48,7 @@ public class TurnstileVerifier(
         }
         catch (Exception ex)
         {
-            // A failing verification call is not the same as a failing token —
-            // log loudly so an outage isn't mistaken for spam, but still deny.
+            // Network/Cloudflare outage — log loudly, still deny.
             logger.LogError(ex, "Turnstile verification call failed");
             return false;
         }

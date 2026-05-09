@@ -1,0 +1,76 @@
+{
+  "nav": {
+    "brand": "Recenze",
+    "signIn": "Přihlásit se",
+    "signOut": "Odhlásit se",
+    "greeting": "Ahoj, {name}"
+  },
+  "common": {
+    "back": "← Zpět",
+    "loadMore": "Načíst další",
+    "submit": "Odeslat",
+    "cancel": "Zrušit",
+    "save": "Uložit změny",
+    "saving": "Ukládání…",
+    "submitting": "Odesílání…",
+    "waitingUploads": "Čeká se na {n} nahrávání…",
+    "delete": "Smazat",
+    "edit": "Upravit",
+    "of": "z",
+    "page": "Stránka",
+    "prev": "← Předchozí",
+    "next": "Další →"
+  },
+  "products": {
+    "noReviews": "Zatím žádné recenze — buďte první.",
+    "moreReviews": "Další recenze →",
+    "writeReview": "Napsat recenzi",
+    "editYourReview": "Upravit vaši recenzi",
+    "signInToReview": "Přihlaste se pro napsání recenze",
+    "reviewsHeading": "Recenze",
+    "reviewCount": "{count} recenzí",
+    "notFound": "Produkt nenalezen."
+  },
+  "reviewList": {
+    "heading": "Všechny recenze",
+    "backToProduct": "← Zpět na produkt",
+    "sort": "Řadit",
+    "sortNewest": "Nejnovější",
+    "sortHelpful": "Nejužitečnější",
+    "sortHighest": "Nejlépe hodnocené",
+    "sortLowest": "Nejhůře hodnocené",
+    "filterRating": "Filtr hodnocení",
+    "withPhotosOnly": "Pouze s fotkami",
+    "noMatches": "Žádné odpovídající recenze."
+  },
+  "submit": {
+    "heading": "Napsat recenzi pro {product}",
+    "rating": "Vaše hodnocení",
+    "title": "Název",
+    "body": "Recenze",
+    "photos": "Fotky (volitelné, max {n})",
+    "photosLimit": "Každá fotka může mít maximálně {mb} MB.",
+    "moderationNotice": "Recenze s tímto hodnocením procházejí moderací, než se zveřejní. Schválení můžete sledovat v Temporal UI.",
+    "uploadFailed": "Nahrání selhalo",
+    "submitFailed": "Odeslání selhalo"
+  },
+  "edit": {
+    "heading": "Upravit vaši recenzi",
+    "moderationNotice": "Úpravy recenzí starších než hodinu procházejí schválením moderátora. Schvalování probíhá v Temporal UI.",
+    "saveFailed": "Uložení selhalo",
+    "notFound": "Recenze nenalezena."
+  },
+  "vote": {
+    "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora."
+  },
+  "theme": {
+    "system": "Systém",
+    "light": "Světlý",
+    "dark": "Tmavý"
+  },
+  "language": {
+    "label": "Jazyk",
+    "en": "English",
+    "cs": "Čeština"
+  }
+}

@@ -3,9 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
 import { ApiService } from '../services/api.service';
-import { ReviewItem } from '../models';
+import { ReviewSort, ReviewsPage } from '../models';
 
-type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
+const PAGE_SIZE = 20;
+const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
 
 @Component({
   imports: [FormsModule, RouterLink, ReviewCard],
@@ -17,42 +18,59 @@ type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
       <label>
         Sort
         <select [(ngModel)]="sort" (ngModelChange)="reload()">
-          <option value="newest">Newest</option>
-          <option value="helpful">Most helpful</option>
-          <option value="highest">Highest rated</option>
-          <option value="lowest">Lowest rated</option>
+          <option value="Newest">Newest</option>
+          <option value="Helpful">Most helpful</option>
+          <option value="Highest">Highest rated</option>
+          <option value="Lowest">Lowest rated</option>
         </select>
       </label>
-      <label>
-        Rating
-        <select [(ngModel)]="rating" (ngModelChange)="reload()">
-          <option [ngValue]="null">All</option>
-          @for (n of [5, 4, 3, 2, 1]; track n) {
-            <option [ngValue]="n">{{ n }} stars</option>
-          }
-        </select>
-      </label>
+      <fieldset class="ratings">
+        <legend>Filter by rating</legend>
+        @for (n of ratingOptions; track n) {
+          <label class="rating-pick">
+            <input
+              type="checkbox"
+              [checked]="selectedRatings.has(n)"
+              (change)="toggleRating(n, $event)"
+            />
+            {{ n }}★
+          </label>
+        }
+      </fieldset>
       <label>
         <input type="checkbox" [(ngModel)]="hasPhotos" (ngModelChange)="reload()" />
         With photos only
       </label>
     </div>
 
-    @for (r of items(); track r.id) {
-      <app-review-card
-        [review]="r"
-        [productSlug]="slug()"
-        (vote)="onVote($event)"
-        (del)="onDelete($event)"
-      />
-    } @empty {
-      @if (loaded()) {
+    @if (page(); as pg) {
+      @for (r of pg.items; track r.id) {
+        <app-review-card
+          [review]="r"
+          [productSlug]="slug()"
+          (vote)="onVote($event)"
+          (del)="onDelete($event)"
+        />
+      } @empty {
         <p class="muted">No reviews match.</p>
       }
-    }
 
-    @if (cursor()) {
-      <p><button type="button" class="link" (click)="loadMore()">Load more</button></p>
+      @if (pg.totalCount > 0) {
+        <nav class="pager">
+          <button type="button" class="link" (click)="goTo(pg.page - 1)" [disabled]="pg.page <= 1">
+            ← Prev
+          </button>
+          <span class="muted">Page {{ pg.page }} of {{ totalPages(pg) }}</span>
+          <button
+            type="button"
+            class="link"
+            (click)="goTo(pg.page + 1)"
+            [disabled]="pg.page >= totalPages(pg)"
+          >
+            Next →
+          </button>
+        </nav>
+      }
     }
   `,
   styles: [
@@ -65,6 +83,7 @@ type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
         gap: 1rem;
         margin-bottom: 1rem;
         align-items: center;
+        flex-wrap: wrap;
       }
       .controls label {
         display: flex;
@@ -74,6 +93,29 @@ type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
       }
       .controls select {
         padding: 0.25rem;
+      }
+      .ratings {
+        display: flex;
+        gap: 0.6rem;
+        align-items: center;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 0.25rem 0.5rem;
+        margin: 0;
+      }
+      .ratings legend {
+        padding: 0 0.25rem;
+        font-size: 0.8rem;
+        color: #666;
+      }
+      .rating-pick {
+        font-size: 0.9rem;
+      }
+      .pager {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin: 1rem 0;
       }
       .muted {
         color: #666;
@@ -87,8 +129,12 @@ type Sort = 'newest' | 'helpful' | 'highest' | 'lowest';
         font-size: 0.9rem;
         text-decoration: none;
       }
-      .link:hover {
+      .link:hover:not(:disabled) {
         text-decoration: underline;
+      }
+      .link:disabled {
+        color: #999;
+        cursor: not-allowed;
       }
     `,
   ],
@@ -97,52 +143,53 @@ export class MoreReviewsPage {
   private readonly api = inject(ApiService);
   readonly slug = input.required<string>();
 
-  protected sort: Sort = 'newest';
-  protected rating: number | null = null;
+  protected readonly ratingOptions = RATING_OPTIONS;
+  protected sort: ReviewSort = 'Helpful';
+  protected selectedRatings = new Set<number>();
   protected hasPhotos = false;
 
-  protected readonly items = signal<ReviewItem[]>([]);
-  protected readonly cursor = signal<string | null>(null);
-  protected readonly loaded = signal(false);
+  protected readonly page = signal<ReviewsPage | null>(null);
 
   constructor() {
     effect(() => {
       const s = this.slug();
-      if (s) this.reload();
+      if (s) this.loadPage(1);
     });
   }
 
   reload() {
-    this.items.set([]);
-    this.cursor.set(null);
-    this.loaded.set(false);
-    this.api
-      .listReviews(this.slug(), { sort: this.sort, rating: this.rating, hasPhotos: this.hasPhotos })
-      .subscribe((pg) => {
-        this.items.set(pg.items);
-        this.cursor.set(pg.nextCursor ?? null);
-        this.loaded.set(true);
-      });
+    this.loadPage(1);
   }
 
-  loadMore() {
-    const c = this.cursor();
-    if (!c) return;
+  goTo(page: number) {
+    this.loadPage(page);
+  }
+
+  toggleRating(n: number, evt: Event) {
+    const checked = (evt.target as HTMLInputElement).checked;
+    if (checked) this.selectedRatings.add(n);
+    else this.selectedRatings.delete(n);
+    this.reload();
+  }
+
+  totalPages(pg: ReviewsPage): number {
+    return Math.max(1, Math.ceil(pg.totalCount / pg.pageSize));
+  }
+
+  private loadPage(page: number) {
     this.api
       .listReviews(this.slug(), {
         sort: this.sort,
-        rating: this.rating,
+        ratings: Array.from(this.selectedRatings),
         hasPhotos: this.hasPhotos,
-        cursor: c,
+        page,
+        pageSize: PAGE_SIZE,
       })
-      .subscribe((pg) => {
-        this.items.update((cur) => [...cur, ...pg.items]);
-        this.cursor.set(pg.nextCursor ?? null);
-      });
+      .subscribe((pg) => this.page.set(pg));
   }
 
-  onVote(e: { id: string; value: 1 | -1 }) {
-    this.api.voteReview(e.id, e.value).subscribe(() => setTimeout(() => this.reload(), 400));
+  onVote(e: { id: string; isUpvote: boolean }) {
+    this.api.voteReview(e.id, e.isUpvote).subscribe(() => setTimeout(() => this.reload(), 400));
   }
 
   onDelete(id: string) {

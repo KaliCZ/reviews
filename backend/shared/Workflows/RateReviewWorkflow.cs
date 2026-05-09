@@ -2,30 +2,27 @@ using Temporalio.Workflows;
 
 namespace Reviews.Shared;
 
-public record VoteInput(Guid ReviewId, Guid VoterId, short Value);
+public record VoteInput(Guid ReviewId, Guid VoterId, bool IsUpvote);
 
-// Vote workflow per docs/flows.md §4. Wraps the vote UPSERT, the score
-// recompute, and the conditional cache refresh in one durable execution so a
-// crash mid-write retries the failed step instead of leaving denorm drift.
+// Vote workflow per docs/flows.md §4. Wraps vote write + score recompute +
+// cache invalidate in one durable execution.
 [Workflow]
 public class RateReviewWorkflow
 {
     [WorkflowRun]
     public async Task<string> RunAsync(VoteInput input)
     {
-        // UpsertVote returns the product_id of the review (so we know which
-        // page-1 cache to invalidate) or null if the review doesn't exist.
-        var productId = await Workflow.ExecuteActivityAsync<long?>(
-            ReviewActivityNames.UpsertVote,
+        var result = await Workflow.ExecuteActivityAsync<VoteResult>(
+            ReviewActivityNames.RecordVote,
             new object[] { input },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
-        if (productId is null) return "review-not-found";
+        if (!result.ReviewFound) return "review-not-found";
 
         await Workflow.ExecuteActivityAsync(
-            ReviewActivityNames.RefreshFirstPageCache,
-            new object[] { productId.Value },
-            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+            ReviewActivityNames.InvalidateProductCaches,
+            new object[] { result.ProductSlug },
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         return "voted";
     }

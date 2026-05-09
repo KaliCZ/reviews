@@ -7,7 +7,11 @@
 #   admin-pat.txt   — PAT for the bootstrap service account
 #
 # Outputs (written to /app-secrets):
-#   zitadel.env     — ZITADEL_ISSUER / ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET
+#   zitadel.env     — KEY=VALUE flat dotenv for the JS BFF
+#   Auth__IssuerUrl — KeyPerFile entries for the .NET API (one file per key,
+#   Auth__Audience    filename = config key with `__` standing in for `:`).
+#                     The api's KeyPerFileConfigurationProvider picks them up
+#                     automatically.
 #
 # Both paths are bind-mounted volumes; reset by `docker compose down -v` or
 # by deleting `infra/zitadel/.secrets/` and `infra/zitadel/.app-secrets/`.
@@ -124,4 +128,14 @@ ZITADEL_ISSUER=$ISSUER
 ZITADEL_CLIENT_ID=$CID
 ZITADEL_CLIENT_SECRET=$SEC
 EOF
+
+# Per-key files for the .NET API (KeyPerFileConfigurationProvider). Filenames
+# encode the IConfiguration key with `__` standing in for `:` — so
+# `Auth__IssuerUrl` surfaces as `Auth:IssuerUrl`. RequireHttps is left to the
+# api's appsettings (true in prod, overridden to false in compose); we don't
+# write it here so the framework's normal precedence stays predictable.
+echo "[bootstrap] Writing per-key secret files for the API"
+printf "%s" "$ISSUER" > /app-secrets/Auth__IssuerUrl
+printf "%s" "$CID"    > /app-secrets/Auth__Audience
+
 echo "[bootstrap] Done. Test login: alice / Password1!"

@@ -3,70 +3,76 @@ using StrongTypes;
 
 namespace Reviews.Worker.Tests;
 
-// Entity-level invariants. The Review ctor takes NonEmptyString for the
-// author / title / body, so empty strings are rejected at the type system
-// level (they can't be constructed). Rating is a primitive short, so the
-// range guard is checked separately.
 public class ReviewEntityTests
 {
-    [Fact]
-    public void Ctor_accepts_valid_input()
-    {
-        var review = new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: 4,
-            title: "Solid".ToNonEmpty(),
-            body: "Tried it for a week, no complaints.".ToNonEmpty(),
-            imageUrls: []);
+    private static Review NewReview(Rating rating = Rating.Four) => new Review(
+        id:         Guid.NewGuid(),
+        productId:  1,
+        authorId:   Guid.NewGuid(),
+        authorName: "Alice".ToNonEmpty(),
+        rating:     rating,
+        title:      "T".ToNonEmpty(),
+        body:       "Body".ToNonEmpty(),
+        imageUrls:  []);
 
-        Assert.Equal("Alice", review.AuthorName.Value);
+    [Fact]
+    public void ApplyEdit_updates_fields_and_keeps_status()
+    {
+        var review = NewReview();
+        review.Approve();
+
+        review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), []);
+
+        Assert.Equal(Rating.Two, review.Rating);
+        Assert.Equal("Updated", review.Title.Value);
+        Assert.Equal("New body", review.Body.Value);
+        // ApplyEdit must NOT reset Status — moderation runs separately in the workflow.
+        Assert.Equal(ReviewStatus.Approved, review.Status);
+    }
+
+    [Fact]
+    public void Approve_flips_status_from_pending()
+    {
+        var review = NewReview();
         Assert.Equal(ReviewStatus.Pending, review.Status);
-    }
 
-    [Theory]
-    [InlineData((short)0)]
-    [InlineData((short)6)]
-    [InlineData((short)-1)]
-    [InlineData((short)100)]
-    public void Rating_outside_one_to_five_is_rejected(short rating)
-    {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: rating,
-            title: "T".ToNonEmpty(),
-            body: "Body".ToNonEmpty(),
-            imageUrls: []));
+        review.Approve();
+
+        Assert.Equal(ReviewStatus.Approved, review.Status);
     }
 
     [Fact]
-    public void Empty_body_is_a_compile_or_runtime_error()
+    public void Reject_flips_status_from_pending()
     {
-        // The StrongTypes contract: ToNonEmpty throws for empty input. The
-        // Review ctor parameter is NonEmptyString, so the failure is at the
-        // call site, not deep inside the entity.
-        Assert.Throws<ArgumentException>(() => "".ToNonEmpty());
+        var review = NewReview();
+
+        review.Reject();
+
+        Assert.Equal(ReviewStatus.Rejected, review.Status);
     }
 
     [Fact]
-    public void ApplyEdit_rejects_invalid_rating()
+    public void SoftDelete_is_terminal_and_blocks_reapproval()
     {
-        var review = new Review(
-            id: Guid.NewGuid(),
-            productId: 1,
-            authorId: Guid.NewGuid(),
-            authorName: "Alice".ToNonEmpty(),
-            rating: 4,
-            title: "T".ToNonEmpty(),
-            body: "Body".ToNonEmpty(),
-            imageUrls: []);
+        var review = NewReview();
+        review.Approve();
+        review.SoftDelete();
 
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            review.ApplyEdit(0, "T".ToNonEmpty(), "Body".ToNonEmpty(), []));
+        Assert.Equal(ReviewStatus.Deleted, review.Status);
+        // SoftDelete is terminal so the audit trail can't be rewritten.
+        Assert.Throws<InvalidOperationException>(() => review.Approve());
+        Assert.Throws<InvalidOperationException>(() => review.Reject());
+    }
+
+    [Fact]
+    public void RecordScore_sets_score_and_bumps_updated()
+    {
+        var review = NewReview();
+        var before = review.UpdatedAtUtc;
+
+        review.RecordScore(7);
+
+        Assert.Equal(7, review.Score);
+        Assert.True(review.UpdatedAtUtc >= before);
     }
 }

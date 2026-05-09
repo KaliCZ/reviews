@@ -5,10 +5,6 @@ import { StarRating } from '../components/star-rating';
 import { AuthService } from '../services/auth.service';
 import { ReviewItem } from '../models';
 
-// Reused on the product detail page and the more-reviews list. Vote buttons
-// switch on the viewer's existing vote (highlighted), and edit/delete links
-// appear only on the viewer's own review (matched via author_id derived from
-// OIDC sub on the API side).
 @Component({
   selector: 'app-review-card',
   imports: [DatePipe, RouterLink, StarRating],
@@ -21,7 +17,7 @@ import { ReviewItem } from '../models';
       <div class="meta">
         <span>{{ review().authorName }}</span>
         <span>·</span>
-        <time>{{ review().createdAt | date: 'mediumDate' }}</time>
+        <time>{{ review().createdAtUtc | date: 'mediumDate' }}</time>
       </div>
       <p class="body">{{ review().body }}</p>
       @if (review().imageUrls.length > 0) {
@@ -36,9 +32,9 @@ import { ReviewItem } from '../models';
           <button
             type="button"
             class="vote"
-            [class.active]="review().myVote === 1"
+            [class.active]="review().myVote === true"
             [disabled]="!auth.authenticated() || busy()"
-            (click)="cast(1)"
+            (click)="cast(true)"
           >
             ▲
           </button>
@@ -46,9 +42,9 @@ import { ReviewItem } from '../models';
           <button
             type="button"
             class="vote"
-            [class.active]="review().myVote === -1"
+            [class.active]="review().myVote === false"
             [disabled]="!auth.authenticated() || busy()"
-            (click)="cast(-1)"
+            (click)="cast(false)"
           >
             ▼
           </button>
@@ -77,7 +73,7 @@ import { ReviewItem } from '../models';
     `
       .review {
         padding: 1rem 0;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid var(--color-outline-variant);
       }
       .review header {
         display: flex;
@@ -88,7 +84,7 @@ import { ReviewItem } from '../models';
         font-weight: 600;
       }
       .meta {
-        color: #666;
+        color: var(--color-on-surface-muted);
         font-size: 0.85rem;
         margin: 0.25rem 0 0.5rem;
         display: flex;
@@ -122,17 +118,18 @@ import { ReviewItem } from '../models';
         gap: 0.4rem;
       }
       .vote {
-        background: #fff;
-        border: 1px solid #ccc;
+        background: var(--color-surface);
+        border: 1px solid var(--color-outline);
+        color: var(--color-on-surface);
         padding: 0.15rem 0.5rem;
         border-radius: 4px;
         cursor: pointer;
         font-size: 1rem;
       }
       .vote.active {
-        background: #2563eb;
-        color: #fff;
-        border-color: #2563eb;
+        background: var(--color-primary);
+        color: var(--color-on-primary);
+        border-color: var(--color-primary);
       }
       .vote:disabled {
         opacity: 0.5;
@@ -151,7 +148,7 @@ import { ReviewItem } from '../models';
         background: none;
         border: none;
         padding: 0;
-        color: #2563eb;
+        color: var(--color-link);
         cursor: pointer;
         font-size: 0.9rem;
         text-decoration: none;
@@ -160,7 +157,7 @@ import { ReviewItem } from '../models';
         text-decoration: underline;
       }
       .danger {
-        color: #dc2626;
+        color: var(--color-error);
       }
     `,
   ],
@@ -172,16 +169,14 @@ export class ReviewCard {
   readonly productSlug = input.required<string>();
   readonly busy = input(false);
 
-  readonly vote = output<{ id: string; value: 1 | -1 }>();
+  readonly vote = output<{ id: string; isUpvote: boolean }>();
   readonly del = output<string>();
 
-  // API computes this server-side (current viewer's hashed `sub` vs review
-  // author_id). Destructive actions are still gated by the API independently;
-  // this flag is purely about UI affordances.
+  // UI affordance only — destructive actions are gated server-side.
   readonly isMine = computed(() => this.review().mine);
 
-  cast(value: 1 | -1) {
+  cast(isUpvote: boolean) {
     if (!this.auth.authenticated()) return;
-    this.vote.emit({ id: this.review().id, value });
+    this.vote.emit({ id: this.review().id, isUpvote });
   }
 }

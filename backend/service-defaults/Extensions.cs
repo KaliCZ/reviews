@@ -88,9 +88,7 @@ public static class Extensions
         return builder;
     }
 
-    // Opt-in: registers readiness checks for the infra each service depends on.
-    // Resolved from DI, so AddNpgsqlDataSource / AddRedisClient / Temporal client
-    // must already be wired before any of these run.
+    // Resolved from DI; the corresponding clients must already be wired.
     public static IHealthChecksBuilder AddInfraHealthChecks(this IHealthChecksBuilder builder) =>
         builder
             .AddNpgSql(sp => sp.GetRequiredService<NpgsqlDataSource>(), name: "postgres")
@@ -99,12 +97,8 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // /health (readiness — all checks must pass) and /alive (liveness — only
-        // checks tagged "live") are exposed unconditionally so docker compose
-        // healthchecks and Aspire WaitFor can probe them. In a real prod
-        // deployment behind a reverse proxy / auth layer, both routes should be
-        // restricted (see https://aka.ms/dotnet/aspire/healthchecks). For our
-        // local-dev/CI compose stack, that's not a concern.
+        // /health and /alive are exposed unauthenticated for compose/Aspire probes.
+        // See https://aka.ms/dotnet/aspire/healthchecks for prod hardening.
         app.MapHealthChecks(HealthEndpointPath);
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {

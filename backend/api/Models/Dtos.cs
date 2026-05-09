@@ -1,82 +1,91 @@
+using Reviews.Infrastructure.Entities;
 using StrongTypes;
 
 namespace Reviews.Api.Models;
 
-// JSON shapes the API and SPA agree on. `record` for value-equality and terse
-// declaration; StrongTypes wrappers carry intent into the payload — empty
-// strings, missing required fields and rating overflows fail at deserialization
-// before the controller runs (see the JsonConverter on each wrapper).
+public record ProductSummary
+{
+    public long Id { get; init; }
+    public NonEmptyString Slug { get; init; } = default!;
+    public NonEmptyString Name { get; init; } = default!;
+    public NonEmptyString? ImageUrl { get; init; }
+    public double AverageRating { get; init; }
+    public int ReviewCount { get; init; }
+}
 
-public record ProductSummary(
-    long Id,
-    NonEmptyString Slug,
-    NonEmptyString Name,
-    NonEmptyString? ImageUrl,
-    double AverageRating,
-    int ReviewCount);
+public record ProductDetail
+{
+    public long Id { get; init; }
+    public NonEmptyString Slug { get; init; } = default!;
+    public NonEmptyString Name { get; init; } = default!;
+    public NonEmptyString Description { get; init; } = default!;
+    public NonEmptyString? ImageUrl { get; init; }
+    public double AverageRating { get; init; }
+    public int ReviewCount { get; init; }
+    public Guid? MyReviewId { get; init; }
+}
 
-public record ProductDetail(
-    long Id,
-    NonEmptyString Slug,
-    NonEmptyString Name,
-    NonEmptyString Description,
-    NonEmptyString? ImageUrl,
-    double AverageRating,
-    int ReviewCount,
-    // The user's existing review for this product, if any. Null when the
-    // current viewer hasn't reviewed it. The SPA uses this to gate the
-    // "Write a review" CTA into "Edit your review".
-    Guid? MyReviewId);
+public record ReviewItem
+{
+    public Guid Id { get; init; }
+    public long ProductId { get; init; }
+    public Guid AuthorId { get; init; }
+    public NonEmptyString AuthorName { get; init; } = default!;
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
+    public IReadOnlyList<string> ImageUrls { get; init; } = Array.Empty<string>();
+    public int Score { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    public DateTime UpdatedAtUtc { get; init; }
+    public bool? MyVote { get; init; }
+    public bool Mine { get; init; }
+}
 
-public record ReviewItem(
-    Guid Id,
-    long ProductId,
-    Guid AuthorId,
-    NonEmptyString AuthorName,
-    short Rating,
-    NonEmptyString Title,
-    NonEmptyString Body,
-    IReadOnlyList<NonEmptyString> ImageUrls,
-    int Score,
-    DateTime CreatedAt,
-    DateTime UpdatedAt,
-    // The current viewer's vote on this review (+1 / -1 / null). Computed via
-    // a single LEFT JOIN at read time; cheap enough that there's no point
-    // caching it.
-    short? MyVote,
-    // True if the current viewer authored this review. Lets the SPA show
-    // edit/delete actions on the user's own rows without leaking the
-    // hashed AuthorId comparison logic to the client.
-    bool Mine);
+public record ReviewsPage
+{
+    public IReadOnlyList<ReviewItem> Items { get; init; } = Array.Empty<ReviewItem>();
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalCount { get; init; }
+}
 
-public record ReviewsPage(
-    IReadOnlyList<ReviewItem> Items,
-    string? NextCursor);
+// Type-level converter (not global) — a global JsonStringEnumConverter would
+// shadow RatingJsonConverter and break the int 1..5 wire format for stars.
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum ReviewSort
+{
+    Newest = 0,
+    Helpful = 1,
+    Highest = 2,
+    Lowest = 3,
+}
 
-public record SubmitReviewRequest(
-    long ProductId,
-    short Rating,
-    NonEmptyString Title,
-    NonEmptyString Body,
-    IReadOnlyList<NonEmptyString>? ImageUrls,
-    // Cloudflare Turnstile token from the widget. Required in production;
-    // dev uses Cloudflare's always-passes test keys.
-    NonEmptyString TurnstileToken);
+public record SubmitReviewRequest
+{
+    public long ProductId { get; init; }
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
+    public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
+    public NonEmptyString TurnstileToken { get; init; } = default!;
+}
 
-public record EditReviewRequest(
-    short Rating,
-    NonEmptyString Title,
-    NonEmptyString Body,
-    IReadOnlyList<NonEmptyString>? ImageUrls);
+public record EditReviewRequest
+{
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
+    public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
+}
 
-public record VoteRequest(short Value);
+public record VoteRequest
+{
+    public bool IsUpvote { get; init; }
+}
 
-// Returned by mutation endpoints — the caller uses workflowId to poll status
-// or to find the workflow in the Temporal UI for moderation.
-public record AcceptedResponse(NonEmptyString WorkflowId, NonEmptyString Status);
+public record AcceptedResponse(string WorkflowId, string Status);
 
-public record ConfigResponse(NonEmptyString TurnstileSiteKey);
+public record ConfigResponse(string TurnstileSiteKey);
 
-// Returned by POST /api/images — the public URL the SPA stores in the review's
-// ImageUrls. Servers and clients both use the same `/api/images/...` shape.
-public record UploadedImage(NonEmptyString Url);
+public record UploadedImage(string Url);

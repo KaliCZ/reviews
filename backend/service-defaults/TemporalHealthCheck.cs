@@ -12,7 +12,7 @@ internal sealed class TemporalHealthCheck(ITemporalClient client) : IHealthCheck
         try
         {
             var healthy = await client.Connection.CheckHealthAsync(
-                options: new() { CancellationToken = cancellationToken });
+                options: new Temporalio.Client.RpcOptions { CancellationToken = cancellationToken });
             return healthy
                 ? HealthCheckResult.Healthy()
                 : HealthCheckResult.Unhealthy("Temporal frontend reported unhealthy");
