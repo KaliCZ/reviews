@@ -20,8 +20,7 @@ public class ReviewEntityTests
             rating: Rating.Four,
             title: "Solid".ToNonEmpty(),
             body: "Tried it for a week, no complaints.".ToNonEmpty(),
-            imageUrls: [],
-            language: "en".ToNonEmpty());
+            imageUrls: []);
 
         Assert.Equal("Alice", review.AuthorName.Value);
         Assert.Equal(ReviewStatus.Pending, review.Status);
@@ -48,15 +47,13 @@ public class ReviewEntityTests
             rating: Rating.Four,
             title: "T".ToNonEmpty(),
             body: "Body".ToNonEmpty(),
-            imageUrls: [],
-            language: "en".ToNonEmpty());
+            imageUrls: []);
 
-        review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), [], "cs".ToNonEmpty());
+        review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), []);
 
         Assert.Equal(Rating.Two, review.Rating);
         Assert.Equal("Updated", review.Title.Value);
         Assert.Equal("New body", review.Body.Value);
-        Assert.Equal("cs", review.Language.Value);
     }
 
     [Fact]
@@ -70,8 +67,7 @@ public class ReviewEntityTests
             rating: Rating.Five,
             title: "T".ToNonEmpty(),
             body: "Body".ToNonEmpty(),
-            imageUrls: [],
-            language: "en".ToNonEmpty());
+            imageUrls: []);
 
         review.Approve();
         Assert.Equal(ReviewStatus.Approved, review.Status);

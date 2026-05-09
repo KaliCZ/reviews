@@ -18,9 +18,6 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
     public const int TitleMaxLength = 200;
     public const int BodyMaxLength = 4000;
     public const int MaxImagesPerReview = 5;
-    // BCP-47 language tag — generous cap so future regional tags
-    // (e.g. zh-Hant-HK) fit without a migration.
-    public const int LanguageMaxLength = 16;
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Review> Reviews => Set<Review>();
@@ -42,7 +39,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.Property(p => p.Name).IsRequired().HasMaxLength(NameMaxLength);
             e.Property(p => p.Description).IsRequired().HasMaxLength(DescriptionMaxLength);
             e.Property(p => p.ImageUrl).HasMaxLength(ImageUrlMaxLength);
-            e.Property(p => p.CreatedAt).HasDefaultValueSql("NOW()");
+            e.Property(p => p.CreatedAtUtc).HasDefaultValueSql("NOW()");
         });
 
         b.Entity<Review>(e =>
@@ -58,7 +55,6 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
             e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
-            e.Property(r => r.Language).IsRequired().HasMaxLength(LanguageMaxLength);
 
             // Rating is the `Rating` enum on the CLR side, smallint on disk.
             // Member values 1..5 line up with the storage encoding so the
@@ -92,8 +88,8 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 $"\"Status\" BETWEEN {(int)ReviewStatus.Pending} AND {(int)ReviewStatus.Deleted}"));
 
             e.Property(r => r.Score).HasDefaultValue(0);
-            e.Property(r => r.CreatedAt).HasDefaultValueSql("NOW()");
-            e.Property(r => r.UpdatedAt).HasDefaultValueSql("NOW()");
+            e.Property(r => r.CreatedAtUtc).HasDefaultValueSql("NOW()");
+            e.Property(r => r.UpdatedAtUtc).HasDefaultValueSql("NOW()");
 
             e.HasOne(r => r.Product)
                 .WithMany(p => p.Reviews)
@@ -112,7 +108,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             // Sort indexes for the three approved-only listings. Each carries
             // the (id) tiebreaker so paging stays deterministic.
             var approvedFilter = $"\"Status\" = {(int)ReviewStatus.Approved}";
-            e.HasIndex(r => new { r.ProductId, r.CreatedAt, r.Id })
+            e.HasIndex(r => new { r.ProductId, r.CreatedAtUtc, r.Id })
                 .HasDatabaseName("idx_reviews_newest")
                 .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
@@ -120,7 +116,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 .HasDatabaseName("idx_reviews_helpful")
                 .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
-            e.HasIndex(r => new { r.ProductId, r.Rating, r.CreatedAt, r.Id })
+            e.HasIndex(r => new { r.ProductId, r.Rating, r.CreatedAtUtc, r.Id })
                 .HasDatabaseName("idx_reviews_rating")
                 .HasFilter(approvedFilter)
                 .IsDescending(false, true, true, true);
@@ -133,7 +129,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             // single UPSERT and prevents double-voting at the storage layer.
             e.HasKey(v => new { v.ReviewId, v.VoterId });
             e.Property(v => v.IsUpvote).HasColumnName("IsUpvote");
-            e.Property(v => v.CreatedAt).HasDefaultValueSql("NOW()");
+            e.Property(v => v.CreatedAtUtc).HasDefaultValueSql("NOW()");
 
             e.HasOne(v => v.Review)
                 .WithMany(r => r.Votes)

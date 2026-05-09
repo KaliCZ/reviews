@@ -64,18 +64,13 @@ public class ReviewsController(
             Rating:     req.Rating,
             Title:      req.Title,
             Body:       req.Body,
-            ImageUrls:  req.ImageUrls ?? [],
-            Language:   req.Language);
+            ImageUrls:  req.ImageUrls ?? []);
 
         var handle = await temporal.StartWorkflowAsync(
             (SubmitReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"submit-review-{reviewId:N}", taskQueue: ReviewQueues.TaskQueue));
 
-        return Accepted(new AcceptedResponse
-        {
-            WorkflowId = handle.Id.ToNonEmpty(),
-            Status = "submitted".ToNonEmpty(),
-        });
+        return Accepted(new AcceptedResponse(handle.Id, "submitted"));
     }
 
     [HttpPut("{id:guid}")]
@@ -91,18 +86,13 @@ public class ReviewsController(
             Rating:    req.Rating,
             Title:     req.Title,
             Body:      req.Body,
-            ImageUrls: req.ImageUrls ?? [],
-            Language:  req.Language);
+            ImageUrls: req.ImageUrls ?? []);
 
         var handle = await temporal.StartWorkflowAsync(
             (EditReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"edit-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
 
-        return Accepted(new AcceptedResponse
-        {
-            WorkflowId = handle.Id.ToNonEmpty(),
-            Status = "edit-submitted".ToNonEmpty(),
-        });
+        return Accepted(new AcceptedResponse(handle.Id, "edit-submitted"));
     }
 
     [HttpDelete("{id:guid}")]
@@ -112,11 +102,7 @@ public class ReviewsController(
         var handle = await temporal.StartWorkflowAsync(
             (DeleteReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"delete-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
-        return Accepted(new AcceptedResponse
-        {
-            WorkflowId = handle.Id.ToNonEmpty(),
-            Status = "delete-submitted".ToNonEmpty(),
-        });
+        return Accepted(new AcceptedResponse(handle.Id, "delete-submitted"));
     }
 
     [HttpPost("{id:guid}/vote")]
@@ -125,17 +111,18 @@ public class ReviewsController(
     {
         var user = currentUser.User!;
         var input = new VoteInput(id, user.Id, req.IsUpvote);
+        // Workflow id is deterministic per (review, voter) so concurrent or
+        // rapid-fire votes by the same user on the same review serialize on
+        // the server. UseExisting joins an in-flight execution rather than
+        // failing on the duplicate id — a rapid double-click becomes a no-op
+        // that returns the existing handle. The activity itself is now a
+        // fetch-or-create on the row, so it's safe to be the only writer.
         var handle = await temporal.StartWorkflowAsync(
             (RateReviewWorkflow wf) => wf.RunAsync(input),
-            // workflow id includes voter so concurrent votes by different
-            // users on the same review don't collide; same-user re-votes
-            // start fresh executions which the activity collapses via UPSERT.
-            new(id: $"vote-{id:N}-{user.Id:N}-{Sequential.NewGuid():N}",
-                taskQueue: ReviewQueues.TaskQueue));
-        return Accepted(new AcceptedResponse
-        {
-            WorkflowId = handle.Id.ToNonEmpty(),
-            Status = "voted".ToNonEmpty(),
-        });
+            new(id: $"vote-{id:N}-{user.Id:N}", taskQueue: ReviewQueues.TaskQueue)
+            {
+                IdConflictPolicy = Temporalio.Api.Enums.V1.WorkflowIdConflictPolicy.UseExisting,
+            });
+        return Accepted(new AcceptedResponse(handle.Id, "voted"));
     }
 }

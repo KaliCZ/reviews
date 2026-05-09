@@ -4,66 +4,74 @@ using StrongTypes;
 namespace Reviews.Api.Models;
 
 // JSON shapes the API and SPA agree on. `record` for value-equality and terse
-// declaration; StrongTypes wrappers carry intent into the payload — empty
-// strings, missing required fields and rating overflows fail at deserialization
-// before the controller runs (see the JsonConverter on each wrapper).
+// declaration; StrongTypes wrappers carry intent into the payload.
 //
-// `required` on every property propagates through to the OpenAPI spec via
-// Swashbuckle's built-in handling — the previous custom RequireNonNullable-
-// SchemaFilter was redundant since C#'s `required` keyword already maps 1:1
-// to the spec's `required` list, which the TS codegen reads. Use object-
-// initializer syntax (`new ProductSummary { Id = …, Slug = …, … }`) at every
-// call site so the compiler enforces that all required members are set.
+// `required` policy — asymmetric on purpose:
+//   * Request DTOs KEEP `required`. System.Text.Json honours it at deserialization
+//     and throws JsonException when the wire payload omits the property — that's
+//     the runtime missing-field validation we want at the wire boundary.
+//   * Response DTOs DROP `required`. We construct these in C#; Swashbuckle is
+//     configured with `NonNullableReferenceTypesAsRequired()` (Program.cs) so the
+//     OpenAPI `required` array still gets populated from C# nullability annotations.
+//     `= default!` initialisers on `init`-only properties suppress CS8618 without
+//     forcing every call site into a positional record.
+//
+// NonEmptyString policy — also asymmetric:
+//   * Request DTOs use NonEmptyString for fields that must be non-blank. The
+//     wrapper's JsonConverter rejects empty / whitespace at deserialization
+//     before the controller runs. That's its purpose.
+//   * Response DTOs only use NonEmptyString when the value comes straight from
+//     an EF entity that already carries it (e.g. ProductSummary.Slug). Fields we
+//     synthesise in the controller (workflow ids, status strings, blob URLs)
+//     stay as plain `string` — wrapping them via `.ToNonEmpty()` at the
+//     construction site was ceremony with no validation benefit.
 
 public record ProductSummary
 {
-    public required long Id { get; init; }
-    public required NonEmptyString Slug { get; init; }
-    public required NonEmptyString Name { get; init; }
-    public required NonEmptyString? ImageUrl { get; init; }
-    public required double AverageRating { get; init; }
-    public required int ReviewCount { get; init; }
+    public long Id { get; init; }
+    public NonEmptyString Slug { get; init; } = default!;
+    public NonEmptyString Name { get; init; } = default!;
+    public NonEmptyString? ImageUrl { get; init; }
+    public double AverageRating { get; init; }
+    public int ReviewCount { get; init; }
 }
 
 public record ProductDetail
 {
-    public required long Id { get; init; }
-    public required NonEmptyString Slug { get; init; }
-    public required NonEmptyString Name { get; init; }
-    public required NonEmptyString Description { get; init; }
-    public required NonEmptyString? ImageUrl { get; init; }
-    public required double AverageRating { get; init; }
-    public required int ReviewCount { get; init; }
+    public long Id { get; init; }
+    public NonEmptyString Slug { get; init; } = default!;
+    public NonEmptyString Name { get; init; } = default!;
+    public NonEmptyString Description { get; init; } = default!;
+    public NonEmptyString? ImageUrl { get; init; }
+    public double AverageRating { get; init; }
+    public int ReviewCount { get; init; }
     // The user's existing review for this product, if any. Null when the
     // current viewer hasn't reviewed it. The SPA uses this to gate the
     // "Write a review" CTA into "Edit your review".
-    public required Guid? MyReviewId { get; init; }
+    public Guid? MyReviewId { get; init; }
 }
 
 public record ReviewItem
 {
-    public required Guid Id { get; init; }
-    public required long ProductId { get; init; }
-    public required Guid AuthorId { get; init; }
-    public required NonEmptyString AuthorName { get; init; }
-    public required Rating Rating { get; init; }
-    public required NonEmptyString Title { get; init; }
-    public required NonEmptyString Body { get; init; }
-    public required IReadOnlyList<NonEmptyString> ImageUrls { get; init; }
-    // BCP-47 language tag of Title + Body. The SPA shows a "Translate"
-    // affordance only when this differs from the viewer's UI locale.
-    public required NonEmptyString Language { get; init; }
-    public required int Score { get; init; }
-    public required DateTime CreatedAt { get; init; }
-    public required DateTime UpdatedAt { get; init; }
+    public Guid Id { get; init; }
+    public long ProductId { get; init; }
+    public Guid AuthorId { get; init; }
+    public NonEmptyString AuthorName { get; init; } = default!;
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
+    public IReadOnlyList<string> ImageUrls { get; init; } = Array.Empty<string>();
+    public int Score { get; init; }
+    public DateTime CreatedAtUtc { get; init; }
+    public DateTime UpdatedAtUtc { get; init; }
     // The current viewer's vote on this review (true = upvote, false =
     // downvote, null = no vote). Computed via a single LEFT JOIN at read
     // time; cheap enough that there's no point caching it.
-    public required bool? MyVote { get; init; }
+    public bool? MyVote { get; init; }
     // True if the current viewer authored this review. Lets the SPA show
     // edit/delete actions on the user's own rows without leaking the
     // hashed AuthorId comparison logic to the client.
-    public required bool Mine { get; init; }
+    public bool Mine { get; init; }
 }
 
 // Offset-based pagination — chosen for the reviews list because users on a
@@ -71,10 +79,10 @@ public record ReviewItem
 // on refresh. TotalCount comes back so the SPA can render a real pager.
 public record ReviewsPage
 {
-    public required IReadOnlyList<ReviewItem> Items { get; init; }
-    public required int Page { get; init; }
-    public required int PageSize { get; init; }
-    public required int TotalCount { get; init; }
+    public IReadOnlyList<ReviewItem> Items { get; init; } = Array.Empty<ReviewItem>();
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalCount { get; init; }
 }
 
 // Wire enum for the reviews listing sort key. Serialized as a string via
@@ -105,10 +113,6 @@ public record SubmitReviewRequest
     // is also accepted. The element type is NonEmptyString so empty URLs
     // can't slip in.
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
-    // BCP-47 language tag the submitter wrote the review in. The SPA fills
-    // it from its current UI locale; required so we never store a NULL
-    // language and have to guess later.
-    public required NonEmptyString Language { get; init; }
     // Cloudflare Turnstile token from the widget. Required in production;
     // dev uses Cloudflare's always-passes test keys.
     public required NonEmptyString TurnstileToken { get; init; }
@@ -120,7 +124,6 @@ public record EditReviewRequest
     public required NonEmptyString Title { get; init; }
     public required NonEmptyString Body { get; init; }
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
-    public required NonEmptyString Language { get; init; }
 }
 
 // True = upvote, False = downvote. Boolean replaces the prior tri-state short
@@ -131,21 +134,13 @@ public record VoteRequest
 }
 
 // Returned by mutation endpoints — the caller uses workflowId to poll status
-// or to find the workflow in the Temporal UI for moderation.
-public record AcceptedResponse
-{
-    public required NonEmptyString WorkflowId { get; init; }
-    public required NonEmptyString Status { get; init; }
-}
+// or to find the workflow in the Temporal UI for moderation. Positional
+// record: small, constructed in one place per controller, no init-time
+// initialisation noise.
+public record AcceptedResponse(string WorkflowId, string Status);
 
-public record ConfigResponse
-{
-    public required NonEmptyString TurnstileSiteKey { get; init; }
-}
+public record ConfigResponse(string TurnstileSiteKey);
 
 // Returned by POST /api/images — the public URL the SPA stores in the review's
 // ImageUrls. Servers and clients both use the same `/api/images/...` shape.
-public record UploadedImage
-{
-    public required NonEmptyString Url { get; init; }
-}
+public record UploadedImage(string Url);

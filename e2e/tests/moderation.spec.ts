@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { Connection, Client } from "@temporalio/client";
+import { submitReview, waitForReviewVisible } from "./helpers/submit";
 
 test.use({ storageState: ".auth/storage-state.json" });
 
@@ -24,29 +25,14 @@ test("5-star review waits for moderation, appears after Approve signal", async (
     (await writeCta.count()) === 0,
     `Alice already has a review on ${productSlug} — wipe state with \`docker compose down -v\` and rerun`,
   );
-  await writeCta.click();
 
-  // Submit a 5-star review.
-  await page.locator("span.stars.interactive button.star").nth(4).click();
-  await page.getByLabel("Title", { exact: true }).fill("Pending moderation");
   const body = `Moderation e2e ${Date.now()} — workflow should pause for an Approve signal.`;
-  await page.getByLabel("Review", { exact: false }).fill(body);
-  await page.waitForFunction(
-    () =>
-      Array.from(
-        document.querySelectorAll('input[name="cf-turnstile-response"]'),
-      ).some((i) => (i as HTMLInputElement).value.length > 0),
-    null,
-    { timeout: 30_000 },
-  );
-
-  const submitResponse = page.waitForResponse(
-    (r) => r.url().endsWith("/api/reviews") && r.request().method() === "POST",
-  );
-  await page.getByRole("button", { name: /Submit review/i }).click();
-  const resp = await submitResponse;
-  expect(resp.status()).toBe(202);
-  const { workflowId } = (await resp.json()) as { workflowId: string };
+  const { workflowId } = await submitReview(page, {
+    productSlug,
+    rating: 5,
+    title: "Pending moderation",
+    body,
+  });
   expect(workflowId).toMatch(/^submit-review-/);
 
   // The moderation gate runs before persist, so the review should NOT be on
@@ -72,15 +58,5 @@ test("5-star review waits for moderation, appears after Approve signal", async (
 
   // After the signal, the workflow finishes the persist + cache-refresh
   // activities. Reload until the review shows up.
-  await expect
-    .poll(
-      async () => {
-        await page.reload();
-        return await page
-          .locator("article.review .body", { hasText: body })
-          .count();
-      },
-      { timeout: 30_000, intervals: [1000, 2000, 3000] },
-    )
-    .toBeGreaterThan(0);
+  await waitForReviewVisible(page, productSlug, body);
 });

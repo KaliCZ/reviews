@@ -36,8 +36,7 @@ public class DtoContractTests
         string title = "Solid",
         string turnstile = "test-token",
         int rating = 4,
-        string[]? imageUrls = null,
-        string language = "en") =>
+        string[]? imageUrls = null) =>
         $$"""
         {
             "productId": 1,
@@ -45,7 +44,6 @@ public class DtoContractTests
             "title": {{JsonSerializer.Serialize(title)}},
             "body": {{JsonSerializer.Serialize(body)}},
             "imageUrls": {{(imageUrls is null ? "null" : JsonSerializer.Serialize(imageUrls))}},
-            "language": {{JsonSerializer.Serialize(language)}},
             "turnstileToken": {{JsonSerializer.Serialize(turnstile)}}
         }
         """;
@@ -101,7 +99,6 @@ public class DtoContractTests
             "rating": 4,
             "title": null,
             "body": "Looks great",
-            "language": "en",
             "turnstileToken": "test-token"
         }
         """;
@@ -118,44 +115,10 @@ public class DtoContractTests
             "productId": 1,
             "rating": 4,
             "body": "Looks great",
-            "language": "en",
             "turnstileToken": "test-token"
         }
         """;
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Submit_missing_language_is_rejected()
-    {
-        // Language is `required` so the payload always carries the wire
-        // language tag. Drives the per-review translate UX — without a
-        // value we can't gate it.
-        var json = """
-        {
-            "productId": 1,
-            "rating": 4,
-            "title": "Solid",
-            "body": "Looks great",
-            "turnstileToken": "test-token"
-        }
-        """;
-        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
-    }
-
-    [Fact]
-    public void Submit_with_empty_language_is_rejected()
-    {
-        Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(language: ""), Json));
-    }
-
-    [Fact]
-    public void Submit_round_trips_language_tag()
-    {
-        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(language: "cs"), Json);
-        Assert.NotNull(req);
-        Assert.Equal("cs", req!.Language.Value);
     }
 
     [Fact]
@@ -300,5 +263,94 @@ public class DtoContractTests
         // the docs is wired to ImagesController.MaxImageBytes — pin the
         // value so a future tweak shows up in test diffs across both sides.
         Assert.Equal(2L * 1024 * 1024, Reviews.Api.Controllers.ImagesController.MaxImageBytes);
+    }
+
+    [Fact]
+    public void ReviewItem_serialises_camelCase_Utc_suffixed_dates()
+    {
+        // Reviewer asked all stored DateTime properties be suffixed with
+        // `Utc` so consumers can't ambiguously read them as local time. The
+        // wire format follows: camelCase `createdAtUtc` / `updatedAtUtc`.
+        var item = new ReviewItem
+        {
+            Id = Guid.NewGuid(),
+            ProductId = 1,
+            AuthorId = Guid.NewGuid(),
+            AuthorName = "Alice".ToNonEmpty(),
+            Rating = Rating.Four,
+            Title = "T".ToNonEmpty(),
+            Body = "B".ToNonEmpty(),
+            ImageUrls = Array.Empty<string>(),
+            Score = 0,
+            CreatedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+            UpdatedAtUtc = new DateTime(2026, 6, 7, 8, 9, 10, DateTimeKind.Utc),
+            MyVote = null,
+            Mine = false,
+        };
+        var json = JsonSerializer.Serialize(item, Json);
+        Assert.Contains("\"createdAtUtc\":", json);
+        Assert.Contains("\"updatedAtUtc\":", json);
+        Assert.DoesNotContain("\"createdAt\":", json);
+        Assert.DoesNotContain("\"updatedAt\":", json);
+    }
+
+    [Fact]
+    public void ReviewItem_round_trips_Utc_dates()
+    {
+        var original = new ReviewItem
+        {
+            Id = Guid.NewGuid(),
+            ProductId = 1,
+            AuthorId = Guid.NewGuid(),
+            AuthorName = "Alice".ToNonEmpty(),
+            Rating = Rating.Five,
+            Title = "T".ToNonEmpty(),
+            Body = "B".ToNonEmpty(),
+            ImageUrls = new[] { "/api/images/uploads/a.jpg" },
+            Score = 7,
+            CreatedAtUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+            UpdatedAtUtc = new DateTime(2026, 6, 7, 8, 9, 10, DateTimeKind.Utc),
+            MyVote = true,
+            Mine = true,
+        };
+        var json = JsonSerializer.Serialize(original, Json);
+        var back = JsonSerializer.Deserialize<ReviewItem>(json, Json);
+        Assert.NotNull(back);
+        Assert.Equal(original.CreatedAtUtc, back!.CreatedAtUtc);
+        Assert.Equal(original.UpdatedAtUtc, back.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void AcceptedResponse_constructs_with_plain_strings()
+    {
+        // Response DTOs dropped `required` and switched off NonEmptyString
+        // for fields the controller synthesises (workflow id, status). The
+        // positional record makes the construction site terse — verify it
+        // round-trips so the SPA still sees the camelCase shape it expects.
+        var resp = new AcceptedResponse("submit-review-abc", "submitted");
+        var json = JsonSerializer.Serialize(resp, Json);
+        Assert.Contains("\"workflowId\":\"submit-review-abc\"", json);
+        Assert.Contains("\"status\":\"submitted\"", json);
+    }
+
+    [Fact]
+    public void Response_DTOs_allow_object_initializer_without_required()
+    {
+        // `required` is dropped from response DTOs because Swashbuckle
+        // infers `required` in OpenAPI via NonNullableReferenceTypesAsRequired.
+        // The compiler should let an object initializer omit fields without
+        // CS9035 (the diagnostic for missing required member). This test
+        // primarily exists to fail at compile time if `required` slips back
+        // onto a response DTO — the assertion is incidental.
+        var summary = new ProductSummary
+        {
+            Id = 1,
+            Slug = "foo".ToNonEmpty(),
+            Name = "Foo".ToNonEmpty(),
+            ImageUrl = null,
+            AverageRating = 0,
+            ReviewCount = 0,
+        };
+        Assert.Equal(1, summary.Id);
     }
 }

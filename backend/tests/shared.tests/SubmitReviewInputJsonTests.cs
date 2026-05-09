@@ -26,8 +26,7 @@ public class SubmitReviewInputJsonTests
         string body = "Looks great",
         string title = "Solid",
         string authorName = "Alice",
-        string[]? imageUrls = null,
-        string language = "en") =>
+        string[]? imageUrls = null) =>
         $$"""
         {
             "reviewId": "11111111-1111-1111-1111-111111111111",
@@ -37,8 +36,7 @@ public class SubmitReviewInputJsonTests
             "rating": 4,
             "title": {{JsonSerializer.Serialize(title)}},
             "body": {{JsonSerializer.Serialize(body)}},
-            "imageUrls": {{JsonSerializer.Serialize(imageUrls ?? Array.Empty<string>())}},
-            "language": {{JsonSerializer.Serialize(language)}}
+            "imageUrls": {{JsonSerializer.Serialize(imageUrls ?? Array.Empty<string>())}}
         }
         """;
 
@@ -94,8 +92,7 @@ public class SubmitReviewInputJsonTests
             "rating": 4,
             "title": null,
             "body": "Looks great",
-            "imageUrls": [],
-            "language": "en"
+            "imageUrls": []
         }
         """;
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewInput>(json, Json));
@@ -125,19 +122,10 @@ public class SubmitReviewInputJsonTests
             "rating": 3,
             "title": "Updated",
             "body": "",
-            "imageUrls": [],
-            "language": "en"
+            "imageUrls": []
         }
         """;
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<EditReviewInput>(json, Json));
-    }
-
-    [Fact]
-    public void Round_trip_carries_language_tag()
-    {
-        var input = JsonSerializer.Deserialize<SubmitReviewInput>(ValidPayload(language: "cs"), Json);
-        Assert.NotNull(input);
-        Assert.Equal("cs", input!.Language.Value);
     }
 
     [Fact]

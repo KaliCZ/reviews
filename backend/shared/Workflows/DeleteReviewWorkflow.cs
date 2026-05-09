@@ -34,7 +34,7 @@ public class DeleteReviewWorkflow
         if (lookup.Found is false || lookup.OwnedByAuthor is false)
             return "forbidden";
 
-        var age = Workflow.UtcNow - lookup.CreatedAt;
+        var age = Workflow.UtcNow - lookup.CreatedAtUtc;
         if (age >= ModerationCutoff)
         {
             await Workflow.WaitConditionAsync(() => decision is not null);

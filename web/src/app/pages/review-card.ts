@@ -3,8 +3,6 @@ import { Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { AuthService } from '../services/auth.service';
-import { I18nService } from '../services/i18n.service';
-import { TPipe } from '../pipes/t.pipe';
 import { ReviewItem } from '../models';
 
 // Reused on the product detail page and the more-reviews list. Vote buttons
@@ -13,7 +11,7 @@ import { ReviewItem } from '../models';
 // OIDC sub on the API side).
 @Component({
   selector: 'app-review-card',
-  imports: [DatePipe, RouterLink, StarRating, TPipe],
+  imports: [DatePipe, RouterLink, StarRating],
   template: `
     <article class="review">
       <header>
@@ -23,22 +21,9 @@ import { ReviewItem } from '../models';
       <div class="meta">
         <span>{{ review().authorName }}</span>
         <span>·</span>
-        <time>{{ review().createdAt | date: 'mediumDate' }}</time>
+        <time>{{ review().createdAtUtc | date: 'mediumDate' }}</time>
       </div>
       <p class="body">{{ review().body }}</p>
-      @if (canTranslate()) {
-        <p class="translate">
-          <a
-            class="link"
-            [href]="translateHref()"
-            target="_blank"
-            rel="noopener noreferrer"
-            [title]="'common.translatedNotice' | t: { lang: review().language }"
-          >
-            🌐 {{ 'common.translate' | t }}
-          </a>
-        </p>
-      }
       @if (review().imageUrls.length > 0) {
         <div class="thumbs">
           @for (url of review().imageUrls; track url) {
@@ -114,10 +99,6 @@ import { ReviewItem } from '../models';
         line-height: 1.5;
         white-space: pre-wrap;
       }
-      .translate {
-        margin: 0.25rem 0 0.5rem;
-        font-size: 0.85rem;
-      }
       .thumbs {
         display: flex;
         gap: 0.5rem;
@@ -187,7 +168,6 @@ import { ReviewItem } from '../models';
 })
 export class ReviewCard {
   protected readonly auth = inject(AuthService);
-  protected readonly i18n = inject(I18nService);
 
   readonly review = input.required<ReviewItem>();
   readonly productSlug = input.required<string>();
@@ -200,26 +180,6 @@ export class ReviewCard {
   // author_id). Destructive actions are still gated by the API independently;
   // this flag is purely about UI affordances.
   readonly isMine = computed(() => this.review().mine);
-
-  // Show the translate affordance only when the review's language doesn't
-  // match the viewer's UI locale. We do this in the browser (no backend
-  // translation pipeline, no rate-limit budget to manage) — clicking opens
-  // Google Translate in a new tab pre-filled with title + body.
-  readonly canTranslate = computed(() => {
-    const reviewLang = this.review().language.toLowerCase().split('-')[0];
-    const viewerLang = this.i18n.locale();
-    return reviewLang !== viewerLang;
-  });
-
-  translateHref(): string {
-    const r = this.review();
-    const text = `${r.title}\n\n${r.body}`;
-    const sl = r.language.toLowerCase().split('-')[0];
-    const tl = this.i18n.locale();
-    return `https://translate.google.com/?sl=${encodeURIComponent(sl)}&tl=${encodeURIComponent(
-      tl,
-    )}&op=translate&text=${encodeURIComponent(text)}`;
-  }
 
   cast(isUpvote: boolean) {
     if (!this.auth.authenticated()) return;

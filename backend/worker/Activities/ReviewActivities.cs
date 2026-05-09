@@ -13,8 +13,8 @@ namespace Reviews.Worker;
 // exponential backoff per its activity-default policy.
 //
 // Activities are scoped — one DbContext per invocation, disposed when the
-// activity returns. UpsertVote uses an explicit transaction since it does
-// multi-step writes that must commit together.
+// activity returns. SaveChangesAsync wraps each unit of work in a single
+// transaction; no manual BeginTransactionAsync needed.
 public class ReviewActivities(
     ReviewsDbContext db,
     IConnectionMultiplexer redis,
@@ -33,8 +33,7 @@ public class ReviewActivities(
             rating:     input.Rating,
             title:      input.Title,
             body:       input.Body,
-            imageUrls:  input.ImageUrls,
-            language:   input.Language);
+            imageUrls:  input.ImageUrls);
         db.Reviews.Add(review);
         await db.SaveChangesAsync();
         logger.LogInformation(
@@ -86,13 +85,13 @@ public class ReviewActivities(
         var row = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == reviewId && r.Status != ReviewStatus.Deleted)
-            .Select(r => new { r.AuthorId, r.ProductId, ProductSlug = r.Product.Slug.Value, r.CreatedAt })
+            .Select(r => new { r.AuthorId, r.ProductId, ProductSlug = r.Product.Slug.Value, r.CreatedAtUtc })
             .SingleOrDefaultAsync();
 
         if (row is null)
-            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, ProductSlug: string.Empty, CreatedAt: default);
+            return new ReviewLookupResult(Found: false, OwnedByAuthor: false, ProductId: 0, ProductSlug: string.Empty, CreatedAtUtc: default);
 
-        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.ProductSlug, row.CreatedAt);
+        return new ReviewLookupResult(true, row.AuthorId == authorId, row.ProductId, row.ProductSlug, row.CreatedAtUtc);
     }
 
     [Activity(ReviewActivityNames.ApplyReviewEdit)]
@@ -111,7 +110,7 @@ public class ReviewActivities(
             return;
         }
 
-        review.ApplyEdit(input.Rating, input.Title, input.Body, input.ImageUrls, input.Language);
+        review.ApplyEdit(input.Rating, input.Title, input.Body, input.ImageUrls);
         await db.SaveChangesAsync();
         logger.LogInformation("Applied edit to review {ReviewId}", input.ReviewId);
     }
@@ -126,8 +125,8 @@ public class ReviewActivities(
         logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
     }
 
-    [Activity(ReviewActivityNames.UpsertVote)]
-    public async Task<VoteResult> UpsertVoteAsync(VoteInput input)
+    [Activity(ReviewActivityNames.RecordVote)]
+    public async Task<VoteResult> RecordVoteAsync(VoteInput input)
     {
         // Resolve product slug and confirm the review is live in the same shot.
         // Pinning to Approved means votes can't accrue on deleted/rejected/
@@ -139,33 +138,33 @@ public class ReviewActivities(
             .SingleOrDefaultAsync();
         if (slug is null) return new VoteResult(false, string.Empty);
 
-        await using var tx = await db.Database.BeginTransactionAsync();
+        // Fetch-or-create on the (review, voter) row. Safe to be the only
+        // writer per pair because the workflow id collapses concurrent same-
+        // user votes (UseExisting joins the in-flight execution).
+        var existing = await db.ReviewVotes
+            .SingleOrDefaultAsync(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId);
 
-        // EF Core's tracking semantics make the upsert verbose; the raw
-        // INSERT … ON CONFLICT … is clearer for a single-statement upsert
-        // and keeps the round-trip count down.
-        await db.Database.ExecuteSqlInterpolatedAsync($@"
-            INSERT INTO reviews.review_votes (""ReviewId"", ""VoterId"", ""IsUpvote"", ""CreatedAt"")
-            VALUES ({input.ReviewId}, {input.VoterId}, {input.IsUpvote}, NOW())
-            ON CONFLICT (""ReviewId"", ""VoterId"")
-            DO UPDATE SET ""IsUpvote"" = EXCLUDED.""IsUpvote"", ""CreatedAt"" = NOW()");
+        if (existing is null)
+        {
+            db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
+        }
+        else
+        {
+            existing.Flip(input.IsUpvote);
+        }
 
-        // Recompute denormalized score from the source-of-truth vote rows so
-        // it self-heals on every vote (any drift is corrected within a tick).
-        // Each vote contributes +1 (upvote) or -1 (downvote).
-        await db.Database.ExecuteSqlInterpolatedAsync($@"
-            UPDATE reviews.reviews
-               SET ""Score"" = COALESCE((
-                   SELECT SUM(CASE WHEN ""IsUpvote"" THEN 1 ELSE -1 END)
-                     FROM reviews.review_votes
-                    WHERE ""ReviewId"" = {input.ReviewId}
-               ), 0),
-                   ""UpdatedAt"" = NOW()
-             WHERE ""Id"" = {input.ReviewId}");
+        // Recompute denormalized Review.Score from source-of-truth vote rows
+        // so it self-heals on every vote (any drift is corrected within a
+        // tick). Each vote contributes +1 (upvote) or -1 (downvote).
+        var review = await db.Reviews.SingleAsync(r => r.Id == input.ReviewId);
+        var score = await db.ReviewVotes
+            .Where(v => v.ReviewId == input.ReviewId)
+            .SumAsync(v => v.IsUpvote ? 1 : -1);
+        review.RecordScore(score);
 
-        await tx.CommitAsync();
+        await db.SaveChangesAsync();
         logger.LogInformation(
-            "Upserted vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
+            "Recorded vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
             input.IsUpvote, input.VoterId, input.ReviewId, slug);
         return new VoteResult(true, slug);
     }

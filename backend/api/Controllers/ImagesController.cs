@@ -115,7 +115,7 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         logger.LogInformation("Uploaded review image {Key} ({Bytes} bytes, {Type})",
             key, file.Length, file.ContentType);
 
-        return Ok(new UploadedImage { Url = $"/api/images/{key}".ToNonEmpty() });
+        return Ok(new UploadedImage($"/api/images/{key}"));
     }
 
     // Take the original filename's extension (lower-cased), strip anything

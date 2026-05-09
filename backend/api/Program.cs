@@ -70,13 +70,6 @@ builder.Services.AddHealthChecks().AddInfraHealthChecks();
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // Enum wire formats are picked per-type via [JsonConverter]:
-        //   - ReviewSort  → string names (JsonStringEnumConverter)
-        //   - Rating      → int 1..5 with range validation (RatingJsonConverter)
-        // Registering JsonStringEnumConverter globally would override the
-        // Rating attribute and break the int wire format the SPA relies on,
-        // so we don't add it here.
-
         // Treat C#'s nullable annotations as enforceable on the wire: a JSON
         // payload that omits a non-nullable property (or sends `null` for
         // it) fails deserialization with JsonException instead of silently
@@ -93,11 +86,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "Reviews API", Version = "v1" });
-    // Surface C#'s nullability into the spec so `string` is required and
-    // `string?` optional. `required`-marked record properties propagate
-    // through Swashbuckle's standard schema inspector — no custom filter
-    // needed.
     options.SupportNonNullableReferenceTypes();
+    options.NonNullableReferenceTypesAsRequired();
     options.AddStrongTypes();
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
@@ -139,13 +129,8 @@ if (app.Configuration.GetValue("Reviews:AutoApply", true))
 
 app.MapDefaultEndpoints();
 
-// Spec is always exposed (the SPA's client-codegen step pulls it from a running
-// dev API); Swagger UI is dev-only since prod traffic shouldn't browse it.
 app.UseSwagger();
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwaggerUI();
-}
+app.UseSwaggerUI();
 
 app.UseCors();
 

@@ -241,9 +241,9 @@ public class ProductsController(
         var ordered = sort switch
         {
             ReviewSort.Helpful => q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id),
-            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id),
-            _ /* Newest */     => q.OrderByDescending(r => r.CreatedAt).ThenByDescending(r => r.Id),
+            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
+            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
+            _ /* Newest */     => q.OrderByDescending(r => r.CreatedAtUtc).ThenByDescending(r => r.Id),
         };
 
         var total = await q.CountAsync(ct);
@@ -262,14 +262,12 @@ public class ProductsController(
             Rating = r.Rating,
             Title = r.Title,
             Body = r.Body,
-            // Each persisted URL is required to be non-empty by the DTO contract;
-            // wrap on the way out so the SPA's generated client sees the same
-            // shape (`string` with minLength 1).
-            ImageUrls = r.ImageUrls.Select(u => u.ToNonEmpty()).ToList(),
-            Language = r.Language,
+            // ImageUrls are stored as plain strings on the entity (text[]); the
+            // wire DTO is `IReadOnlyList<string>` so just project through.
+            ImageUrls = r.ImageUrls,
             Score = r.Score,
-            CreatedAt = r.CreatedAt,
-            UpdatedAt = r.UpdatedAt,
+            CreatedAtUtc = r.CreatedAtUtc,
+            UpdatedAtUtc = r.UpdatedAtUtc,
             MyVote = null,
             Mine = uid is not null && r.AuthorId == uid,
         }).ToList();

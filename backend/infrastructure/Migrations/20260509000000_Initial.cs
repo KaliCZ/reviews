@@ -30,7 +30,7 @@ namespace Reviews.Infrastructure.Migrations
                     Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
                     Description = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: false),
                     ImageUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
                 },
                 constraints: table =>
                 {
@@ -55,8 +55,8 @@ namespace Reviews.Infrastructure.Migrations
                     ImageUrls = table.Column<List<string>>(type: "text[]", nullable: false),
                     Status = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     Score = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()"),
-                    UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()"),
+                    UpdatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
                 },
                 constraints: table =>
                 {
@@ -82,7 +82,7 @@ namespace Reviews.Infrastructure.Migrations
                     ReviewId = table.Column<Guid>(type: "uuid", nullable: false),
                     VoterId = table.Column<Guid>(type: "uuid", nullable: false),
                     IsUpvote = table.Column<bool>(type: "boolean", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
+                    CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
                 },
                 constraints: table =>
                 {
@@ -115,7 +115,7 @@ namespace Reviews.Infrastructure.Migrations
                 name: "idx_reviews_newest",
                 schema: "reviews",
                 table: "reviews",
-                columns: new[] { "ProductId", "CreatedAt", "Id" },
+                columns: new[] { "ProductId", "CreatedAtUtc", "Id" },
                 descending: new[] { false, true, true },
                 filter: "\"Status\" = 1");
 
@@ -123,7 +123,7 @@ namespace Reviews.Infrastructure.Migrations
                 name: "idx_reviews_rating",
                 schema: "reviews",
                 table: "reviews",
-                columns: new[] { "ProductId", "Rating", "CreatedAt", "Id" },
+                columns: new[] { "ProductId", "Rating", "CreatedAtUtc", "Id" },
                 descending: new[] { false, true, true, true },
                 filter: "\"Status\" = 1");
 

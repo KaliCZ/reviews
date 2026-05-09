@@ -53,12 +53,11 @@ jobs:
       - name: Format check
         run: npx prettier --check "src/**/*.{ts,html,css,scss,json}"
 
+      - name: Test (BFF)
+        run: npm run test:bff
+
       - name: Build
         run: npm run build
-
-      # No Angular unit tests yet — the e2e job covers all product flows
-      # end-to-end against the real BFF + API + workers. Add a `Test` step
-      # here once `web/src/**/*.spec.ts` files exist.
 
   e2e:
     name: E2E

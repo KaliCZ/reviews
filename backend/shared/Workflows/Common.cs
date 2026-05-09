@@ -16,7 +16,7 @@ public static class ReviewActivityNames
     public const string LookupReview = "LookupReview";
     public const string ApplyReviewEdit = "ApplyReviewEdit";
     public const string SoftDeleteReview = "SoftDeleteReview";
-    public const string UpsertVote = "UpsertVote";
+    public const string RecordVote = "RecordVote";
     public const string InvalidateProductCaches = "InvalidateProductCaches";
 }
 
@@ -29,8 +29,8 @@ public record ModerationDecision(bool Approved, string? Reason);
 // Slug travels with it so the post-write cache invalidation can address its
 // keys (which are slug-keyed, see ReviewsCacheKeys) without the workflow
 // having to do its own DB lookup.
-public record ReviewLookupResult(bool Found, bool OwnedByAuthor, long ProductId, string ProductSlug, DateTime CreatedAt);
+public record ReviewLookupResult(bool Found, bool OwnedByAuthor, long ProductId, string ProductSlug, DateTime CreatedAtUtc);
 
-// Returned by UpsertVote — null when the review didn't exist; otherwise the
-// product slug whose caches now need invalidating.
+// Returned by RecordVote — ReviewFound=false when the review didn't exist;
+// otherwise the product slug whose caches now need invalidating.
 public record VoteResult(bool ReviewFound, string ProductSlug);

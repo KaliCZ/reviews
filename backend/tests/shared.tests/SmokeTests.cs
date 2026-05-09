@@ -31,7 +31,7 @@ public class SmokeTests
             ReviewActivityNames.LookupReview,
             ReviewActivityNames.ApplyReviewEdit,
             ReviewActivityNames.SoftDeleteReview,
-            ReviewActivityNames.UpsertVote,
+            ReviewActivityNames.RecordVote,
             ReviewActivityNames.InvalidateProductCaches,
         };
         Assert.Equal(names.Length, names.Distinct().Count());

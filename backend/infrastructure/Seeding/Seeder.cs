@@ -86,7 +86,6 @@ public static class Seeder
                     title:      sr.Title.ToNonEmpty(),
                     body:       sr.Body.ToNonEmpty(),
                     imageUrls:  imageUrls,
-                    language:   sr.Language.ToNonEmpty(),
                     score:      sr.Score,
                     status:     ReviewStatus.Approved,
                     createdAt:  sr.CreatedAt);

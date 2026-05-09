@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Reviews.Api.Models;
-using StrongTypes;
 
 namespace Reviews.Api.Controllers;
 
@@ -35,8 +34,6 @@ public sealed class TurnstileOptions
 public class ConfigController(IOptions<TurnstileOptions> turnstile) : ControllerBase
 {
     [HttpGet]
-    public ActionResult<ConfigResponse> Get() => Ok(new ConfigResponse
-    {
-        TurnstileSiteKey = turnstile.Value.SiteKey.ToNonEmpty()
-    });
+    public ActionResult<ConfigResponse> Get() =>
+        Ok(new ConfigResponse(turnstile.Value.SiteKey));
 }

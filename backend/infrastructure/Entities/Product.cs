@@ -23,7 +23,7 @@ public class Product
     public NonEmptyString Name { get; private set; } = null!;
     public NonEmptyString Description { get; private set; } = null!;
     public NonEmptyString? ImageUrl { get; private set; }
-    public DateTime CreatedAt { get; private set; }
+    public DateTime CreatedAtUtc { get; private set; }
 
     public ICollection<Review> Reviews { get; private set; } = new List<Review>();
 }

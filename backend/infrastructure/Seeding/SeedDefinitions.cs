@@ -59,8 +59,7 @@ internal static class SeedDefinitions
         string Body,
         int Score,
         DateTime CreatedAt,
-        IReadOnlyList<string> ImageSeeds,
-        string Language);
+        IReadOnlyList<string> ImageSeeds);
 
     public static IEnumerable<SeedReviewData> Reviews()
     {
@@ -139,8 +138,7 @@ internal static class SeedDefinitions
         string body,
         DateTime createdAt,
         int score,
-        IReadOnlyList<string>? imageSeeds = null,
-        string language = "en") =>
+        IReadOnlyList<string>? imageSeeds = null) =>
         new SeedReviewData(
             ProductId:  productId,
             AuthorId:   authorId,
@@ -150,8 +148,7 @@ internal static class SeedDefinitions
             Body:       body,
             Score:      score,
             CreatedAt:  createdAt,
-            ImageSeeds: imageSeeds ?? Array.Empty<string>(),
-            Language:   language);
+            ImageSeeds: imageSeeds ?? Array.Empty<string>());
 
     private static string ProductImage(string seed) => $"/api/images/seed/{seed}.jpg";
 }

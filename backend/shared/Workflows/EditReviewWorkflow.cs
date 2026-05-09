@@ -10,8 +10,7 @@ public record EditReviewInput(
     Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
-    IReadOnlyList<NonEmptyString> ImageUrls,
-    NonEmptyString Language);
+    IReadOnlyList<NonEmptyString> ImageUrls);
 
 // Edits to recent reviews go straight through; edits to reviews older than an
 // hour wait for a moderator signal first. The cutoff exists because once a
@@ -44,7 +43,7 @@ public class EditReviewWorkflow
         if (lookup.Found is false || lookup.OwnedByAuthor is false)
             return "forbidden";
 
-        var age = Workflow.UtcNow - lookup.CreatedAt;
+        var age = Workflow.UtcNow - lookup.CreatedAtUtc;
         if (age >= ModerationCutoff)
         {
             await Workflow.WaitConditionAsync(() => decision is not null);

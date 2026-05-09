@@ -17,7 +17,7 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<ReviewsDbC
             ?? "Host=localhost;Database=reviews;Username=postgres;Password=postgres;Search Path=reviews";
 
         var builder = new DbContextOptionsBuilder<ReviewsDbContext>()
-            .UseNpgsql(conn, o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
+            .UseNpgsql(conn);
         builder.UseStrongTypes();
         return new ReviewsDbContext(builder.Options);
     }

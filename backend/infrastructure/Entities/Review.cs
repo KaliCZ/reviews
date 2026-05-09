@@ -25,8 +25,8 @@ public enum ReviewStatus
 //   - the partial unique index in ReviewsDbContext (one live review per author).
 //
 // Properties have private setters so writes flow through the methods above —
-// this keeps the audit fields (Status, UpdatedAt) consistent without callers
-// having to remember to bump UpdatedAt themselves. The parameterless ctor is
+// this keeps the audit fields (Status, UpdatedAtUtc) consistent without callers
+// having to remember to bump UpdatedAtUtc themselves. The parameterless ctor is
 // for EF Core materialization only; everything else goes through the public
 // ctor or the internal seed factory.
 public class Review
@@ -41,8 +41,7 @@ public class Review
         Rating rating,
         NonEmptyString title,
         NonEmptyString body,
-        IReadOnlyList<NonEmptyString> imageUrls,
-        NonEmptyString language)
+        IReadOnlyList<NonEmptyString> imageUrls)
     {
         ArgumentNullException.ThrowIfNull(imageUrls);
 
@@ -54,7 +53,6 @@ public class Review
         Title = title;
         Body = body;
         ImageUrls = imageUrls.Select(u => u.Value).ToList();
-        Language = language;
         // Status defaults to Pending (CLR default of the enum). The temporal
         // submit workflow is the only path that flips it to Approved.
     }
@@ -69,11 +67,6 @@ public class Review
     public Rating Rating { get; private set; }
     public NonEmptyString Title { get; private set; } = null!;
     public NonEmptyString Body { get; private set; } = null!;
-    // BCP-47 language tag of the title + body, supplied by the submitter.
-    // Used by the SPA to gate the per-review "Translate" affordance — when
-    // the viewer's UI locale matches the review's language, no translate
-    // button appears.
-    public NonEmptyString Language { get; private set; } = null!;
 
     // Stored as Postgres text[]; EF Core's Npgsql provider maps List<string>
     // to text[] natively without a value converter. Element-level non-empty
@@ -85,15 +78,15 @@ public class Review
     public ReviewStatus Status { get; private set; } = ReviewStatus.Pending;
     public int Score { get; private set; }
 
-    public DateTime CreatedAt { get; private set; }
-    public DateTime UpdatedAt { get; private set; }
+    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime UpdatedAtUtc { get; private set; }
 
     public ICollection<ReviewVote> Votes { get; private set; } = new List<ReviewVote>();
 
     // Apply an author-driven edit. Doesn't change Status — an edit to an
     // already-Approved review stays Approved; an edit to a Pending one stays
     // Pending until the workflow signals through.
-    public void ApplyEdit(Rating rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls, NonEmptyString language)
+    public void ApplyEdit(Rating rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
     {
         ArgumentNullException.ThrowIfNull(imageUrls);
 
@@ -101,8 +94,7 @@ public class Review
         Title = title;
         Body = body;
         ImageUrls = imageUrls.Select(u => u.Value).ToList();
-        Language = language;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     public void Approve()
@@ -110,7 +102,7 @@ public class Review
         if (Status is ReviewStatus.Deleted)
             throw new InvalidOperationException("Cannot approve a deleted review");
         Status = ReviewStatus.Approved;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     public void Reject()
@@ -118,13 +110,23 @@ public class Review
         if (Status is ReviewStatus.Deleted)
             throw new InvalidOperationException("Cannot reject a deleted review");
         Status = ReviewStatus.Rejected;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     public void SoftDelete()
     {
         Status = ReviewStatus.Deleted;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAtUtc = DateTime.UtcNow;
+    }
+
+    // Set the denormalized score and bump UpdatedAtUtc. Called by the
+    // RecordVote activity after recomputing the sum from review_votes —
+    // keeping the mutation behind a method preserves the "writes flow through
+    // methods, private setters" pattern the rest of the entity uses.
+    public void RecordScore(int score)
+    {
+        Score = score;
+        UpdatedAtUtc = DateTime.UtcNow;
     }
 
     // Seeded demo reviews are pre-moderated, pre-scored, and back-dated so the
@@ -140,7 +142,6 @@ public class Review
         NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<string> imageUrls,
-        NonEmptyString language,
         int score,
         ReviewStatus status,
         DateTime createdAt) =>
@@ -154,10 +155,9 @@ public class Review
             Title = title,
             Body = body,
             ImageUrls = imageUrls.ToList(),
-            Language = language,
             Score = score,
             Status = status,
-            CreatedAt = createdAt,
-            UpdatedAt = createdAt,
+            CreatedAtUtc = createdAt,
+            UpdatedAtUtc = createdAt,
         };
 }
