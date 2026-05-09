@@ -25,7 +25,7 @@ export async function createSessionMiddleware(
     url: redisUrl,
     socket:
       redisUrl.startsWith('rediss://') && process.env['REDIS_TLS_INSECURE'] === 'true'
-        ? { rejectUnauthorized: false }
+        ? { tls: true, rejectUnauthorized: false }
         : undefined,
   });
   redis.on('error', (err) => console.error('[bff] redis error', err));
