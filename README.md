@@ -70,6 +70,13 @@ After it boots (all links available in aspire dashboard):
 - Temporal UI: <http://localhost:8233>
 - Test user for the app: `alice@localhost` / `Password1!`
 
+## Tests
+
+- `npm test` — unit + integration tests (.NET + frontend Vitest).
+- `npm run test:e2e` — Playwright against the full compose stack.
+
+Backend integration tests use Testcontainers, so they hit a real Postgres / Redis / Azurite and an in-process Temporal dev server — no mocks. The Playwright e2e suite goes one further and signals Temporal directly via `@temporalio/client` to drive the moderation approval path end-to-end.
+
 ## Project structure
 
 ```
@@ -151,11 +158,6 @@ Three Redis surfaces, all invalidated by the workflow that mutates them:
 | `reviews:slug:{slug}:page:1` | First page of reviews, default sort | 24 hours |
 
 Sorts, filters, and pages past 1 go straight to Postgres — caching their cross-product would explode the keyspace and the long-tail traffic doesn't justify it. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read.
-
-## Tests
-
-- **Unit / integration** — `npm test` from the repo root. Runs the .NET solution (xUnit; the API integration suite spins up Postgres + Redis + Azurite via Testcontainers and an in-process Temporal dev server) and the frontend Vitest suite.
-- **End-to-end** — `npm run test:e2e`. Brings up the full compose stack and runs Playwright against it.
 
 ## Deferred for later milestones
 
