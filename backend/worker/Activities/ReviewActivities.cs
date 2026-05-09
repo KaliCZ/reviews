@@ -160,6 +160,22 @@ public class ReviewActivities(
         return new VoteResult(true, slug);
     }
 
+    // No advisory lock: concurrent recomputes converge because both writers
+    // read the same committed source-of-truth rows.
+    [Activity(ReviewActivityNames.RecomputeProductRating)]
+    public async Task RecomputeProductRatingAsync(long productId)
+    {
+        await db.Products
+            .Where(p => p.Id == productId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.ReviewCount, p => p.Reviews
+                    .Count(r => r.Status == ReviewStatus.Approved))
+                .SetProperty(p => p.AverageRating, p => p.Reviews
+                    .Where(r => r.Status == ReviewStatus.Approved)
+                    .Average(r => (double?)(short)r.Rating) ?? 0));
+        logger.LogInformation("Recomputed denormalized rating for product {ProductId}", productId);
+    }
+
     [Activity(ReviewActivityNames.InvalidateProductCaches)]
     public async Task InvalidateProductCachesAsync(string productSlug)
     {

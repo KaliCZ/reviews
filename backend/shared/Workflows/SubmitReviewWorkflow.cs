@@ -71,6 +71,11 @@ public class SubmitReviewWorkflow
             new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         await Workflow.ExecuteActivityAsync(
+            ReviewActivityNames.RecomputeProductRating,
+            new object[] { input.ProductId },
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+
+        await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.InvalidateProductCaches,
             new object[] { slug },
             new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
