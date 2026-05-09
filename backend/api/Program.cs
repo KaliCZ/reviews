@@ -106,4 +106,9 @@ app.MapControllers();
 
 app.Run();
 
-public partial class Program { }
+// Named partial in the API namespace so the test project can disambiguate from
+// the worker's synthesized Program class (also pulled in via project reference).
+namespace Reviews.Api
+{
+    public partial class Program { }
+}

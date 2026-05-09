@@ -1,5 +1,3 @@
-// Alias to dodge the worker.Program / api.Program collision in the global namespace.
-extern alias worker;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
@@ -13,6 +11,7 @@ using Npgsql;
 using Reviews.Api.Services;
 using Reviews.Infrastructure;
 using Reviews.Shared;
+using Reviews.Worker;
 using StrongTypes.EfCore;
 using Temporalio.Client;
 using Temporalio.Extensions.Hosting;
@@ -20,7 +19,6 @@ using Temporalio.Testing;
 using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
-using ReviewActivities = worker::Reviews.Worker.ReviewActivities;
 
 namespace Reviews.Api.Tests.Integration;
 
@@ -33,7 +31,7 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
     private RedisContainer redis = null!;
     private AzuriteContainer azurite = null!;
     private WorkflowEnvironment temporalEnv = null!;
-    private WebApplicationFactory<Program> apiFactory = null!;
+    private WebApplicationFactory<Reviews.Api.Program> apiFactory = null!;
     private IHost workerHost = null!;
 
     public HttpClient ApiClient { get; private set; } = null!;
@@ -70,7 +68,7 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
 
         var temporalAddress = temporalEnv.Client.Connection.Options.TargetHost!;
 
-        apiFactory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        apiFactory = new WebApplicationFactory<Reviews.Api.Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("ConnectionStrings:reviews", postgres.GetConnectionString());
             builder.UseSetting("ConnectionStrings:cache", redis.GetConnectionString());

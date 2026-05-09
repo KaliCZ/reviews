@@ -20,7 +20,7 @@ namespace Reviews.Api.Controllers;
 public class ReviewsController(
     ReviewsDbContext db,
     ITemporalClient temporal,
-    ICurrentUser currentUser,
+    ICurrentUserAccessor currentUser,
     ITurnstileVerifier turnstile) : ControllerBase
 {
     [HttpPost]

@@ -74,7 +74,7 @@ public static class AuthExtensions
 
         services.AddAuthorization();
         services.AddHttpContextAccessor();
-        services.AddScoped<ICurrentUser, CurrentUser>();
+        services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
         services.AddHttpClient<ITurnstileVerifier, TurnstileVerifier>();
 
         return services;

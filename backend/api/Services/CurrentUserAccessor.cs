@@ -9,23 +9,23 @@ namespace Reviews.Api.Services;
 // The `sub` claim is hashed into a Guid (see SubToGuid) so AuthorId/VoterId
 // stay Guid-shaped regardless of how the IdP formats user ids. Deterministic,
 // so the same `sub` always yields the same Guid.
-public interface ICurrentUser
+public interface ICurrentUserAccessor
 {
-    User? User { get; }
+    CurrentUser? User { get; }
 }
 
-public sealed record User
+public sealed record CurrentUser
 {
     public required Guid Id { get; init; }
     public required NonEmptyString Sub { get; init; }
     public required NonEmptyString Name { get; init; }
 }
 
-public class CurrentUser : ICurrentUser
+public class CurrentUserAccessor : ICurrentUserAccessor
 {
-    public User? User { get; }
+    public CurrentUser? User { get; }
 
-    public CurrentUser(IHttpContextAccessor accessor)
+    public CurrentUserAccessor(IHttpContextAccessor accessor)
     {
         var principal = accessor.HttpContext?.User;
         if (principal?.Identity?.IsAuthenticated is not true) return;
@@ -40,7 +40,7 @@ public class CurrentUser : ICurrentUser
             ?? principal.FindFirstValue(ClaimTypes.Email)?.Split('@')[0]
             ?? "Anonymous";
 
-        User = new User
+        User = new CurrentUser
         {
             Id = SubToGuid(sub),
             Sub = sub.ToNonEmpty(),

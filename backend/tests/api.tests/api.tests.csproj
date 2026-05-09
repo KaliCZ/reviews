@@ -28,9 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\api\api.csproj" />
-    <ProjectReference Include="..\..\worker\worker.csproj">
-      <Aliases>worker</Aliases>
-    </ProjectReference>
+    <ProjectReference Include="..\..\worker\worker.csproj" />
   </ItemGroup>
 
 </Project>

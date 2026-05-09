@@ -21,14 +21,13 @@ namespace Reviews.Api.Controllers;
 public class ProductsController(
     ReviewsDbContext db,
     IConnectionMultiplexer redis,
-    ICurrentUser currentUser) : ControllerBase
+    ICurrentUserAccessor currentUser) : ControllerBase
 {
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 100;
     private static readonly TimeSpan ListCacheTtl = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromHours(1);
     private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(1);
-    private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ProductSummary>>> GetAll(CancellationToken ct)
@@ -36,7 +35,7 @@ public class ProductsController(
         var cache = redis.GetDatabase();
         var cached = await cache.StringGetAsync(ReviewsCacheKeys.ProductList);
         if (cached.HasValue)
-            return Ok(JsonSerializer.Deserialize<List<ProductSummary>>((string)cached!, Json)!);
+            return Ok(JsonSerializer.Deserialize<List<ProductSummary>>((string)cached!)!);
 
         var rows = await db.Products
             .AsNoTracking()
@@ -54,7 +53,7 @@ public class ProductsController(
 
         await cache.StringSetAsync(
             ReviewsCacheKeys.ProductList,
-            JsonSerializer.Serialize(rows, Json),
+            JsonSerializer.Serialize(rows),
             ListCacheTtl);
         return Ok(rows);
     }
@@ -69,7 +68,7 @@ public class ProductsController(
         var cached = await cache.StringGetAsync(cacheKey);
         if (cached.HasValue)
         {
-            detail = JsonSerializer.Deserialize<ProductDetail>((string)cached!, Json)!;
+            detail = JsonSerializer.Deserialize<ProductDetail>((string)cached!)!;
         }
         else
         {
@@ -103,7 +102,7 @@ public class ProductsController(
 
             await cache.StringSetAsync(
                 cacheKey,
-                JsonSerializer.Serialize(detail, Json),
+                JsonSerializer.Serialize(detail),
                 DetailCacheTtl);
         }
 
@@ -148,7 +147,7 @@ public class ProductsController(
             var cached = await cache.StringGetAsync(ReviewsCacheKeys.FirstPage(slug.Value));
             if (cached.HasValue)
             {
-                var page1 = JsonSerializer.Deserialize<ReviewsPage>((string)cached!, Json)!;
+                var page1 = JsonSerializer.Deserialize<ReviewsPage>((string)cached!)!;
                 return Ok(await EnrichForViewerAsync(page1, ct));
             }
         }
@@ -173,7 +172,7 @@ public class ProductsController(
             };
             await cache.StringSetAsync(
                 ReviewsCacheKeys.FirstPage(slug.Value),
-                JsonSerializer.Serialize(toCache, Json),
+                JsonSerializer.Serialize(toCache),
                 FirstPageCacheTtl);
         }
 

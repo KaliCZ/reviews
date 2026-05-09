@@ -35,3 +35,10 @@ builder.Services.AddHealthChecks().AddInfraHealthChecks();
 var app = builder.Build();
 app.MapDefaultEndpoints();
 app.Run();
+
+// Named partial in the Worker namespace so the test project can disambiguate
+// from the API's Program class (also pulled in via project reference).
+namespace Reviews.Worker
+{
+    public partial class Program { }
+}
