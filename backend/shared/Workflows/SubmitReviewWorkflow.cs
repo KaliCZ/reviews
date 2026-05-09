@@ -1,3 +1,4 @@
+using StrongTypes;
 using Temporalio.Workflows;
 
 namespace Reviews.Shared;
@@ -6,11 +7,11 @@ public record SubmitReviewInput(
     Guid ReviewId,
     long ProductId,
     Guid AuthorId,
-    string AuthorName,
+    NonEmptyString AuthorName,
     short Rating,
-    string? Title,
-    string Body,
-    IReadOnlyList<string> ImageUrls);
+    NonEmptyString Title,
+    NonEmptyString Body,
+    IReadOnlyList<NonEmptyString> ImageUrls);
 
 // Submit-review flow per docs/flows.md §3:
 //   - Every review persists immediately as Pending (the entity ctor's default).

@@ -7,6 +7,7 @@ using Reviews.Api.Services;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Entities;
 using StackExchange.Redis;
+using StrongTypes;
 
 namespace Reviews.Api.Controllers;
 
@@ -53,7 +54,7 @@ public class ProductsController(
     // extra round-trip. The lookup is a single indexed PK-style query —
     // cheap, no point caching.
     [HttpGet("{slug}")]
-    public async Task<ActionResult<ProductDetail>> GetBySlug(string slug, CancellationToken ct)
+    public async Task<ActionResult<ProductDetail>> GetBySlug(NonEmptyString slug, CancellationToken ct)
     {
         var p = await db.Products
             .AsNoTracking()
@@ -89,7 +90,7 @@ public class ProductsController(
     //   anything else → straight to Postgres via keyset pagination
     [HttpGet("{slug}/reviews")]
     public async Task<ActionResult<ReviewsPage>> GetReviews(
-        string slug,
+        NonEmptyString slug,
         [FromQuery] string sort = "newest",
         [FromQuery] short? rating = null,
         [FromQuery] bool? hasPhotos = null,
@@ -185,7 +186,11 @@ public class ProductsController(
         var uid = currentUser.Id;
         var items = rows.Select(r => new ReviewItem(
             r.Id, r.ProductId, r.AuthorId, r.AuthorName, r.Rating, r.Title, r.Body,
-            r.ImageUrls, r.Score, r.CreatedAt, r.UpdatedAt,
+            // Each persisted URL is required to be non-empty by the DTO contract;
+            // wrap on the way out so the SPA's generated client sees the same
+            // shape (`string` with minLength 1).
+            r.ImageUrls.Select(u => u.ToNonEmpty()).ToList(),
+            r.Score, r.CreatedAt, r.UpdatedAt,
             MyVote: null,
             Mine: uid is not null && r.AuthorId == uid)).ToList();
 

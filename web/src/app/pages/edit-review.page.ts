@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
-import { ReviewItem } from '../models';
+import { Limits, ReviewItem } from '../models';
 
 @Component({
   imports: [FormsModule, RouterLink, StarRating],
@@ -21,31 +21,82 @@ import { ReviewItem } from '../models';
           >Your rating
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
-        <label
-          >Title (optional)
-          <input type="text" [(ngModel)]="title" name="title" maxlength="120" />
+        <label class="field">
+          Title
+          <input
+            type="text"
+            [(ngModel)]="title"
+            name="title"
+            required
+            [maxlength]="Limits.titleMax"
+          />
         </label>
-        <label
-          >Review
+        <small class="counter" [class.over]="title.length > Limits.titleMax">
+          {{ title.length }}/{{ Limits.titleMax }}
+        </small>
+        <label class="field">
+          Review
           <textarea
             [(ngModel)]="body"
             name="body"
             rows="6"
             required
-            minlength="10"
-            maxlength="4000"
+            [minlength]="Limits.bodyMin"
+            [maxlength]="Limits.bodyMax"
           ></textarea>
         </label>
-        <label
-          >Image URLs (one per line, optional)
-          <textarea [(ngModel)]="imageUrlsRaw" name="imageUrls" rows="3"></textarea>
-        </label>
+        <small
+          class="counter"
+          [class.over]="body.length > Limits.bodyMax"
+          [class.under]="body.trim().length > 0 && body.trim().length < Limits.bodyMin"
+        >
+          {{ body.length }}/{{ Limits.bodyMax }}
+          @if (body.trim().length > 0 && body.trim().length < Limits.bodyMin) {
+            · {{ Limits.bodyMin }} min
+          }
+        </small>
+
+        <fieldset>
+          <legend>Photos (up to {{ Limits.maxImages }})</legend>
+          @if (imageUrls.length > 0) {
+            <ul class="uploaded">
+              @for (u of imageUrls; track u) {
+                <li>
+                  <img [src]="u" alt="review image" />
+                  <button type="button" (click)="removeImage(u)">Remove</button>
+                </li>
+              }
+            </ul>
+          }
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            (change)="onFiles($event)"
+            [disabled]="imageUrls.length >= Limits.maxImages"
+          />
+          <p class="muted">
+            Each image must be {{ Limits.maxImageBytes / (1024 * 1024) }} MB or less.
+          </p>
+          @if (uploadError(); as ue) {
+            <p class="error">{{ ue }}</p>
+          }
+        </fieldset>
 
         @if (error(); as e) {
           <p class="error">{{ e }}</p>
         }
 
-        <button type="submit" [disabled]="saving() || body.trim().length < 10">
+        <button
+          type="submit"
+          [disabled]="
+            saving() ||
+            title.trim().length === 0 ||
+            title.length > Limits.titleMax ||
+            body.trim().length < Limits.bodyMin ||
+            body.length > Limits.bodyMax
+          "
+        >
           {{ saving() ? 'Saving...' : 'Save changes' }}
         </button>
       </form>
@@ -58,6 +109,25 @@ import { ReviewItem } from '../models';
       label {
         display: block;
         margin: 0.75rem 0;
+      }
+      .counter {
+        display: block;
+        margin-top: 0.25rem;
+        color: #666;
+        font-size: 0.8rem;
+        text-align: right;
+      }
+      .counter.over {
+        color: #b91c1c;
+      }
+      .counter.under {
+        color: #b45309;
+      }
+      fieldset {
+        margin: 0.75rem 0;
+        padding: 0.75rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
       }
       input[type='text'],
       textarea {
@@ -82,6 +152,33 @@ import { ReviewItem } from '../models';
         background: #93c5fd;
         cursor: not-allowed;
       }
+      .uploaded {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 0.5rem;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .uploaded li {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+      }
+      .uploaded img {
+        width: 96px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 4px;
+        border: 1px solid #eee;
+      }
+      .uploaded button {
+        background: transparent;
+        color: #b91c1c;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.85rem;
+      }
       .muted {
         color: #666;
         font-size: 0.9rem;
@@ -102,16 +199,18 @@ export class EditReviewPage {
 
   readonly slug = input.required<string>();
   readonly reviewId = input.required<string>();
+  protected readonly Limits = Limits;
 
   protected readonly review = signal<ReviewItem | null>(null);
   protected readonly notFound = signal(false);
   protected readonly saving = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly uploadError = signal<string | null>(null);
 
   protected rating = 5;
   protected title = '';
   protected body = '';
-  protected imageUrlsRaw = '';
+  protected imageUrls: string[] = [];
 
   constructor() {
     effect(() => {
@@ -126,8 +225,7 @@ export class EditReviewPage {
       this.api.listReviews(s, { sort: 'newest' }).subscribe((pg) => {
         const found = pg.items.find((r) => r.id === id);
         if (!found) {
-          // Try a few more pages before giving up.
-          this.lookupDeep(s, id, pg.nextCursor);
+          this.lookupDeep(s, id, pg.nextCursor ?? null);
           return;
         }
         this.fillFrom(found);
@@ -143,16 +241,56 @@ export class EditReviewPage {
     this.api.listReviews(slug, { sort: 'newest', cursor }).subscribe((pg) => {
       const found = pg.items.find((r) => r.id === id);
       if (found) this.fillFrom(found);
-      else this.lookupDeep(slug, id, pg.nextCursor);
+      else this.lookupDeep(slug, id, pg.nextCursor ?? null);
     });
   }
 
   private fillFrom(r: ReviewItem) {
     this.review.set(r);
     this.rating = r.rating;
-    this.title = r.title ?? '';
+    this.title = r.title;
     this.body = r.body;
-    this.imageUrlsRaw = r.imageUrls.join('\n');
+    this.imageUrls = [...r.imageUrls];
+  }
+
+  onFiles(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length) return;
+    this.uploadError.set(null);
+
+    const slotsRemaining = Limits.maxImages - this.imageUrls.length;
+    if (files.length > slotsRemaining) {
+      this.uploadError.set(
+        `You can attach at most ${Limits.maxImages} images (${slotsRemaining} remaining).`,
+      );
+      return;
+    }
+
+    for (const f of files) {
+      if (f.size > Limits.maxImageBytes) {
+        this.uploadError.set(
+          `${f.name} is too large (max ${Limits.maxImageBytes / (1024 * 1024)} MB).`,
+        );
+        return;
+      }
+      if (!Limits.allowedImageTypes.includes(f.type as (typeof Limits.allowedImageTypes)[number])) {
+        this.uploadError.set(`${f.name}: unsupported type ${f.type || 'unknown'}.`);
+        return;
+      }
+    }
+
+    for (const f of files) {
+      this.api.uploadImage(f).subscribe({
+        next: (res) => this.imageUrls.push(res.url),
+        error: (err) => this.uploadError.set(err.error ?? err.message ?? 'Upload failed'),
+      });
+    }
+  }
+
+  removeImage(url: string) {
+    this.imageUrls = this.imageUrls.filter((u) => u !== url);
   }
 
   save(e: Event) {
@@ -161,16 +299,12 @@ export class EditReviewPage {
     if (!r) return;
     this.saving.set(true);
     this.error.set(null);
-    const imageUrls = this.imageUrlsRaw
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
     this.api
       .editReview(r.id, {
         rating: this.rating,
-        title: this.title.trim() || undefined,
+        title: this.title.trim(),
         body: this.body.trim(),
-        imageUrls,
+        imageUrls: this.imageUrls,
       })
       .subscribe({
         next: () => this.router.navigate(['/products', this.slug()]),

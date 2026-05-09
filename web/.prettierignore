@@ -1,0 +1,4 @@
+# Generated from the OpenAPI spec — keep the codegen output verbatim so a
+# regen never produces a prettier diff that has to be re-committed.
+src/api/openapi.json
+src/api/schema.d.ts

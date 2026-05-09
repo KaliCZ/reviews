@@ -120,7 +120,7 @@ export class MoreReviewsPage {
       .listReviews(this.slug(), { sort: this.sort, rating: this.rating, hasPhotos: this.hasPhotos })
       .subscribe((pg) => {
         this.items.set(pg.items);
-        this.cursor.set(pg.nextCursor);
+        this.cursor.set(pg.nextCursor ?? null);
         this.loaded.set(true);
       });
   }
@@ -137,7 +137,7 @@ export class MoreReviewsPage {
       })
       .subscribe((pg) => {
         this.items.update((cur) => [...cur, ...pg.items]);
-        this.cursor.set(pg.nextCursor);
+        this.cursor.set(pg.nextCursor ?? null);
       });
   }
 

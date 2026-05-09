@@ -8,6 +8,7 @@ using Reviews.Api.Services;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
+using StrongTypes;
 using Temporalio.Client;
 
 namespace Reviews.Api.Controllers;
@@ -30,10 +31,14 @@ public class ReviewsController(
     public async Task<ActionResult<AcceptedResponse>> Submit(
         [FromBody] SubmitReviewRequest req, CancellationToken ct)
     {
+        // Rating is the only field the wrappers don't validate for us — it's
+        // a primitive `short` (1..5) and StrongTypes has no Range<T>. Title /
+        // Body / TurnstileToken empties already failed at deserialization.
         if (req.Rating is < 1 or > 5) return BadRequest("Rating must be between 1 and 5.");
-        if (string.IsNullOrWhiteSpace(req.Body)) return BadRequest("Body is required.");
+        if ((req.ImageUrls?.Count ?? 0) > ReviewsDbContext.MaxImagesPerReview)
+            return BadRequest($"At most {ReviewsDbContext.MaxImagesPerReview} images per review.");
 
-        if (!await turnstile.VerifyAsync(req.TurnstileToken, HttpContext.Connection.RemoteIpAddress?.ToString(), ct))
+        if (!await turnstile.VerifyAsync(req.TurnstileToken.Value, HttpContext.Connection.RemoteIpAddress?.ToString(), ct))
             return BadRequest("Turnstile verification failed.");
 
         var uid = currentUser.Id!.Value;
@@ -56,7 +61,7 @@ public class ReviewsController(
             ReviewId:   reviewId,
             ProductId:  req.ProductId,
             AuthorId:   uid,
-            AuthorName: currentUser.Name ?? "Anonymous",
+            AuthorName: (currentUser.Name ?? "Anonymous").ToNonEmpty(),
             Rating:     req.Rating,
             Title:      req.Title,
             Body:       req.Body,
@@ -66,7 +71,7 @@ public class ReviewsController(
             (SubmitReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"submit-review-{reviewId:N}", taskQueue: ReviewQueues.TaskQueue));
 
-        return Accepted(new AcceptedResponse(handle.Id, "submitted"));
+        return Accepted(new AcceptedResponse(handle.Id.ToNonEmpty(), "submitted".ToNonEmpty()));
     }
 
     [HttpPut("{id:guid}")]
@@ -74,7 +79,8 @@ public class ReviewsController(
         Guid id, [FromBody] EditReviewRequest req, CancellationToken ct)
     {
         if (req.Rating is < 1 or > 5) return BadRequest("Rating must be between 1 and 5.");
-        if (string.IsNullOrWhiteSpace(req.Body)) return BadRequest("Body is required.");
+        if ((req.ImageUrls?.Count ?? 0) > ReviewsDbContext.MaxImagesPerReview)
+            return BadRequest($"At most {ReviewsDbContext.MaxImagesPerReview} images per review.");
 
         var input = new EditReviewInput(
             ReviewId:  id,
@@ -88,7 +94,7 @@ public class ReviewsController(
             (EditReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"edit-review-{id:N}-{Guid.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
 
-        return Accepted(new AcceptedResponse(handle.Id, "edit-submitted"));
+        return Accepted(new AcceptedResponse(handle.Id.ToNonEmpty(), "edit-submitted".ToNonEmpty()));
     }
 
     [HttpDelete("{id:guid}")]
@@ -98,7 +104,7 @@ public class ReviewsController(
         var handle = await temporal.StartWorkflowAsync(
             (DeleteReviewWorkflow wf) => wf.RunAsync(input),
             new(id: $"delete-review-{id:N}-{Guid.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
-        return Accepted(new AcceptedResponse(handle.Id, "delete-submitted"));
+        return Accepted(new AcceptedResponse(handle.Id.ToNonEmpty(), "delete-submitted".ToNonEmpty()));
     }
 
     [HttpPost("{id:guid}/vote")]
@@ -115,6 +121,6 @@ public class ReviewsController(
             // start fresh executions which the activity collapses via UPSERT.
             new(id: $"vote-{id:N}-{currentUser.Id:N}-{Guid.NewGuid():N}",
                 taskQueue: ReviewQueues.TaskQueue));
-        return Accepted(new AcceptedResponse(handle.Id, "voted"));
+        return Accepted(new AcceptedResponse(handle.Id.ToNonEmpty(), "voted".ToNonEmpty()));
     }
 }

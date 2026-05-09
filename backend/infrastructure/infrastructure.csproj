@@ -11,6 +11,8 @@
     <!-- Aspire's EF Core integration over Npgsql: same connection-name plumbing
          as Aspire.Npgsql, plus DbContext registration, OTel, and resilience. -->
     <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.4" />
+    <PackageReference Include="Kalicz.StrongTypes" Version="1.1.0" />
+    <PackageReference Include="Kalicz.StrongTypes.EfCore" Version="1.1.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

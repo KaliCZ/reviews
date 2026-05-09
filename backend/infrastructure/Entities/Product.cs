@@ -1,3 +1,5 @@
+using StrongTypes;
+
 namespace Reviews.Infrastructure.Entities;
 
 // Catalog product. ID is provided by the upstream catalog (this service doesn't
@@ -7,12 +9,8 @@ public class Product
 {
     private Product() { }
 
-    public Product(long id, string slug, string name, string description, string? imageUrl = null)
+    public Product(long id, NonEmptyString slug, NonEmptyString name, NonEmptyString description, NonEmptyString? imageUrl = null)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(slug);
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        ArgumentException.ThrowIfNullOrWhiteSpace(description);
-
         Id = id;
         Slug = slug;
         Name = name;
@@ -21,10 +19,10 @@ public class Product
     }
 
     public long Id { get; private set; }
-    public string Slug { get; private set; } = string.Empty;
-    public string Name { get; private set; } = string.Empty;
-    public string Description { get; private set; } = string.Empty;
-    public string? ImageUrl { get; private set; }
+    public NonEmptyString Slug { get; private set; } = null!;
+    public NonEmptyString Name { get; private set; } = null!;
+    public NonEmptyString Description { get; private set; } = null!;
+    public NonEmptyString? ImageUrl { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
     public ICollection<Review> Reviews { get; private set; } = new List<Review>();

@@ -7,6 +7,17 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
 {
     public const string Schema = "reviews";
 
+    // Column max lengths — exposed so clients (UI / DTO validators) can pick
+    // the same numbers from one place. Keeps DB and boundary checks honest.
+    public const int SlugMaxLength = 100;
+    public const int NameMaxLength = 200;
+    public const int DescriptionMaxLength = 4000;
+    public const int ImageUrlMaxLength = 500;
+    public const int AuthorNameMaxLength = 100;
+    public const int TitleMaxLength = 200;
+    public const int BodyMaxLength = 4000;
+    public const int MaxImagesPerReview = 5;
+
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Review> Reviews => Set<Review>();
     public DbSet<ReviewVote> ReviewVotes => Set<ReviewVote>();
@@ -22,10 +33,11 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             // Matches docs/flows.md: product IDs are int64 and provided by the
             // upstream catalog (this service doesn't generate them).
             e.Property(p => p.Id).ValueGeneratedNever();
-            e.Property(p => p.Slug).IsRequired();
+            e.Property(p => p.Slug).IsRequired().HasMaxLength(SlugMaxLength);
             e.HasIndex(p => p.Slug).IsUnique();
-            e.Property(p => p.Name).IsRequired();
-            e.Property(p => p.Description).IsRequired();
+            e.Property(p => p.Name).IsRequired().HasMaxLength(NameMaxLength);
+            e.Property(p => p.Description).IsRequired().HasMaxLength(DescriptionMaxLength);
+            e.Property(p => p.ImageUrl).HasMaxLength(ImageUrlMaxLength);
             e.Property(p => p.CreatedAt).HasDefaultValueSql("NOW()");
         });
 
@@ -34,14 +46,21 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.ToTable("reviews");
             e.HasKey(r => r.Id);
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
-            e.Property(r => r.AuthorName).IsRequired();
-            e.Property(r => r.Body).IsRequired();
+            e.Property(r => r.AuthorName).IsRequired().HasMaxLength(AuthorNameMaxLength);
+            e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
+            e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
             e.Property(r => r.Rating);
             // CHECK constraints reference column names verbatim — quote
             // PascalCase identifiers so Postgres treats them case-sensitively
             // the way EF Core stores them.
             e.ToTable(t => t.HasCheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5"));
+
+            // Cap how many image URLs a single review can carry. text[] doesn't
+            // have a built-in length constraint so it's a CHECK on cardinality.
+            e.ToTable(t => t.HasCheckConstraint(
+                "ck_reviews_image_count",
+                $"array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= {MaxImagesPerReview}"));
 
             // Status is persisted as integer (the default for enums in EF Core
             // — explicit member values are pinned in ReviewStatus.cs). Pending

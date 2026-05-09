@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using StrongTypes.EfCore;
 
 namespace Reviews.Infrastructure;
 
@@ -15,9 +16,9 @@ public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<ReviewsDbC
         var conn = Environment.GetEnvironmentVariable("REVIEWS_DB")
             ?? "Host=localhost;Database=reviews;Username=postgres;Password=postgres;Search Path=reviews";
 
-        var options = new DbContextOptionsBuilder<ReviewsDbContext>()
-            .UseNpgsql(conn, o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema))
-            .Options;
-        return new ReviewsDbContext(options);
+        var builder = new DbContextOptionsBuilder<ReviewsDbContext>()
+            .UseNpgsql(conn, o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
+        builder.UseStrongTypes();
+        return new ReviewsDbContext(builder.Options);
     }
 }

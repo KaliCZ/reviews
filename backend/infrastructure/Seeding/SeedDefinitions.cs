@@ -1,4 +1,5 @@
 using Reviews.Infrastructure.Entities;
+using StrongTypes;
 
 namespace Reviews.Infrastructure.Seeding;
 
@@ -22,18 +23,23 @@ internal static class SeedDefinitions
     public static readonly Guid Grace = new("77777777-7777-7777-7777-777777777777");
     public static readonly Guid Henry = new("88888888-8888-8888-8888-888888888888");
 
-    public static IEnumerable<Product> Products() =>
+    public static IEnumerable<Product> Products() => ProductRows.Select(r =>
+        new Product(r.Id, r.Slug.ToNonEmpty(), r.Name.ToNonEmpty(), r.Description.ToNonEmpty(), ProductImage(r.ImageSeed).ToNonEmpty()));
+
+    private record ProductRow(long Id, string Slug, string Name, string Description, string ImageSeed);
+
+    private static readonly ProductRow[] ProductRows =
     [
-        new(1,  "sony-wh-1000xm5",         "Sony WH-1000XM5 Wireless Headphones", "Flagship over-ear ANC headphones with industry-leading noise cancellation and 30-hour battery life.", ProductImage("sony-wh")),
-        new(2,  "usb-c-cable-pack",        "USB-C Cable 3-Pack (1m)",             "Three braided USB-C to USB-C cables, 60W PD, 480Mbps data.",                                       ProductImage("usbc-cable")),
-        new(3,  "acme-smartwatch",         "Acme Pro Smartwatch",                 "Fitness tracking, heart-rate monitoring, GPS, and a 1.4-inch AMOLED display.",                     ProductImage("acme-watch")),
-        new(4,  "logi-mx-master-3s",       "Logitech MX Master 3S",               "Ultra-quiet clicks, 8K-DPI sensor, MagSpeed scroll wheel, multi-device pairing.",                  ProductImage("logi-mx")),
-        new(5,  "boombox-mini",            "BoomBox Mini Bluetooth Speaker",      "Compact portable speaker with 6-hour battery and IPX5 splash resistance.",                         ProductImage("boombox")),
-        new(6,  "ipad-air-11",             "iPad Air 11\" (M3, 256GB)",           "M3 chip, Liquid Retina display, Apple Pencil Pro support.",                                        ProductImage("ipad-air")),
-        new(7,  "xyz-mechanical-keyboard", "XYZ Mechanical Keyboard (Brown switches)", "Hot-swappable 75% layout, PBT keycaps, USB-C and Bluetooth.",                                 ProductImage("mechkeyb")),
-        new(8,  "travelpro-tripod",        "TravelPro Phone Tripod",              "Aluminum tripod with phone mount and Bluetooth shutter remote.",                                   ProductImage("tripod")),
-        new(9,  "single-origin-coffee",    "Highland Single-Origin Coffee 1kg",   "Whole-bean Ethiopia Yirgacheffe, light roast, brewed within 14 days of roasting.",                 ProductImage("coffee")),
-        new(10, "powerjuice-10000",        "PowerJuice 10000 Mini Power Bank",    "10,000mAh USB-C PD power bank with passthrough charging.",                                         ProductImage("powerbank")),
+        new(1,  "sony-wh-1000xm5",         "Sony WH-1000XM5 Wireless Headphones",   "Flagship over-ear ANC headphones with industry-leading noise cancellation and 30-hour battery life.", "sony-wh"),
+        new(2,  "usb-c-cable-pack",        "USB-C Cable 3-Pack (1m)",               "Three braided USB-C to USB-C cables, 60W PD, 480Mbps data.",                                          "usbc-cable"),
+        new(3,  "acme-smartwatch",         "Acme Pro Smartwatch",                   "Fitness tracking, heart-rate monitoring, GPS, and a 1.4-inch AMOLED display.",                        "acme-watch"),
+        new(4,  "logi-mx-master-3s",       "Logitech MX Master 3S",                 "Ultra-quiet clicks, 8K-DPI sensor, MagSpeed scroll wheel, multi-device pairing.",                     "logi-mx"),
+        new(5,  "boombox-mini",            "BoomBox Mini Bluetooth Speaker",        "Compact portable speaker with 6-hour battery and IPX5 splash resistance.",                            "boombox"),
+        new(6,  "ipad-air-11",             "iPad Air 11\" (M3, 256GB)",             "M3 chip, Liquid Retina display, Apple Pencil Pro support.",                                           "ipad-air"),
+        new(7,  "xyz-mechanical-keyboard", "XYZ Mechanical Keyboard (Brown switches)", "Hot-swappable 75% layout, PBT keycaps, USB-C and Bluetooth.",                                      "mechkeyb"),
+        new(8,  "travelpro-tripod",        "TravelPro Phone Tripod",                "Aluminum tripod with phone mount and Bluetooth shutter remote.",                                      "tripod"),
+        new(9,  "single-origin-coffee",    "Highland Single-Origin Coffee 1kg",     "Whole-bean Ethiopia Yirgacheffe, light roast, brewed within 14 days of roasting.",                    "coffee"),
+        new(10, "powerjuice-10000",        "PowerJuice 10000 Mini Power Bank",      "10,000mAh USB-C PD power bank with passthrough charging.",                                            "powerbank"),
     ];
 
     // Raw seed data; the Seeder turns image-seed strings into Azurite blob

@@ -16,9 +16,7 @@ import { ReviewItem } from '../models';
     <article class="review">
       <header>
         <app-star-rating [value]="review().rating" />
-        @if (review().title) {
-          <span class="title">{{ review().title }}</span>
-        }
+        <span class="title">{{ review().title }}</span>
       </header>
       <div class="meta">
         <span>{{ review().authorName }}</span>
