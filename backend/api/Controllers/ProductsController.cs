@@ -199,8 +199,8 @@ public class ProductsController(
         var ordered = sort switch
         {
             ReviewSort.Helpful => q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.Id),
-            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.Id),
+            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id),
+            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id),
             _ /* Newest */     => q.OrderByDescending(r => r.Id),
         };
 

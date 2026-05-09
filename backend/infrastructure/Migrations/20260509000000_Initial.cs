@@ -123,8 +123,8 @@ namespace Reviews.Infrastructure.Migrations
                 name: "idx_reviews_rating",
                 schema: "reviews",
                 table: "reviews",
-                columns: new[] { "ProductId", "Rating", "Id" },
-                descending: new[] { false, true, true },
+                columns: new[] { "ProductId", "Rating", "Score", "Id" },
+                descending: new[] { false, true, true, true },
                 filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(
