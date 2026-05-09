@@ -142,30 +142,39 @@ public class ReviewActivities(
         // if no row matched, INSERT. Safe to be the only writer per pair
         // because the workflow id collapses concurrent same-user votes
         // (IdConflictPolicy.UseExisting joins the in-flight execution).
-        await using var tx = await db.Database.BeginTransactionAsync();
-
-        var updated = await db.ReviewVotes
-            .Where(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId)
-            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, input.IsUpvote));
-
-        if (updated == 0)
+        //
+        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext to
+        // ride out transient Postgres errors. That strategy refuses
+        // user-initiated transactions unless wrapped in ExecuteAsync, so the
+        // vote write + score recompute live inside one strategy-managed unit.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
-            await db.SaveChangesAsync();
-        }
+            await using var tx = await db.Database.BeginTransactionAsync();
 
-        // Recompute denormalized Review.Score from source-of-truth vote rows
-        // so it self-heals on every vote (any drift corrects within a tick).
-        // Single UPDATE … SET Score = (subquery) — no entity load.
-        await db.Reviews
-            .Where(r => r.Id == input.ReviewId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(r => r.Score, _ => db.ReviewVotes
-                    .Where(v => v.ReviewId == input.ReviewId)
-                    .Sum(v => v.IsUpvote ? 1 : -1))
-                .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow));
+            var updated = await db.ReviewVotes
+                .Where(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId)
+                .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, input.IsUpvote));
 
-        await tx.CommitAsync();
+            if (updated == 0)
+            {
+                db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
+                await db.SaveChangesAsync();
+            }
+
+            // Recompute denormalized Review.Score from source-of-truth vote
+            // rows so it self-heals on every vote (any drift corrects within
+            // a tick). Single UPDATE … SET Score = (subquery) — no entity load.
+            await db.Reviews
+                .Where(r => r.Id == input.ReviewId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Score, _ => db.ReviewVotes
+                        .Where(v => v.ReviewId == input.ReviewId)
+                        .Sum(v => v.IsUpvote ? 1 : -1))
+                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow));
+
+            await tx.CommitAsync();
+        });
         logger.LogInformation(
             "Recorded vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
             input.IsUpvote, input.VoterId, input.ReviewId, slug);
