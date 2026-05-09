@@ -5,24 +5,28 @@ import { StarRating } from '../components/star-rating';
 import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
 import { Limits, ProductDetail } from '../models';
+import { TPipe } from '../pipes/t.pipe';
+import { I18nService } from '../services/i18n.service';
 
 @Component({
-  imports: [FormsModule, RouterLink, StarRating, TurnstileComponent],
+  imports: [FormsModule, RouterLink, StarRating, TurnstileComponent, TPipe],
   template: `
     @if (product(); as p) {
       <p>
-        <a [routerLink]="['/products', p.slug]" class="link">← Back to {{ p.name }}</a>
+        <a [routerLink]="['/products', p.slug]" class="link">{{
+          'submit.backToProduct' | t: { name: p.name }
+        }}</a>
       </p>
-      <h1>Write a review for {{ p.name }}</h1>
+      <h1>{{ 'submit.heading' | t: { product: p.name } }}</h1>
 
       <form (submit)="submit($event)">
         <label
-          >Your rating
+          >{{ 'submit.rating' | t }}
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
 
         <label class="field">
-          Title
+          {{ 'submit.title' | t }}
           <input
             type="text"
             [(ngModel)]="title"
@@ -36,7 +40,7 @@ import { Limits, ProductDetail } from '../models';
         </small>
 
         <label class="field">
-          Review
+          {{ 'submit.body' | t }}
           <textarea
             [(ngModel)]="body"
             name="body"
@@ -58,7 +62,7 @@ import { Limits, ProductDetail } from '../models';
         </small>
 
         <fieldset>
-          <legend>Photos (optional, up to {{ Limits.maxImages }})</legend>
+          <legend>{{ 'submit.photos' | t: { n: Limits.maxImages } }}</legend>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
@@ -67,7 +71,7 @@ import { Limits, ProductDetail } from '../models';
             [disabled]="uploadedUrls.length >= Limits.maxImages"
           />
           <p class="muted">
-            Each image must be {{ Limits.maxImageBytes / (1024 * 1024) }} MB or less.
+            {{ 'submit.photosLimit' | t: { mb: Limits.maxImageBytes / (1024 * 1024) } }}
           </p>
           @if (uploadError(); as ue) {
             <p class="error">{{ ue }}</p>
@@ -76,8 +80,10 @@ import { Limits, ProductDetail } from '../models';
             <ul class="uploaded">
               @for (u of uploadedUrls; track u) {
                 <li>
-                  <img [src]="u" alt="uploaded" />
-                  <button type="button" (click)="removeUploaded(u)">Remove</button>
+                  <img [src]="u" [alt]="'submit.uploadedImageAlt' | t" />
+                  <button type="button" (click)="removeUploaded(u)">
+                    {{ 'common.remove' | t }}
+                  </button>
                 </li>
               }
             </ul>
@@ -94,22 +100,19 @@ import { Limits, ProductDetail } from '../models';
 
         <button type="submit" [disabled]="!canSubmit() || submitting() || uploadsInFlight() > 0">
           @if (submitting()) {
-            Submitting…
+            {{ 'common.submitting' | t }}
           } @else if (uploadsInFlight() > 0) {
-            Waiting for {{ uploadsInFlight() }} upload(s)…
+            {{ 'common.waitingUploads' | t: { n: uploadsInFlight() } }}
           } @else {
-            Submit review
+            {{ 'submit.button' | t }}
           }
         </button>
         @if (rating === 1 || rating === 2 || rating === 5) {
-          <p class="muted">
-            Reviews at this rating go through moderation before they appear. You can track approval
-            in the Temporal UI.
-          </p>
+          <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
         }
       </form>
     } @else if (notFound()) {
-      <p>Product not found.</p>
+      <p>{{ 'products.notFound' | t }}</p>
     }
   `,
   styles: [
@@ -204,6 +207,7 @@ import { Limits, ProductDetail } from '../models';
 export class SubmitReviewPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly i18n = inject(I18nService);
 
   readonly slug = input.required<string>();
   protected readonly Limits = Limits;
@@ -260,7 +264,7 @@ export class SubmitReviewPage {
     const slotsRemaining = Limits.maxImages - this.uploadedUrls.length;
     if (files.length > slotsRemaining) {
       this.uploadError.set(
-        `You can attach at most ${Limits.maxImages} images (${slotsRemaining} remaining).`,
+        this.i18n.t('submit.tooManyImages', { max: Limits.maxImages, remaining: slotsRemaining }),
       );
       return;
     }
@@ -268,12 +272,17 @@ export class SubmitReviewPage {
     for (const f of files) {
       if (f.size > Limits.maxImageBytes) {
         this.uploadError.set(
-          `${f.name} is too large (max ${Limits.maxImageBytes / (1024 * 1024)} MB).`,
+          this.i18n.t('submit.imageTooLarge', {
+            name: f.name,
+            mb: Limits.maxImageBytes / (1024 * 1024),
+          }),
         );
         return;
       }
       if (!Limits.allowedImageTypes.includes(f.type as (typeof Limits.allowedImageTypes)[number])) {
-        this.uploadError.set(`${f.name}: unsupported type ${f.type || 'unknown'}.`);
+        this.uploadError.set(
+          this.i18n.t('submit.imageBadType', { name: f.name, type: f.type || 'unknown' }),
+        );
         return;
       }
     }
@@ -286,7 +295,7 @@ export class SubmitReviewPage {
           this.uploadsInFlight.update((n) => n - 1);
         },
         error: (err) => {
-          this.uploadError.set(err.error ?? err.message ?? 'Upload failed');
+          this.uploadError.set(err.error ?? err.message ?? this.i18n.t('submit.uploadFailed'));
           this.uploadsInFlight.update((n) => n - 1);
         },
       });
@@ -319,7 +328,7 @@ export class SubmitReviewPage {
           this.router.navigate(['/products', p.slug]);
         },
         error: (err) => {
-          this.error.set(err.error ?? err.message ?? 'Submit failed');
+          this.error.set(err.error ?? err.message ?? this.i18n.t('submit.submitFailed'));
           this.submitting.set(false);
         },
       });

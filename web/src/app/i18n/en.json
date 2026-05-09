@@ -16,6 +16,7 @@
     "waitingUploads": "Waiting for {n} upload(s)…",
     "delete": "Delete",
     "edit": "Edit",
+    "remove": "Remove",
     "of": "of",
     "page": "Page",
     "prev": "← Prev",
@@ -30,6 +31,11 @@
     "reviewsHeading": "Reviews",
     "reviewCount": "{count} reviews",
     "notFound": "Product not found."
+  },
+  "productList": {
+    "heading": "Products",
+    "subtitle": "Browse the catalog. Click a product to read its reviews.",
+    "empty": "No products yet."
   },
   "reviewList": {
     "heading": "All reviews",
@@ -47,28 +53,45 @@
   },
   "submit": {
     "heading": "Write a review for {product}",
+    "backToProduct": "← Back to {name}",
     "rating": "Your rating",
     "title": "Title",
     "body": "Review",
     "photos": "Photos (optional, up to {n})",
     "photosLimit": "Each image must be {mb} MB or less.",
     "moderationNotice": "Reviews at this rating go through moderation before they appear. You can track approval in the Temporal UI.",
+    "button": "Submit review",
     "uploadFailed": "Upload failed",
-    "submitFailed": "Submit failed"
+    "submitFailed": "Submit failed",
+    "tooManyImages": "You can attach at most {max} images ({remaining} remaining).",
+    "imageTooLarge": "{name} is too large (max {mb} MB).",
+    "imageBadType": "{name}: unsupported type {type}.",
+    "uploadedImageAlt": "uploaded"
   },
   "edit": {
     "heading": "Edit your review",
+    "photos": "Photos (up to {n})",
     "moderationNotice": "Edits to reviews older than an hour go through moderator approval before they apply. The Temporal UI is where moderators send approve/reject signals.",
     "saveFailed": "Save failed",
     "notFound": "Review not found."
   },
   "vote": {
-    "deleteConfirm": "Delete this review? Reviews older than an hour need moderator approval."
+    "deleteConfirm": "Delete this review? Reviews older than an hour need moderator approval.",
+    "signInToVote": "Sign in to vote"
+  },
+  "reviewCard": {
+    "imageAlt": "review photo"
+  },
+  "starRating": {
+    "ariaLabel": "{n} out of 5 stars"
   },
   "theme": {
     "system": "System",
     "light": "Light",
-    "dark": "Dark"
+    "dark": "Dark",
+    "titleSystem": "Theme: system (click for light)",
+    "titleLight": "Theme: light (click for dark)",
+    "titleDark": "Theme: dark (click for system)"
   },
   "language": {
     "label": "Language",

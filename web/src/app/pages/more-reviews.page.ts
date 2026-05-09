@@ -4,6 +4,8 @@ import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
 import { ApiService } from '../services/api.service';
 import { ReviewSort, SortDirection, ReviewsPage } from '../models';
+import { TPipe } from '../pipes/t.pipe';
+import { I18nService } from '../services/i18n.service';
 
 const PAGE_SIZE = 20;
 const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
@@ -31,25 +33,27 @@ const SORT_OPTIONS: ReadonlyArray<{
 ];
 
 @Component({
-  imports: [FormsModule, RouterLink, ReviewCard],
+  imports: [FormsModule, RouterLink, ReviewCard, TPipe],
   template: `
-    <p><a [routerLink]="['/products', slug()]" class="link">← Back to product</a></p>
-    <h1>All reviews</h1>
+    <p>
+      <a [routerLink]="['/products', slug()]" class="link">{{ 'reviewList.backToProduct' | t }}</a>
+    </p>
+    <h1>{{ 'reviewList.heading' | t }}</h1>
 
     <div class="controls">
       <label>
-        Sort
+        {{ 'reviewList.sort' | t }}
         <select [(ngModel)]="sortOption" (ngModelChange)="reload()">
-          <option value="helpful-desc">Most helpful</option>
-          <option value="helpful-asc">Least helpful</option>
-          <option value="date-desc">Newest</option>
-          <option value="date-asc">Oldest</option>
-          <option value="rating-desc">Highest rated</option>
-          <option value="rating-asc">Lowest rated</option>
+          <option value="helpful-desc">{{ 'reviewList.sortHelpfulDesc' | t }}</option>
+          <option value="helpful-asc">{{ 'reviewList.sortHelpfulAsc' | t }}</option>
+          <option value="date-desc">{{ 'reviewList.sortDateDesc' | t }}</option>
+          <option value="date-asc">{{ 'reviewList.sortDateAsc' | t }}</option>
+          <option value="rating-desc">{{ 'reviewList.sortRatingDesc' | t }}</option>
+          <option value="rating-asc">{{ 'reviewList.sortRatingAsc' | t }}</option>
         </select>
       </label>
       <fieldset class="ratings">
-        <legend>Filter by rating</legend>
+        <legend>{{ 'reviewList.filterRating' | t }}</legend>
         @for (n of ratingOptions; track n) {
           <label class="rating-pick">
             <input
@@ -63,7 +67,7 @@ const SORT_OPTIONS: ReadonlyArray<{
       </fieldset>
       <label>
         <input type="checkbox" [(ngModel)]="hasPhotos" (ngModelChange)="reload()" />
-        With photos only
+        {{ 'reviewList.withPhotosOnly' | t }}
       </label>
     </div>
 
@@ -76,22 +80,24 @@ const SORT_OPTIONS: ReadonlyArray<{
           (del)="onDelete($event)"
         />
       } @empty {
-        <p class="muted">No reviews match.</p>
+        <p class="muted">{{ 'reviewList.noMatches' | t }}</p>
       }
 
       @if (pg.totalCount > 0) {
         <nav class="pager">
           <button type="button" class="link" (click)="goTo(pg.page - 1)" [disabled]="pg.page <= 1">
-            ← Prev
+            {{ 'common.prev' | t }}
           </button>
-          <span class="muted">Page {{ pg.page }} of {{ totalPages(pg) }}</span>
+          <span class="muted"
+            >{{ 'common.page' | t }} {{ pg.page }} {{ 'common.of' | t }} {{ totalPages(pg) }}</span
+          >
           <button
             type="button"
             class="link"
             (click)="goTo(pg.page + 1)"
             [disabled]="pg.page >= totalPages(pg)"
           >
-            Next →
+            {{ 'common.next' | t }}
           </button>
         </nav>
       }
@@ -165,6 +171,7 @@ const SORT_OPTIONS: ReadonlyArray<{
 })
 export class MoreReviewsPage {
   private readonly api = inject(ApiService);
+  private readonly i18n = inject(I18nService);
   readonly slug = input.required<string>();
 
   protected readonly ratingOptions = RATING_OPTIONS;
@@ -219,7 +226,7 @@ export class MoreReviewsPage {
   }
 
   onDelete(id: string) {
-    if (!confirm('Delete this review? Reviews older than an hour need moderator approval.')) return;
+    if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.api.deleteReview(id).subscribe(() => setTimeout(() => this.reload(), 400));
   }
 }

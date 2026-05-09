@@ -3,12 +3,13 @@ import { RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
 import { ProductSummary } from '../models';
+import { TPipe } from '../pipes/t.pipe';
 
 @Component({
-  imports: [RouterLink, StarRating],
+  imports: [RouterLink, StarRating, TPipe],
   template: `
-    <h1>Products</h1>
-    <p class="muted">Browse the catalog. Click a product to read its reviews.</p>
+    <h1>{{ 'productList.heading' | t }}</h1>
+    <p class="muted">{{ 'productList.subtitle' | t }}</p>
     <ul class="grid">
       @for (p of products(); track p.id) {
         <li class="card">
@@ -20,14 +21,16 @@ import { ProductSummary } from '../models';
               <h2>{{ p.name }}</h2>
               <div class="meta">
                 <app-star-rating [value]="p.averageRating" />
-                <span class="count">{{ p.reviewCount }} reviews</span>
+                <span class="count">{{
+                  'products.reviewCount' | t: { count: p.reviewCount }
+                }}</span>
               </div>
             </div>
           </a>
         </li>
       } @empty {
         @if (loaded()) {
-          <li class="empty">No products yet.</li>
+          <li class="empty">{{ 'productList.empty' | t }}</li>
         }
       }
     </ul>

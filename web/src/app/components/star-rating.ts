@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
+import { I18nService } from '../services/i18n.service';
 
 @Component({
   selector: 'app-star-rating',
@@ -46,13 +47,20 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
   ],
 })
 export class StarRating {
+  private readonly i18n = inject(I18nService);
+
   readonly value = input(0);
   readonly interactive = input(false);
   readonly valueChange = output<number>();
 
   readonly stars = [1, 2, 3, 4, 5];
   readonly rounded = computed(() => Math.round(this.value()));
-  readonly ariaLabel = computed(() => `${this.value().toFixed(1)} out of 5 stars`);
+  // Pure: false isn't on the host; the locale signal is read here so the
+  // computed re-runs when locale changes.
+  readonly ariaLabel = computed(() => {
+    this.i18n.locale();
+    return this.i18n.t('starRating.ariaLabel', { n: this.value().toFixed(1) });
+  });
 
   onPick(n: number) {
     if (this.interactive()) this.valueChange.emit(n);
