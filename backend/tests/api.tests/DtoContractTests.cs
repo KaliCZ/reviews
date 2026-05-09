@@ -110,6 +110,18 @@ public class DtoContractTests
     }
 
     [Fact]
+    public void Submit_with_empty_image_urls_array_round_trips()
+    {
+        // The SPA always sends `imageUrls` (possibly empty) — RespectRequired-
+        // ConstructorParameters would reject a missing key, so this pins down
+        // that an empty array is the no-photos representation on the wire.
+        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(
+            SubmitPayload(imageUrls: []), Json);
+        Assert.NotNull(req);
+        Assert.Empty(req!.ImageUrls!);
+    }
+
+    [Fact]
     public void Edit_with_empty_body_is_rejected()
     {
         const string json = """

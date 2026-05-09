@@ -295,7 +295,7 @@ export class SubmitReviewPage {
         rating: this.rating,
         title: this.title.trim(),
         body: this.body.trim(),
-        imageUrls: this.uploadedUrls.length ? this.uploadedUrls : undefined,
+        imageUrls: this.uploadedUrls,
         turnstileToken: this.turnstileToken,
       })
       .subscribe({
