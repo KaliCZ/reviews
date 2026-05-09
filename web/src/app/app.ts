@@ -2,10 +2,12 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterLink, RouterOutlet, Router } from '@angular/router';
 import { AuthService } from './services/auth.service';
 import { ThemeToggle } from './components/theme-toggle';
+import { LanguageToggle } from './components/language-toggle';
+import { TPipe } from './pipes/t.pipe';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, ThemeToggle],
+  imports: [RouterOutlet, RouterLink, ThemeToggle, LanguageToggle, TPipe],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

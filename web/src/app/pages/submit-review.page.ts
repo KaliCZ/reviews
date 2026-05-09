@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
+import { I18nService } from '../services/i18n.service';
 import { Limits, ProductDetail } from '../models';
 
 @Component({
@@ -204,6 +205,7 @@ import { Limits, ProductDetail } from '../models';
 export class SubmitReviewPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly i18n = inject(I18nService);
 
   readonly slug = input.required<string>();
   protected readonly Limits = Limits;
@@ -318,6 +320,7 @@ export class SubmitReviewPage {
         title: this.title.trim(),
         body: this.body.trim(),
         imageUrls: this.uploadedUrls,
+        language: this.i18n.locale(),
         turnstileToken: this.turnstileToken,
       })
       .subscribe({

@@ -64,7 +64,8 @@ public class ReviewsController(
             Rating:     req.Rating,
             Title:      req.Title,
             Body:       req.Body,
-            ImageUrls:  req.ImageUrls ?? []);
+            ImageUrls:  req.ImageUrls ?? [],
+            Language:   req.Language);
 
         var handle = await temporal.StartWorkflowAsync(
             (SubmitReviewWorkflow wf) => wf.RunAsync(input),
@@ -90,7 +91,8 @@ public class ReviewsController(
             Rating:    req.Rating,
             Title:     req.Title,
             Body:      req.Body,
-            ImageUrls: req.ImageUrls ?? []);
+            ImageUrls: req.ImageUrls ?? [],
+            Language:  req.Language);
 
         var handle = await temporal.StartWorkflowAsync(
             (EditReviewWorkflow wf) => wf.RunAsync(input),

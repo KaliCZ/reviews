@@ -36,7 +36,8 @@ public class DtoContractTests
         string title = "Solid",
         string turnstile = "test-token",
         int rating = 4,
-        string[]? imageUrls = null) =>
+        string[]? imageUrls = null,
+        string language = "en") =>
         $$"""
         {
             "productId": 1,
@@ -44,6 +45,7 @@ public class DtoContractTests
             "title": {{JsonSerializer.Serialize(title)}},
             "body": {{JsonSerializer.Serialize(body)}},
             "imageUrls": {{(imageUrls is null ? "null" : JsonSerializer.Serialize(imageUrls))}},
+            "language": {{JsonSerializer.Serialize(language)}},
             "turnstileToken": {{JsonSerializer.Serialize(turnstile)}}
         }
         """;
@@ -99,6 +101,7 @@ public class DtoContractTests
             "rating": 4,
             "title": null,
             "body": "Looks great",
+            "language": "en",
             "turnstileToken": "test-token"
         }
         """;
@@ -115,10 +118,44 @@ public class DtoContractTests
             "productId": 1,
             "rating": 4,
             "body": "Looks great",
+            "language": "en",
             "turnstileToken": "test-token"
         }
         """;
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
+    }
+
+    [Fact]
+    public void Submit_missing_language_is_rejected()
+    {
+        // Language is `required` so the payload always carries the wire
+        // language tag. Drives the per-review translate UX — without a
+        // value we can't gate it.
+        var json = """
+        {
+            "productId": 1,
+            "rating": 4,
+            "title": "Solid",
+            "body": "Looks great",
+            "turnstileToken": "test-token"
+        }
+        """;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
+    }
+
+    [Fact]
+    public void Submit_with_empty_language_is_rejected()
+    {
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(language: ""), Json));
+    }
+
+    [Fact]
+    public void Submit_round_trips_language_tag()
+    {
+        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(language: "cs"), Json);
+        Assert.NotNull(req);
+        Assert.Equal("cs", req!.Language.Value);
     }
 
     [Fact]

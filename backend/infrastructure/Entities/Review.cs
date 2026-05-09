@@ -41,7 +41,8 @@ public class Review
         Rating rating,
         NonEmptyString title,
         NonEmptyString body,
-        IReadOnlyList<NonEmptyString> imageUrls)
+        IReadOnlyList<NonEmptyString> imageUrls,
+        NonEmptyString language)
     {
         ArgumentNullException.ThrowIfNull(imageUrls);
 
@@ -53,6 +54,7 @@ public class Review
         Title = title;
         Body = body;
         ImageUrls = imageUrls.Select(u => u.Value).ToList();
+        Language = language;
         // Status defaults to Pending (CLR default of the enum). The temporal
         // submit workflow is the only path that flips it to Approved.
     }
@@ -67,6 +69,11 @@ public class Review
     public Rating Rating { get; private set; }
     public NonEmptyString Title { get; private set; } = null!;
     public NonEmptyString Body { get; private set; } = null!;
+    // BCP-47 language tag of the title + body, supplied by the submitter.
+    // Used by the SPA to gate the per-review "Translate" affordance — when
+    // the viewer's UI locale matches the review's language, no translate
+    // button appears.
+    public NonEmptyString Language { get; private set; } = null!;
 
     // Stored as Postgres text[]; EF Core's Npgsql provider maps List<string>
     // to text[] natively without a value converter. Element-level non-empty
@@ -86,7 +93,7 @@ public class Review
     // Apply an author-driven edit. Doesn't change Status — an edit to an
     // already-Approved review stays Approved; an edit to a Pending one stays
     // Pending until the workflow signals through.
-    public void ApplyEdit(Rating rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
+    public void ApplyEdit(Rating rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls, NonEmptyString language)
     {
         ArgumentNullException.ThrowIfNull(imageUrls);
 
@@ -94,6 +101,7 @@ public class Review
         Title = title;
         Body = body;
         ImageUrls = imageUrls.Select(u => u.Value).ToList();
+        Language = language;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -132,6 +140,7 @@ public class Review
         NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<string> imageUrls,
+        NonEmptyString language,
         int score,
         ReviewStatus status,
         DateTime createdAt) =>
@@ -145,6 +154,7 @@ public class Review
             Title = title,
             Body = body,
             ImageUrls = imageUrls.ToList(),
+            Language = language,
             Score = score,
             Status = status,
             CreatedAt = createdAt,

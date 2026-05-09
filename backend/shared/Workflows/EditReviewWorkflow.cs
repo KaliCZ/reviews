@@ -10,7 +10,8 @@ public record EditReviewInput(
     Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
-    IReadOnlyList<NonEmptyString> ImageUrls);
+    IReadOnlyList<NonEmptyString> ImageUrls,
+    NonEmptyString Language);
 
 // Edits to recent reviews go straight through; edits to reviews older than an
 // hour wait for a moderator signal first. The cutoff exists because once a

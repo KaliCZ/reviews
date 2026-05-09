@@ -12,7 +12,8 @@ public record SubmitReviewInput(
     Rating Rating,
     NonEmptyString Title,
     NonEmptyString Body,
-    IReadOnlyList<NonEmptyString> ImageUrls);
+    IReadOnlyList<NonEmptyString> ImageUrls,
+    NonEmptyString Language);
 
 // Submit-review flow per docs/flows.md §3:
 //   - Every review persists immediately as Pending (the entity ctor's default).

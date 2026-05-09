@@ -33,7 +33,8 @@ public class ReviewActivities(
             rating:     input.Rating,
             title:      input.Title,
             body:       input.Body,
-            imageUrls:  input.ImageUrls);
+            imageUrls:  input.ImageUrls,
+            language:   input.Language);
         db.Reviews.Add(review);
         await db.SaveChangesAsync();
         logger.LogInformation(
@@ -110,7 +111,7 @@ public class ReviewActivities(
             return;
         }
 
-        review.ApplyEdit(input.Rating, input.Title, input.Body, input.ImageUrls);
+        review.ApplyEdit(input.Rating, input.Title, input.Body, input.ImageUrls, input.Language);
         await db.SaveChangesAsync();
         logger.LogInformation("Applied edit to review {ReviewId}", input.ReviewId);
     }

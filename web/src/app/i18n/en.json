@@ -1,0 +1,79 @@
+{
+  "nav": {
+    "brand": "Reviews",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "greeting": "Hi, {name}"
+  },
+  "common": {
+    "back": "← Back",
+    "loadMore": "Load more",
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "save": "Save changes",
+    "saving": "Saving…",
+    "submitting": "Submitting…",
+    "waitingUploads": "Waiting for {n} upload(s)…",
+    "delete": "Delete",
+    "edit": "Edit",
+    "translate": "Translate",
+    "viewOriginal": "View original",
+    "translatedNotice": "Showing automatic translation from {lang}.",
+    "of": "of",
+    "page": "Page",
+    "prev": "← Prev",
+    "next": "Next →"
+  },
+  "products": {
+    "noReviews": "No reviews yet — be the first.",
+    "moreReviews": "More reviews →",
+    "writeReview": "Write a review",
+    "editYourReview": "Edit your review",
+    "signInToReview": "Sign in to write a review",
+    "reviewsHeading": "Reviews",
+    "reviewCount": "{count} reviews",
+    "notFound": "Product not found."
+  },
+  "reviewList": {
+    "heading": "All reviews",
+    "backToProduct": "← Back to product",
+    "sort": "Sort",
+    "sortNewest": "Newest",
+    "sortHelpful": "Most helpful",
+    "sortHighest": "Highest rated",
+    "sortLowest": "Lowest rated",
+    "filterRating": "Filter by rating",
+    "withPhotosOnly": "With photos only",
+    "noMatches": "No reviews match."
+  },
+  "submit": {
+    "heading": "Write a review for {product}",
+    "rating": "Your rating",
+    "title": "Title",
+    "body": "Review",
+    "photos": "Photos (optional, up to {n})",
+    "photosLimit": "Each image must be {mb} MB or less.",
+    "moderationNotice": "Reviews at this rating go through moderation before they appear. You can track approval in the Temporal UI.",
+    "uploadFailed": "Upload failed",
+    "submitFailed": "Submit failed"
+  },
+  "edit": {
+    "heading": "Edit your review",
+    "moderationNotice": "Edits to reviews older than an hour go through moderator approval before they apply. The Temporal UI is where moderators send approve/reject signals.",
+    "saveFailed": "Save failed",
+    "notFound": "Review not found."
+  },
+  "vote": {
+    "deleteConfirm": "Delete this review? Reviews older than an hour need moderator approval."
+  },
+  "theme": {
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "cs": "Čeština"
+  }
+}

@@ -55,6 +55,10 @@ export interface ReviewItem {
   title: string;
   body: string;
   imageUrls: string[];
+  // BCP-47 tag of the title + body, supplied by the submitter. The SPA
+  // shows a "Translate" affordance only when this differs from the viewer's
+  // UI locale.
+  language: string;
   score: number;
   createdAt: string;
   updatedAt: string;
@@ -82,6 +86,9 @@ export interface SubmitReviewRequest {
   title: string;
   body: string;
   imageUrls?: string[];
+  // BCP-47 language tag of the review text. The SPA fills it from the
+  // current UI locale.
+  language: string;
   turnstileToken: string;
 }
 
@@ -90,6 +97,7 @@ export interface EditReviewRequest {
   title: string;
   body: string;
   imageUrls?: string[];
+  language: string;
 }
 
 export interface VoteRequest {

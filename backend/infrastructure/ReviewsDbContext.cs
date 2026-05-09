@@ -18,6 +18,9 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
     public const int TitleMaxLength = 200;
     public const int BodyMaxLength = 4000;
     public const int MaxImagesPerReview = 5;
+    // BCP-47 language tag — generous cap so future regional tags
+    // (e.g. zh-Hant-HK) fit without a migration.
+    public const int LanguageMaxLength = 16;
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Review> Reviews => Set<Review>();
@@ -55,6 +58,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
             e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
+            e.Property(r => r.Language).IsRequired().HasMaxLength(LanguageMaxLength);
 
             // Rating is the `Rating` enum on the CLR side, smallint on disk.
             // Member values 1..5 line up with the storage encoding so the

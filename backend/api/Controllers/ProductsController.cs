@@ -266,6 +266,7 @@ public class ProductsController(
             // wrap on the way out so the SPA's generated client sees the same
             // shape (`string` with minLength 1).
             ImageUrls = r.ImageUrls.Select(u => u.ToNonEmpty()).ToList(),
+            Language = r.Language,
             Score = r.Score,
             CreatedAt = r.CreatedAt,
             UpdatedAt = r.UpdatedAt,

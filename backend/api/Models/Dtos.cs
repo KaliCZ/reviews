@@ -50,6 +50,9 @@ public record ReviewItem
     public required NonEmptyString Title { get; init; }
     public required NonEmptyString Body { get; init; }
     public required IReadOnlyList<NonEmptyString> ImageUrls { get; init; }
+    // BCP-47 language tag of Title + Body. The SPA shows a "Translate"
+    // affordance only when this differs from the viewer's UI locale.
+    public required NonEmptyString Language { get; init; }
     public required int Score { get; init; }
     public required DateTime CreatedAt { get; init; }
     public required DateTime UpdatedAt { get; init; }
@@ -102,6 +105,10 @@ public record SubmitReviewRequest
     // is also accepted. The element type is NonEmptyString so empty URLs
     // can't slip in.
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
+    // BCP-47 language tag the submitter wrote the review in. The SPA fills
+    // it from its current UI locale; required so we never store a NULL
+    // language and have to guess later.
+    public required NonEmptyString Language { get; init; }
     // Cloudflare Turnstile token from the widget. Required in production;
     // dev uses Cloudflare's always-passes test keys.
     public required NonEmptyString TurnstileToken { get; init; }
@@ -113,6 +120,7 @@ public record EditReviewRequest
     public required NonEmptyString Title { get; init; }
     public required NonEmptyString Body { get; init; }
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
+    public required NonEmptyString Language { get; init; }
 }
 
 // True = upvote, False = downvote. Boolean replaces the prior tri-state short

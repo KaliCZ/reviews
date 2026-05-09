@@ -7,6 +7,11 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Reviews.Infrastructure.Migrations
 {
+    // [DbContext] ties this migration to ReviewsDbContext — EF's migration
+    // discovery filters by it. Without the attribute, the assembly scan
+    // finds the Migration class but skips it ("No migrations were found in
+    // assembly 'infrastructure'").
+    [DbContext(typeof(ReviewsDbContext))]
     [Migration("20260509000000_Initial")]
     public partial class Initial : Migration
     {

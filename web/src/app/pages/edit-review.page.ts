@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
+import { I18nService } from '../services/i18n.service';
 import { Limits, ReviewItem } from '../models';
 
 @Component({
@@ -196,6 +197,7 @@ import { Limits, ReviewItem } from '../models';
 export class EditReviewPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly i18n = inject(I18nService);
 
   readonly slug = input.required<string>();
   readonly reviewId = input.required<string>();
@@ -303,6 +305,10 @@ export class EditReviewPage {
         title: this.title.trim(),
         body: this.body.trim(),
         imageUrls: this.imageUrls,
+        // Re-stamp the language with the editor's current UI locale: if you
+        // switch to Czech and edit your review, the stored language reflects
+        // that choice.
+        language: this.i18n.locale(),
       })
       .subscribe({
         next: () => this.router.navigate(['/products', this.slug()]),
