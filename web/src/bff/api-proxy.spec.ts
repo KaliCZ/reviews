@@ -3,9 +3,6 @@ import type { Client } from 'openid-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ensureFreshToken } from './api-proxy';
 
-// Helper: build a fake request with a writable session shape that matches
-// what express-session augments in production. Tests treat it loosely as
-// `unknown` rather than re-deriving the full express types.
 interface FakeSession {
   tokenSet?: {
     access_token: string;
@@ -48,7 +45,6 @@ describe('ensureFreshToken', () => {
       tokenSet: { access_token: 'a', refresh_token: 'r', expires_at: 1 },
     });
     await ensureFreshToken(req, null);
-    // No throw, no error — and we can still call save/destroy if needed.
     expect(req.session.tokenSet?.access_token).toBe('a');
   });
 
@@ -80,9 +76,8 @@ describe('ensureFreshToken', () => {
   });
 
   it('refreshes when expires_at is undefined (treats unknown expiry as stale)', async () => {
-    // Mirrors the original implementation: the `ts.expires_at && ...` guard
-    // short-circuits when expires_at is falsy, so the code falls through to
-    // the refresh path as long as a refresh_token is present.
+    // The `ts.expires_at && ...` guard short-circuits on falsy expires_at,
+    // so the refresh path runs whenever a refresh_token exists.
     const refresh = vi.fn().mockResolvedValue({
       access_token: 'new-a',
       refresh_token: 'new-r',

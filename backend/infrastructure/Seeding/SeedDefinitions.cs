@@ -3,17 +3,10 @@ using StrongTypes;
 
 namespace Reviews.Infrastructure.Seeding;
 
-// Pure data — no IO, no DI. The seed runner consumes these, uploads any
-// referenced images to blob storage, and inserts via DbContext.
-//
-// The mix is hand-curated so per-product averages are obviously different:
-// products 1, 4, 6, 9 average ~4.5+; products 3, 5, 10 average ~1.7-2.3;
-// the rest sit in the middle. Useful for showing the rating UI in real states.
+// Hand-curated mix so per-product averages span the rating spectrum:
+// products 1, 4, 6, 9 average ~4.5+; products 3, 5, 10 average ~1.7-2.3.
 internal static class SeedDefinitions
 {
-    // Eight stable author IDs so re-runs are deterministic and demos are easy
-    // to reason about. These map to the OIDC `sub` of seeded test users (or
-    // are just orphan UUIDs in dev if those test users don't exist yet).
     public static readonly Guid Alice = new Guid("11111111-1111-1111-1111-111111111111");
     public static readonly Guid Bob   = new Guid("22222222-2222-2222-2222-222222222222");
     public static readonly Guid Carol = new Guid("33333333-3333-3333-3333-333333333333");
@@ -47,9 +40,6 @@ internal static class SeedDefinitions
         new ProductRow(Id: 10, Slug: "powerjuice-10000",        Name: "PowerJuice 10000 Mini Power Bank",      Description: "10,000mAh USB-C PD power bank with passthrough charging.",                                            ImageSeed: "powerbank"),
     ];
 
-    // Raw seed data; the Seeder turns image-seed strings into Azurite blob
-    // URLs and constructs the entity via Review.CreateSeed. CreatedAt offsets
-    // give the list a natural order under sort=newest.
     public record SeedReviewData(
         long ProductId,
         Guid AuthorId,
@@ -66,7 +56,6 @@ internal static class SeedDefinitions
         var now = DateTime.UtcNow;
         DateTime daysAgo(int n) => now.AddDays(-n);
 
-        // Product 1: Sony WH-1000XM5 — premium, ~4.6 average
         yield return New(productId: 1, authorId: Alice, authorName: "Alice", rating: Rating.Five, title: "Best ANC on the market", body: "Tried Bose and AirPods Max — the Sony beats both for noise cancelling and the call mics are surprisingly usable.", createdAt: daysAgo(40), score: 14);
         yield return New(productId: 1, authorId: Bob,   authorName: "Bob",   rating: Rating.Five, title: "Worth every penny",      body: "Battery actually lasts the full week of commutes. Carry case is small enough to fit in a laptop bag pocket.",       createdAt: daysAgo(32), score:  9, imageSeeds: ["sony-r1"]);
         yield return New(productId: 1, authorId: Carol, authorName: "Carol", rating: Rating.Four, title: "Comfortable, slight clamping force", body: "Great pair, only quibble is the clamping force on bigger heads — eased after a week of use.",          createdAt: daysAgo(20), score:  6);

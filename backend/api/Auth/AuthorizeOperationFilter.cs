@@ -5,10 +5,7 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace Reviews.Api.Auth;
 
-// Tags every [Authorize]'d operation in the spec with the Bearer scheme so
-// Swagger UI shows a lock icon and the generated TS client knows the endpoint
-// expects a token. Operations explicitly marked [AllowAnonymous] (the public
-// product reads, /config, the GET on /api/images/{path}) stay unsecured.
+// Tags [Authorize]'d operations in the OpenAPI spec with the Bearer scheme.
 public class AuthorizeOperationFilter : IOperationFilter
 {
     public void Apply(OpenApiOperation operation, OperationFilterContext context)

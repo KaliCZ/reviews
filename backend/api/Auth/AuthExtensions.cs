@@ -8,19 +8,11 @@ using Reviews.Api.Services;
 
 namespace Reviews.Api.Auth;
 
-// JwtBearer's BackchannelHttpHandler — rewrites every outgoing call to the
-// public ZITADEL URL (e.g. `http://localhost:8080`) to the docker-internal
-// URL (e.g. `http://zitadel:8080`), AND sets the Host header to the public
-// authority so ZITADEL's vhost routing (matching ZITADEL_EXTERNALDOMAIN)
-// accepts the request.
-//
-// Why both? The discovery doc that ZITADEL returns embeds the public
-// host in jwks_uri / token_endpoint / etc. JwtBearer then uses those
-// strings verbatim for follow-up fetches. Inside the API container,
-// `localhost` resolves to the container itself, not ZITADEL — so without
-// the URL rewrite the JWKS fetch hits 127.0.0.1 and 404s. With the
-// rewrite it goes via docker DNS to the ZITADEL container; the Host
-// header reassures ZITADEL that this is still its public-facing vhost.
+// ZITADEL's discovery doc embeds the public host (e.g. `localhost:8080`) in
+// jwks_uri / token_endpoint / etc, but inside the container `localhost`
+// resolves to the API itself. We rewrite the URL to the docker-internal
+// authority and set the Host header back to the public one so ZITADEL's
+// vhost routing (ZITADEL_EXTERNALDOMAIN) still matches.
 internal sealed class ZitadelDockerInternalHandler(Uri publicAuthority, Uri internalAuthority) : DelegatingHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(
@@ -44,22 +36,8 @@ internal sealed class ZitadelDockerInternalHandler(Uri publicAuthority, Uri inte
 
 public static class AuthExtensions
 {
-    // Single attribute the controllers tag onto write endpoints. The framework
-    // ties it to the policy registered under the same name in
-    // AddReviewsRateLimiting.
     public const string WriteRateLimitPolicy = "write";
 
-    // JwtBearer against ZITADEL. Configuration keys:
-    //   Auth:IssuerUrl          — public OIDC issuer (the one in JWTs).
-    //   Auth:IssuerReachableUrl — issuer URL reachable from inside the
-    //                             container; defaults to IssuerUrl. When the
-    //                             two differ the backchannel handler kicks in.
-    //   Auth:Audience           — OIDC client_id this API expects.
-    //   Auth:RequireHttps       — discovery-over-HTTPS gate (true in prod).
-    //
-    // Owned by us — set by appsettings, AppHost, or docker-compose. None get
-    // defaulted at runtime: a misconfigured env should fail loudly at
-    // startup, not silently in some code branch.
     public static IServiceCollection AddReviewsAuth(this IServiceCollection services, IConfiguration config)
     {
         var issuerUrl = config.GetRequired<string>("Auth:IssuerUrl");
@@ -102,14 +80,7 @@ public static class AuthExtensions
         return services;
     }
 
-    // Two independent fixed-window buckets ANDed via DualWindowLimiter:
-    // every write request must fit BOTH the per-user window (30/min) and the
-    // per-IP window (60/min). Per-user catches the logged-in spammer
-    // regardless of IP rotation; per-IP catches the multi-account attacker
-    // fanning out from one address.
-    //
-    // Anonymous writers (rare; /api/reviews requires auth) skip the per-user
-    // bucket and only see the IP one.
+    // Per-user (30/min) AND per-IP (60/min). Anonymous writers skip the user bucket.
     public static IServiceCollection AddReviewsRateLimiting(this IServiceCollection services) =>
         services.AddRateLimiter(options =>
         {
@@ -120,12 +91,10 @@ public static class AuthExtensions
                           ?? http.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
                 var ip = http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-                // Compose a partition key so the framework hands every (user,
-                // ip) tuple the same shared limiter — but the limiter itself
-                // looks up its underlying buckets from process-wide caches
-                // keyed only by user OR only by IP, so a user spanning many
-                // IPs still shares the user bucket and an IP spanning many
-                // users still shares the IP bucket.
+                // Partition key is per (user, ip) but DualWindowLimiter pulls
+                // its underlying buckets from process-wide caches keyed by
+                // user OR ip alone, so the per-user/per-IP windows stay
+                // shared across IP rotation and account fanout.
                 var key = sub is null ? $"anon|{ip}" : $"{sub}|{ip}";
                 return RateLimitPartition.Get<string>(key, _ => DualWindowLimiter.For(sub, ip));
             });
@@ -133,15 +102,9 @@ public static class AuthExtensions
 
 }
 
-// AND-composes a per-user and a per-IP fixed-window limiter for a single
-// request. The two underlying FixedWindowRateLimiter instances live in
-// process-wide caches keyed by user-sub and IP respectively, so every
-// request from the same user shares the same per-user bucket regardless of
-// IP — and same for IP across users.
-//
-// On TryAcquire: ask both, succeed only if both succeed; if one rejects after
-// the other granted, dispose the granted lease (release the permit) so the
-// uncombined permit isn't accidentally consumed.
+// AND-composes a per-user and a per-IP fixed-window limiter. If one bucket
+// rejects after the other granted we dispose the granted lease so the
+// rejected request doesn't burn a permit.
 internal sealed class DualWindowLimiter : RateLimiter
 {
     private const int PerUserPermits = 30;
@@ -189,8 +152,6 @@ internal sealed class DualWindowLimiter : RateLimiter
         var userLease = userBucket.AttemptAcquire(permitCount);
         if (!userLease.IsAcquired)
         {
-            // IP grant rolled back so it doesn't consume a permit the user
-            // bucket already denied.
             ipLease.Dispose();
             return userLease;
         }

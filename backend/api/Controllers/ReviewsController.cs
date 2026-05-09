@@ -13,11 +13,6 @@ using Temporalio.Client;
 
 namespace Reviews.Api.Controllers;
 
-// Mutating endpoints. All require auth, all are rate-limited (per-user AND
-// per-IP — both must allow), and submit also requires a verified Cloudflare
-// Turnstile token. Each one starts a Temporal workflow and returns the
-// workflowId so the SPA can poll status (or pop the review into the Temporal
-// UI for moderation if the rating range demands it).
 [ApiController]
 [Authorize]
 [EnableRateLimiting(AuthExtensions.WriteRateLimitPolicy)]
@@ -39,9 +34,8 @@ public class ReviewsController(
 
         var user = currentUser.User!;
 
-        // Pre-check the unique-author-per-product constraint at the API layer
-        // for a fast 409 instead of waiting for the workflow to fail at the
-        // INSERT. The DB-level partial unique index is still the real guard.
+        // Fast 409 instead of waiting for the workflow to fail at INSERT;
+        // the partial unique index is still the real guard.
         var alreadyHas = await db.Reviews
             .AsNoTracking()
             .AnyAsync(r => r.ProductId == req.ProductId
@@ -52,8 +46,6 @@ public class ReviewsController(
         var productExists = await db.Products.AsNoTracking().AnyAsync(p => p.Id == req.ProductId, ct);
         if (!productExists) return NotFound($"Product {req.ProductId} not found.");
 
-        // UUIDv7 (sequential / time-ordered) so review_pk inserts append at
-        // the right of the btree index instead of scattering across pages.
         var reviewId = Sequential.NewGuid();
         var input = new SubmitReviewInput(
             ReviewId:   reviewId,
@@ -109,12 +101,9 @@ public class ReviewsController(
     {
         var user = currentUser.User!;
         var input = new VoteInput(id, user.Id, req.IsUpvote);
-        // Workflow id is deterministic per (review, voter) so concurrent or
-        // rapid-fire votes by the same user on the same review serialize on
-        // the server. UseExisting joins an in-flight execution rather than
-        // failing on the duplicate id — a rapid double-click becomes a no-op
-        // that returns the existing handle. The activity itself is now a
-        // fetch-or-create on the row, so it's safe to be the only writer.
+        // Deterministic workflow id per (review, voter) + UseExisting:
+        // rapid-fire votes from the same user serialize on the server and
+        // double-clicks join the in-flight execution instead of erroring.
         var handle = await temporal.StartWorkflowAsync(
             (RateReviewWorkflow wf) => wf.RunAsync(input),
             new WorkflowOptions(id: $"vote-{id:N}-{user.Id:N}", taskQueue: ReviewQueues.TaskQueue)
@@ -124,9 +113,7 @@ public class ReviewsController(
         return Accepted(new AcceptedResponse(handle.Id, "voted"));
     }
 
-    // Returns an error message if the image-URL list is invalid (too many,
-    // or any URL too long), null otherwise. Mirrors the DB CHECK constraints
-    // so 400 fires before the workflow ever spins up.
+    // Mirrors the DB CHECK constraints so 400 fires before the workflow starts.
     private static string? ValidateImageUrls(IReadOnlyList<NonEmptyString>? urls)
     {
         if (urls is null) return null;

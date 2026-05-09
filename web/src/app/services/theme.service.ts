@@ -1,13 +1,8 @@
 import { DOCUMENT, Inject, Injectable, PLATFORM_ID, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
-// Three-state theme: system follows prefers-color-scheme, light/dark are
-// explicit overrides. Stored in localStorage under `theme` so the choice
-// survives reloads. SSR returns the default ("system") and the browser
-// hydrates from storage on bootstrap — we don't try to flash the right theme
-// during SSR (no cookie / no client hint), so first paint may briefly show
-// the system default before settling. Acceptable trade-off; cookie-driven
-// SSR theming is a follow-up.
+// SSR has no client hint, so first paint may briefly show the system default
+// before localStorage hydrates the user's choice.
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
 const STORAGE_KEY = 'theme';
@@ -15,10 +10,7 @@ const STORAGE_KEY = 'theme';
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private readonly isBrowser: boolean;
-  // Public read-only signal so components can subscribe to the user's pick.
   readonly choice = signal<ThemeChoice>('system');
-  // Whether the resolved (system-aware) theme is dark — useful for swapping
-  // theme-dependent assets (icons, screenshots).
   readonly isDark = signal<boolean>(false);
 
   constructor(
@@ -32,7 +24,6 @@ export class ThemeService {
     this.choice.set(stored);
     this.apply(stored);
 
-    // Track OS theme changes so `system` stays in sync without a reload.
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     mq.addEventListener('change', () => {
       if (this.choice() === 'system') this.apply('system');
@@ -54,12 +45,11 @@ export class ThemeService {
       doc.startViewTransition(() => this.apply(choice));
       return;
     }
-    // Fallback — kill transitions for the swap so colours don't crossfade
-    // mid-flip on browsers without View Transitions.
+    // Suppress transitions so colours don't crossfade mid-flip on browsers
+    // without View Transitions.
     this.doc.documentElement.classList.add('no-transitions');
     this.apply(choice);
-    // Force reflow before stripping the suppression class.
-    void this.doc.documentElement.offsetHeight;
+    void this.doc.documentElement.offsetHeight; // force reflow
     this.doc.documentElement.classList.remove('no-transitions');
   }
 

@@ -11,12 +11,8 @@ using StrongTypes;
 
 namespace Reviews.Api.Tests.Integration;
 
-// Real-everything integration suite. All bodies / responses are raw JSON —
-// no typed-DTO deserialization here. The point is that a wire-shape change
-// (e.g. renaming `createdAtUtc` to `createdAt`) breaks these tests loudly,
-// which a typed-DTO round-trip would silently absorb.
-//
-// See IntegrationTestFixture for the container + host setup.
+// Raw-JSON assertions — typed-DTO round-trips would silently absorb
+// wire-shape changes (e.g. createdAtUtc → createdAt) that the SPA cares about.
 [Collection(IntegrationTestCollection.Name)]
 public class ApiIntegrationTests(IntegrationTestFixture fx)
 {
@@ -40,7 +36,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(JsonValueKind.Array, root.ValueKind);
         Assert.True(root.GetArrayLength() >= 10, $"expected at least 10 seeded products, got {root.GetArrayLength()}");
 
-        // Pin every wire field on every row — drift in any name fails here.
         foreach (var item in root.EnumerateArray())
         {
             AssertString(item, "slug");
@@ -65,7 +60,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         AssertString(root, "description");
         Assert.True(root.GetProperty("averageRating").GetDouble() > 0);
         Assert.True(root.GetProperty("reviewCount").GetInt32() > 0);
-        // Test user hasn't reviewed anything yet (different sub from any seed).
         Assert.Equal(JsonValueKind.Null, root.GetProperty("myReviewId").ValueKind);
     }
 
@@ -99,8 +93,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(JsonValueKind.Array, items.ValueKind);
         Assert.True(items.GetArrayLength() > 0);
 
-        // Pin per-item wire shape — including the `Utc`-suffixed dates which
-        // the SPA depends on for unambiguous timezone handling.
         foreach (var item in items.EnumerateArray())
         {
             AssertString(item, "id");
@@ -110,7 +102,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             AssertNumber(item, "rating");
             AssertString(item, "createdAtUtc");
             AssertString(item, "updatedAtUtc");
-            // myVote should be JSON null for an unvoted review by the test user.
             Assert.Contains(item.GetProperty("myVote").ValueKind, new[] { JsonValueKind.Null, JsonValueKind.True, JsonValueKind.False });
             Assert.Equal(JsonValueKind.False, item.GetProperty("mine").ValueKind);
         }
@@ -121,9 +112,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Submit_4_star_review_persists_as_approved()
     {
-        // Pick an unreviewed-by-test-user product (seed Alice owns 1, 2, 4, 6,
-        // 8, 10 — but the test user is a different sub, so all are clean).
-        // We use product 7 to avoid stepping on other tests in the same fixture.
+        // Product 7 is fixture-unique to avoid colliding with sibling tests.
         const long productId = 7;
         var (body, expectedTitle, expectedBody) = MakeSubmitPayload(productId, rating: 4);
         var response = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
@@ -134,11 +123,8 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Matches(SubmitWorkflowIdPattern, workflowId);
         Assert.Equal("submitted", doc.RootElement.GetProperty("status").GetString());
 
-        // Wait for the workflow run to actually finish (auto-approve path).
         await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
 
-        // Source-of-truth check: the review should be Approved with the
-        // exact title and body we sent.
         await using var db = fx.CreateDbContext();
         var review = await db.Reviews
             .AsNoTracking()
@@ -162,8 +148,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var workflowId = doc.RootElement.GetProperty("workflowId").GetString()!;
 
-        // Pending row should land before the signal fires (the persist activity
-        // runs synchronously inside the submit workflow before WaitConditionAsync).
+        // Persist activity runs before WaitConditionAsync so the Pending row lands first.
         var pending = await fx.WaitForAsync(async () =>
         {
             await using var db = fx.CreateDbContext();
@@ -174,7 +159,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         }, what: "pending review row");
         Assert.Equal(ReviewStatus.Pending, pending.Status);
 
-        // Send the moderator approve signal via the real Temporal client.
         var handle = fx.TemporalClient.GetWorkflowHandle(workflowId);
         await handle.SignalAsync(SubmitReviewWorkflow.ApproveSignal, new object?[] { (string?)null });
 
@@ -194,8 +178,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Vote_creates_row_then_flip_updates_score()
     {
-        // Submit a 4-star (auto-approved) review first so the vote target
-        // exists and is in Approved state (RecordVote requires Approved).
+        // RecordVote requires Approved, so submit a 4-star (auto-approved) first.
         const long productId = 9;
         var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
         var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
@@ -234,23 +217,18 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             Assert.Equal(1, review.Score);
         }
 
-        // Flip to downvote — same row updated, score swings to -1. The vote
-        // workflow uses a deterministic id per (review, voter), so the second
-        // call may return a workflow that's already done (UseExisting policy).
+        // Vote workflow id is deterministic per (review, voter); the second
+        // call may join an already-done workflow (UseExisting policy).
         var down = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
             JsonContent("""{"isUpvote": false}"""));
         Assert.Equal(HttpStatusCode.Accepted, down.StatusCode);
         var downWorkflowId = JsonDocument.Parse(await down.Content.ReadAsStringAsync())
             .RootElement.GetProperty("workflowId").GetString()!;
-        // GetResultAsync returns the prior result if the workflow already
-        // completed; otherwise waits for the new run. Either way, by the time
-        // it returns we know the vote write has settled.
         try { await fx.TemporalClient.GetWorkflowHandle(downWorkflowId).GetResultAsync<string>(); }
         catch (Temporalio.Exceptions.WorkflowAlreadyStartedException) { /* benign */ }
 
-        // Poll the DB until the flip lands — the second start may join the
-        // existing handle without re-running, so we observe the state instead
-        // of relying on the workflow result.
+        // The second start may join the existing handle without re-running,
+        // so observe DB state rather than the workflow result.
         await fx.WaitForAsync<object>(async () =>
         {
             await using var db = fx.CreateDbContext();
@@ -270,8 +248,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Edit_within_one_hour_applies_immediately()
     {
-        // Create a fresh review (well under the 1h moderation cutoff for
-        // edits) so the edit workflow auto-applies without a signal.
+        // Fresh review stays under the 1h cutoff so the edit auto-applies.
         const long productId = 8;
         var (body, originalTitle, _) = MakeSubmitPayload(productId, rating: 3);
         var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
@@ -325,14 +302,8 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Empty_post_returns_400_with_validation_problem_details()
     {
-        // `{}` omits every required property. The first NonEmptyString-typed
-        // member encountered by System.Text.Json throws (StrongTypes' converter
-        // refuses missing/empty), so the framework emits a ValidationProblemDetails
-        // with non-empty `errors`. The exact key set depends on which member
-        // STJ visits first — could be a property-path key, could be `$`/`req`
-        // for a body-level error — so the assertion is that we get a 400 with
-        // a non-empty errors object plus a problem-details title, NOT the
-        // exact key shape.
+        // STJ's "first failing member" varies between runs — we assert on the
+        // 400 + non-empty errors object, NOT the exact error key shape.
         var response = await fx.ApiClient.PostAsync("/api/reviews",
             new StringContent("{}", Encoding.UTF8, "application/json"));
 
@@ -349,8 +320,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(JsonValueKind.Object, errors.ValueKind);
         var keys = errors.EnumerateObject().ToList();
         Assert.True(keys.Count > 0, "expected at least one validation error key");
-        // Each error entry is an array of strings — assert the wire shape is
-        // what AspNetCore's default ValidationProblemDetails serializes to.
         foreach (var k in keys)
         {
             Assert.Equal(JsonValueKind.Array, k.Value.ValueKind);
@@ -378,9 +347,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(JsonValueKind.Number, prop.ValueKind);
     }
 
-    // Synthesises a unique submit payload — the title carries a Guid so the
-    // DB lookups in tests can find this exact row without colliding with
-    // anything seed or sibling-test inserted.
+    // Title carries a Guid so DB lookups find this exact row across sibling tests.
     private static (string Body, string Title, string Body2) MakeSubmitPayload(long productId, int rating)
     {
         var title = $"Test review {Guid.NewGuid():N}";

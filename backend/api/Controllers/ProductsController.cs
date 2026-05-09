@@ -6,28 +6,15 @@ using Reviews.Api.Models;
 using Reviews.Api.Services;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Entities;
-// ReviewsCacheKeys lives in Reviews.Infrastructure (shared with the worker).
 using StackExchange.Redis;
 using StrongTypes;
 
 namespace Reviews.Api.Controllers;
 
-// Read paths for products and their reviews. Public — anonymous browsing is
-// the default. Authoring/voting endpoints live on ReviewsController and
-// require [Authorize].
-//
-// Caching strategy:
-//   - The product list, the product detail (without per-viewer fields), and
-//     the first page of reviews under default sort/no-filter all live in
-//     Redis. Per-viewer fields (MyVote, Mine, MyReviewId) are stripped before
-//     caching and re-enriched on read.
-//   - Workflow activities invalidate ReviewsCacheKeys.AffectedBy(productId)
-//     after every write — that single helper is the only place caller-side
-//     code needs to know which keys cover which surfaces.
-//   - Cache-first ordering: keyed lookups (list, slug detail, first page of
-//     reviews) check Redis BEFORE hitting Postgres. The previous "look up
-//     product, then check cache" defeated the cache for the most common
-//     requests.
+// Read paths for products and reviews. Cached payloads strip per-viewer
+// fields (MyVote, Mine, MyReviewId) and the controller re-enriches per
+// request. Cache lookups happen BEFORE the product existence check so a
+// slug-typo flood can't bypass Redis.
 [ApiController]
 [AllowAnonymous]
 [Route("api/[controller]")]
@@ -43,10 +30,6 @@ public class ProductsController(
     private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(1);
     private static readonly JsonSerializerOptions Json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
-    // GET /api/products — list of all products with summary stats. Cached
-    // for 15 min and invalidated on every review mutation; the per-product
-    // average/count are denormalized into the cached payload, so a cold
-    // catalog page is cheap regardless of review-table size.
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<ProductSummary>>> GetAll(CancellationToken ct)
     {
@@ -76,11 +59,6 @@ public class ProductsController(
         return Ok(rows);
     }
 
-    // GET /api/products/{slug} — product detail keyed by URL-safe slug. Also
-    // returns the current viewer's existing review id (if any) so the SPA
-    // can switch a "Write a review" CTA to "Edit your review" without an
-    // extra round-trip. The non-personalized projection is cached; MyReviewId
-    // is computed at read time per viewer.
     [HttpGet("{slug}")]
     public async Task<ActionResult<ProductDetail>> GetBySlug(NonEmptyString slug, CancellationToken ct)
     {
@@ -95,8 +73,6 @@ public class ProductsController(
         }
         else
         {
-            // SingleOrDefault: slug has a unique index — at most one row matches,
-            // and a duplicate would be a real bug worth surfacing.
             var p = await db.Products
                 .AsNoTracking()
                 .Where(p => p.Slug == slug)
@@ -131,9 +107,8 @@ public class ProductsController(
                 DetailCacheTtl);
         }
 
-        // Personalize after the cache lookup. SingleOrDefault: the partial
-        // unique index `uq_reviews_product_author` enforces 0..1 live review
-        // per (product, author).
+        // SingleOrDefault: partial unique index `uq_reviews_product_author`
+        // enforces 0..1 live review per (product, author).
         Guid? myReviewId = null;
         if (currentUser.User is { } user)
         {
@@ -147,12 +122,7 @@ public class ProductsController(
         return Ok(detail with { MyReviewId = myReviewId });
     }
 
-    // GET /api/products/{slug}/reviews?sort=&rating=&hasPhotos=&page=&pageSize=
-    //   - `sort` is the ReviewSort enum, serialized as a string.
-    //   - `rating` is repeatable for multi-select (e.g. ?rating=4&rating=5).
-    //   - `page` is 1-based; offset pagination so users can skip directly to
-    //     a numbered page (better UX for reviews than opaque cursors).
-    //   - First page of `sort=helpful` with no filters is cached in Redis.
+    // First page of sort=helpful with no filters is cached in Redis.
     [HttpGet("{slug}/reviews")]
     public async Task<ActionResult<ReviewsPage>> GetReviews(
         NonEmptyString slug,
@@ -173,9 +143,6 @@ public class ProductsController(
             && hasPhotos is null
             && sort == ReviewSort.Helpful;
 
-        // Cache lookup BEFORE the product existence check — we cache the
-        // 404 absence below (cached productId is null) too, so a slug-typo
-        // attacker can't keep beating on Postgres for missing rows.
         if (isFirstPage)
         {
             var cached = await cache.StringGetAsync(ReviewsCacheKeys.FirstPage(slug.Value));
@@ -197,8 +164,7 @@ public class ProductsController(
 
         if (isFirstPage)
         {
-            // Cache the un-personalised payload — MyVote and Mine are
-            // per-user and don't belong in the shared cache.
+            // Strip per-viewer fields before caching the shared payload.
             var toCache = built with
             {
                 Items = built.Items
@@ -214,13 +180,6 @@ public class ProductsController(
         return Ok(await EnrichForViewerAsync(built, ct));
     }
 
-    // Single pipeline:
-    //   1. base query with all filters applied,
-    //   2. order by the chosen sort key (always carrying an Id tiebreaker),
-    //   3. ApplyOffsetPagination paginates anything sorted.
-    // The previous helpful-mode cursor branch was a special case; now every
-    // sort goes through the same path and the difference between sorts is
-    // just the ORDER BY clause.
     private async Task<ReviewsPage> BuildPageAsync(
         long productId,
         ReviewSort sort,
@@ -237,8 +196,7 @@ public class ProductsController(
         if (ratings is { Count: > 0 }) q = q.Where(r => ratings.Contains((short)r.Rating));
         if (hasPhotos is true)         q = q.Where(r => r.ImageUrls.Count > 0);
 
-        // Review.Id is a UUIDv7 (Sequential.NewGuid), so OrderBy(Id) IS time-
-        // ordered — no separate CreatedAtUtc tiebreaker needed.
+        // Review.Id is UUIDv7, so OrderBy(Id) is time-ordered (no CreatedAtUtc tiebreaker needed).
         var ordered = sort switch
         {
             ReviewSort.Helpful => q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
@@ -263,8 +221,6 @@ public class ProductsController(
             Rating = r.Rating,
             Title = r.Title,
             Body = r.Body,
-            // ImageUrls are stored as plain strings on the entity (text[]); the
-            // wire DTO is `IReadOnlyList<string>` so just project through.
             ImageUrls = r.ImageUrls,
             Score = r.Score,
             CreatedAtUtc = r.CreatedAtUtc,
@@ -282,9 +238,6 @@ public class ProductsController(
         };
     }
 
-    // Adds the per-viewer fields (MyVote, Mine) onto a page just read from
-    // either the DB or the cache. One indexed query for the votes; Mine is
-    // a free Guid comparison after that.
     private async Task<ReviewsPage> EnrichForViewerAsync(ReviewsPage page, CancellationToken ct)
     {
         if (currentUser.User is not { } user || page.Items.Count == 0) return page;

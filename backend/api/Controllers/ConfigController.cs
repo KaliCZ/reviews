@@ -5,10 +5,6 @@ using Reviews.Api.Models;
 
 namespace Reviews.Api.Controllers;
 
-// Strongly-typed view of the bootstrap config the SPA needs from the API.
-// Bound from the `Turnstile` configuration section at startup; ValidateOnStart
-// + DataAnnotations make a missing SiteKey fail at boot rather than serving
-// the SPA an empty key.
 public sealed class TurnstileOptions
 {
     public const string Section = "Turnstile";
@@ -21,13 +17,7 @@ public sealed class TurnstileOptions
 }
 
 // Public bootstrap config for the SPA — keeps a single browser bundle across
-// environments (dev / compose / prod) without env-specific builds. Anything
-// that needs to differ between environments goes here.
-//
-// Configuration is provided by the orchestration layer (appsettings.json,
-// docker-compose env, Aspire). The controller doesn't default — if Turnstile
-// isn't configured the app fails at startup, surfaced via the validated
-// options binding.
+// environments. Anything env-specific the SPA needs goes here.
 [ApiController]
 [AllowAnonymous]
 [Route("api/[controller]")]

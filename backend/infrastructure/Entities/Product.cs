@@ -2,9 +2,6 @@ using StrongTypes;
 
 namespace Reviews.Infrastructure.Entities;
 
-// Catalog product. ID is provided by the upstream catalog (this service doesn't
-// generate them — see ReviewsDbContext.OnModelCreating where Id is configured
-// ValueGeneratedNever()). Slug is a URL-safe identifier and must be unique.
 public class Product
 {
     private Product() { }

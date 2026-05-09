@@ -10,34 +10,15 @@ using StrongTypes;
 
 namespace Reviews.Api.Controllers;
 
-// Streams blobs from Azurite/Azure Blob through the API rather than handing
-// out direct blob URLs. Two reasons:
-//   1. The browser-visible URL (`/api/images/...`) is environment-agnostic —
-//      same in dev, compose, and prod, regardless of how blob storage is
-//      reached internally.
-//   2. We can later add access control (private blobs, auth, watermarking)
-//      without churning every URL stored in the DB.
-//
-// TODO: replace this passthrough with a CDN. The API is on the hot path for
-// every review image byte today; production should serve images from a CDN
-// (CloudFront / Cloudflare / Front Door) keyed by the same blob path. The
-// stored URLs (`/api/images/...`) become CDN URLs; the controller stays as a
-// fallback / private-asset egress only.
+// Streams blobs through the API so the browser-visible URL stays the same
+// across dev/compose/prod regardless of how blob storage is reached internally.
+// TODO: replace this passthrough with a CDN.
 [ApiController]
 [Route("api/[controller]")]
 public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController> logger) : ControllerBase
 {
-    // Per-file ceiling for review uploads. Enforced both as a multipart
-    // request-body limit (so the framework rejects oversize before we read
-    // anything) and as a defensive second check on the IFormFile.Length —
-    // request limits can be relaxed by middleware, the Length check can't.
     public const long MaxImageBytes = 2L * 1024 * 1024;
 
-    // Allow-list keyed by content type. The blob keeps the *uploader's
-    // original filename extension* so the link is human-meaningful when
-    // someone right-clicks → save-as. The content-type is what the browser
-    // and our renderer actually use for sniffing — the extension is a hint,
-    // not a contract.
     private static readonly HashSet<string> AllowedContentTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
@@ -60,9 +41,7 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         {
             var props = await blob.GetPropertiesAsync(cancellationToken: ct);
             var stream = await blob.OpenReadAsync(cancellationToken: ct);
-            // Cache hard — the URL is content-keyed by review id / seed name,
-            // and our flows replace rather than mutate (review edits with new
-            // images get new keys).
+            // Immutable: blob keys are content-addressed (review edits get new keys).
             Response.Headers.CacheControl = "public, max-age=31536000, immutable";
             return File(stream, props.Value.ContentType ?? "image/jpeg");
         }
@@ -72,15 +51,6 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         }
     }
 
-    // POST /api/images — upload a single review image. Returns the public URL
-    // the SPA stores in the review's ImageUrls. Rejects payloads larger than
-    // 2 MiB and content types outside the allow-list (the SPA disables the
-    // file picker for everything else, but the server is the real gate).
-    //
-    // The blob key is `uploads/{uuidv7}{extension}` — UUIDv7 for time-ordered
-    // blob enumeration, and the *uploader's original extension* preserved
-    // verbatim so the URL stays self-describing. Sanitised down to letters,
-    // digits and a single leading dot to keep the blob path safe.
     [Authorize]
     [HttpPost]
     [RequestSizeLimit(MaxImageBytes)]
@@ -117,15 +87,12 @@ public class ImagesController(BlobServiceClient blobs, ILogger<ImagesController>
         return Ok(new UploadedImage($"/api/images/{key}"));
     }
 
-    // Canonical extension per allowed content type. The content-type is the
-    // source of truth — already gated by AllowedContentTypes — so the user's
-    // filename extension never drives the blob path.
     private static string ExtensionFor(string contentType) => contentType switch
     {
         "image/jpeg" => ".jpg",
         "image/png" => ".png",
         "image/webp" => ".webp",
         "image/gif" => ".gif",
-        _ => "",  // unreachable — AllowedContentTypes gates this
+        _ => "",
     };
 }

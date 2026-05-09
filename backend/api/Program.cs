@@ -10,68 +10,44 @@ using StrongTypes.OpenApi.Swashbuckle;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Per-key file configuration provider — reads every regular file under the
-// secrets directory as a single config key. Filenames use the
-// `Section__Sub` convention (becomes `Section:Sub` when surfaced to
-// IConfiguration). The zitadel-bootstrap container writes its OIDC outputs
-// into this directory at runtime; environment variables are loaded by the
-// hosting framework on their own and need no custom plumbing.
-//
-// In docker-compose this is the bind-mounted /run/secrets/. In Aspire (host
-// process, not a container) the AppHost passes API_SECRETS_DIR pointing at
-// the same host folder.
+// Per-key files (filename `Section__Sub` → IConfiguration `Section:Sub`).
+// The zitadel-bootstrap container writes its OIDC outputs here at runtime.
+// docker-compose binds /run/secrets/; Aspire passes API_SECRETS_DIR.
 var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
 builder.Configuration.AddKeyPerFile(directoryPath: secretsDir, optional: true);
 
 builder.AddServiceDefaults();
 
-// EF Core via Aspire's Npgsql integration. Default migrations history table
-// is fine — the DB is isolated per-environment, no cross-app collision risk
-// to design around.
 builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
     opts.UseNpgsql().UseStrongTypes());
 
 builder.AddRedisClient(connectionName: "cache");
 
-// Blob storage for review images. Aspire registers a BlobServiceClient using
-// the "images" connection (Azurite locally, real Azure Blob in prod).
 builder.AddAzureBlobServiceClient("images");
 
-// Typed HttpClient for the seed-time picsum downloader. Registered against the
-// concrete Seeder type so the seeder gets its own client instance with its
-// own resilience / pooling defaults.
 builder.Services.AddHttpClient<SeedImageDownloader>();
 
 var temporalAddress = builder.Configuration.GetRequired<string>("ConnectionStrings:temporal");
 
-// Lazy Temporal client — doesn't open the gRPC connection until first use,
-// so a slow-to-start Temporal at boot doesn't crash the API.
+// Lazy: don't open the gRPC connection until first use, so a slow Temporal doesn't crash boot.
 builder.Services.AddTemporalClient(options =>
 {
     options.TargetHost = temporalAddress;
     options.Namespace = "default";
 });
 
-// Bind + validate the Turnstile section at startup. ValidateOnStart turns
-// "missing key" into a boot-time crash instead of a request-time silent
-// failure.
 builder.Services.AddOptions<TurnstileOptions>()
     .Bind(builder.Configuration.GetSection(TurnstileOptions.Section))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-// Auth (ZITADEL JwtBearer), CurrentUser, Turnstile.
 builder.Services.AddReviewsAuth(builder.Configuration);
-// Per-user + per-IP rate limiting, applied to the write controller.
 builder.Services.AddReviewsRateLimiting();
 
 builder.Services.AddHealthChecks().AddInfraHealthChecks();
 
 builder.Services.AddControllers();
 
-// Swashbuckle's spec generator + UI. Picked over Microsoft.AspNetCore.OpenApi
-// because the StrongTypes integration is cleaner on this pipeline (the skill's
-// openapi.md spells out the rough edges in the Microsoft hooks).
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -102,11 +78,9 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Migrate + seed before accepting traffic. EF Core's MigrateAsync is
-// idempotent and concurrency-safe at the schema-application level; the seed
-// runner uses an advisory lock for the cross-replica path. Configurable via
-// Reviews:AutoApply for production deployments where a dedicated migration
-// step is preferred.
+// Migrate + seed before accepting traffic. The seeder uses an advisory lock
+// to serialize across replicas. Reviews:AutoApply=false defers to a dedicated
+// migration step in prod.
 if (app.Configuration.GetValue("Reviews:AutoApply", true))
 {
     await using (var scope = app.Services.CreateAsyncScope())

@@ -1,7 +1,4 @@
-// Wire DTOs come from `web/src/api`, hand-mirrored from the API's
-// `backend/api/Models/Dtos.cs`. This file just re-exports the types the
-// components consume so callers don't need to know the source path.
-
+// Re-export from web/src/api so component imports stay stable.
 export type {
   ProductSummary,
   ProductDetail,

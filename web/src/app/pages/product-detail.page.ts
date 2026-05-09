@@ -120,8 +120,6 @@ export class ProductDetailPage {
   private readonly api = inject(ApiService);
   protected readonly auth = inject(AuthService);
 
-  // Bound from the router via withComponentInputBinding(); same name as the
-  // route parameter (:slug) is what wires it up.
   readonly slug = input.required<string>();
 
   protected readonly product = signal<ProductDetail | null>(null);
@@ -130,8 +128,6 @@ export class ProductDetailPage {
   protected readonly busy = signal<string | null>(null);
 
   constructor() {
-    // Re-fetch when the route's :slug input changes. effect() in injection
-    // context auto-cleans on component destroy.
     effect(() => {
       const s = this.slug();
       if (s) this.fetchAll(s);
@@ -157,9 +153,8 @@ export class ProductDetailPage {
     this.busy.set(e.id);
     this.api.voteReview(e.id, e.isUpvote).subscribe({
       next: () => {
-        // Optimistic refresh — the workflow runs async, but the cache is
-        // invalidated by the worker; a quick re-fetch usually catches the
-        // updated score within a tick.
+        // Workflow runs async; the worker invalidates the cache so a quick
+        // re-fetch usually catches the updated score.
         setTimeout(() => this.fetchAll(this.slug()), 400);
         this.busy.set(null);
       },

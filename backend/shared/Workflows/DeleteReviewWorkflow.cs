@@ -4,9 +4,8 @@ namespace Reviews.Shared;
 
 public record DeleteReviewInput(Guid ReviewId, Guid AuthorId);
 
-// Mirror of EditReviewWorkflow's policy: deletes inside the first hour are
-// the user's mistake/cooling-off case and go through immediately. Older
-// deletes get a moderator look — same retroactive-tampering concern.
+// Mirror of EditReviewWorkflow's policy: first-hour deletes go through, older
+// deletes wait for a moderator.
 [Workflow]
 public class DeleteReviewWorkflow
 {

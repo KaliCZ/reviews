@@ -5,10 +5,6 @@ import { StarRating } from '../components/star-rating';
 import { AuthService } from '../services/auth.service';
 import { ReviewItem } from '../models';
 
-// Reused on the product detail page and the more-reviews list. Vote buttons
-// switch on the viewer's existing vote (highlighted), and edit/delete links
-// appear only on the viewer's own review (matched via author_id derived from
-// OIDC sub on the API side).
 @Component({
   selector: 'app-review-card',
   imports: [DatePipe, RouterLink, StarRating],
@@ -176,9 +172,7 @@ export class ReviewCard {
   readonly vote = output<{ id: string; isUpvote: boolean }>();
   readonly del = output<string>();
 
-  // API computes this server-side (current viewer's hashed `sub` vs review
-  // author_id). Destructive actions are still gated by the API independently;
-  // this flag is purely about UI affordances.
+  // UI affordance only — destructive actions are gated server-side.
   readonly isMine = computed(() => this.review().mine);
 
   cast(isUpvote: boolean) {

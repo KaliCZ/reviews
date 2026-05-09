@@ -3,10 +3,6 @@ using StrongTypes;
 
 namespace Reviews.Worker.Tests;
 
-// Behaviour tests for the Review aggregate's mutation methods. The "construct
-// an entity and read back a property" cases were dropped — they exercise the
-// type system, not our domain logic. The end-to-end Submit / Edit / Vote paths
-// are covered by the API integration tests.
 public class ReviewEntityTests
 {
     private static Review NewReview(Rating rating = Rating.Four) => new Review(
@@ -23,7 +19,6 @@ public class ReviewEntityTests
     public void ApplyEdit_updates_fields_and_keeps_status()
     {
         var review = NewReview();
-        // Approve first so we can verify the edit doesn't tip the status back.
         review.Approve();
 
         review.ApplyEdit(Rating.Two, "Updated".ToNonEmpty(), "New body".ToNonEmpty(), []);
@@ -31,8 +26,7 @@ public class ReviewEntityTests
         Assert.Equal(Rating.Two, review.Rating);
         Assert.Equal("Updated", review.Title.Value);
         Assert.Equal("New body", review.Body.Value);
-        // ApplyEdit must NOT reset Status — an edit to an Approved review
-        // stays Approved (the workflow's moderation gate runs separately).
+        // ApplyEdit must NOT reset Status — moderation runs separately in the workflow.
         Assert.Equal(ReviewStatus.Approved, review.Status);
     }
 
@@ -65,9 +59,7 @@ public class ReviewEntityTests
         review.SoftDelete();
 
         Assert.Equal(ReviewStatus.Deleted, review.Status);
-        // SoftDelete is terminal — re-approving must refuse so an audit
-        // trail of "this review was approved, then deleted, then…" can't
-        // be re-written.
+        // SoftDelete is terminal so the audit trail can't be rewritten.
         Assert.Throws<InvalidOperationException>(() => review.Approve());
         Assert.Throws<InvalidOperationException>(() => review.Reject());
     }
@@ -81,9 +73,6 @@ public class ReviewEntityTests
         review.RecordScore(7);
 
         Assert.Equal(7, review.Score);
-        // UpdatedAtUtc must move forward — the activity calls RecordScore
-        // after every vote, and stale UpdatedAtUtc would mask the change in
-        // last-modified caches.
         Assert.True(review.UpdatedAtUtc >= before);
     }
 }

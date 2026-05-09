@@ -3,16 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Reviews.Infrastructure.Entities;
 
-// Wire format for Rating is the integer 1..5 — natural for star-rating UIs,
-// stable across translations, and matches what most catalog APIs publish.
-// The enum has named members for those exact integers (One..Five), so the
-// converter is a thin "int → cast" with a guard. An out-of-range payload
-// fails at JSON parse time, so the controller can take a Rating-typed
-// parameter without an "is the rating between 1 and 5" check anywhere.
-//
-// Annotated on the enum directly so anything that serialises/deserialises
-// Rating picks the converter up automatically — STJ, Temporal payloads,
-// custom callers.
+// Wire format is integer 1..5; out-of-range fails at parse time so callers
+// never need to range-check a Rating-typed parameter.
 public sealed class RatingJsonConverter : JsonConverter<Rating>
 {
     public override Rating Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)

@@ -4,11 +4,7 @@ using StrongTypes.EfCore;
 
 namespace Reviews.Infrastructure;
 
-// Used only by `dotnet ef migrations …` from this project. The runtime path
-// gets its DbContext from Aspire (`builder.AddNpgsqlDbContext<…>("reviews")`),
-// which builds the connection string from configuration. Design-time has no
-// configuration, so we hard-code the local-dev connection here. Anyone running
-// migrations against another environment overrides via REVIEWS_DB env var.
+// `dotnet ef migrations …` only. Override the local-dev connection via REVIEWS_DB.
 public class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<ReviewsDbContext>
 {
     public ReviewsDbContext CreateDbContext(string[] args)

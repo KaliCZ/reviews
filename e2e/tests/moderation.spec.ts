@@ -4,17 +4,11 @@ import { submitReview, waitForReviewVisible } from "./helpers/submit";
 
 test.use({ storageState: ".auth/storage-state.json" });
 
-// Picks a product Alice hasn't reviewed yet for the moderation flow. This
-// test is self-contained; we'll re-enter it at most once per stack lifetime
-// because the unique-author-per-product index would block the second submit.
-// To re-run: docker compose down -v && up.
+// Reruns require `docker compose down -v` (unique-author index blocks resubmit).
 const productSlug = "travelpro-tripod";
 
-// 5-star reviews go through human moderation per docs/flows.md §3. The
-// workflow waits on an Approve/Reject signal and only persists on Approve.
-// The Temporal UI is the operator's surface for sending that signal; we
-// drive it programmatically via the Node client to make the test
-// reproducible without depending on a UI version-specific DOM.
+// 5-star → moderation gate. Drive the Approve via Temporal client to avoid
+// coupling the test to ZITADEL/Temporal UI versions.
 test("5-star review waits for moderation, appears after Approve signal", async ({
   page,
 }) => {
@@ -35,18 +29,13 @@ test("5-star review waits for moderation, appears after Approve signal", async (
   });
   expect(workflowId).toMatch(/^submit-review-/);
 
-  // The moderation gate runs before persist, so the review should NOT be on
-  // the product page yet. Wait a beat to make sure the worker had time to
-  // run if it was going to (it isn't), then assert absence.
+  // Moderation gate runs before persist — verify the row is NOT visible yet.
   await page.waitForTimeout(2_000);
   await page.goto(`/products/${productSlug}`);
   await expect(
     page.locator("article.review .body", { hasText: body }),
   ).toHaveCount(0);
 
-  // Send the Approve signal directly via the Temporal client — this is what
-  // a moderator would do in the Temporal UI. The workflow's WaitConditionAsync
-  // resumes, persists, and refreshes the cache.
   const conn = await Connection.connect({ address: "localhost:7233" });
   try {
     const client = new Client({ connection: conn });
@@ -56,7 +45,5 @@ test("5-star review waits for moderation, appears after Approve signal", async (
     await conn.close();
   }
 
-  // After the signal, the workflow finishes the persist + cache-refresh
-  // activities. Reload until the review shows up.
   await waitForReviewVisible(page, productSlug, body);
 });

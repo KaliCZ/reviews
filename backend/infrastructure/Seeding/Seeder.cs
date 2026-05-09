@@ -7,9 +7,7 @@ using StrongTypes;
 
 namespace Reviews.Infrastructure.Seeding;
 
-// Idempotent seed run: products + reviews (with image blobs uploaded to
-// Azurite). Wrapped under a Postgres advisory lock so concurrent callers
-// (e.g. multiple API replicas booting at once) serialize on the seed step.
+// Idempotent seed run, serialized across replicas via a Postgres advisory lock.
 public static class Seeder
 {
     public const string BlobContainer = "review-images";
@@ -38,13 +36,8 @@ public static class Seeder
                 await lockCmd.ExecuteNonQueryAsync(ct);
             }
 
-            // Always ensure the blob container exists and that every seeded
-            // image is present in Azurite. Both ops are idempotent (the
-            // container create is no-op if it exists; UploadIfMissingAsync
-            // skips uploads for blobs that already exist), so it's safe to
-            // run on every boot — and decoupled from the product/review
-            // insert below, which means a half-seeded state from a previous
-            // failed run gets repaired on the next start.
+            // Run on every boot so a half-seeded state from a prior failed
+            // run gets repaired (both ops are idempotent).
             var container = blobs.GetBlobContainerClient(BlobContainer);
             await container.CreateIfNotExistsAsync(cancellationToken: ct);
 
@@ -59,9 +52,6 @@ public static class Seeder
             foreach (var seed in allSeeds)
                 await UploadIfMissingAsync(container, http, seed!, ct);
 
-            // Products + reviews go in once. The unique constraints would
-            // catch a re-insert anyway, but the early-return saves the
-            // round-trips and keeps the log clean.
             if (await db.Products.AnyAsync(ct))
             {
                 log.LogInformation("Products already inserted; ensured {Count} images present", allSeeds.Count);
@@ -72,10 +62,6 @@ public static class Seeder
             await db.Products.AddRangeAsync(SeedDefinitions.Products(), ct);
             foreach (var sr in seedReviews)
             {
-                // Seeded rows represent already-moderated demo data — go in
-                // pre-Approved with backdated timestamps. The Review.CreateSeed
-                // factory is the only path that bypasses the public ctor's
-                // "starts as Pending" invariant; restricted to this assembly.
                 var imageUrls = sr.ImageSeeds.Select(BuildPublicUrl).ToList();
                 var review = Review.CreateSeed(
                     id:         Sequential.NewGuid(),
@@ -108,12 +94,8 @@ public static class Seeder
             }
             catch (Exception ex)
             {
-                // Closing the connection drops the session-level advisory
-                // lock anyway, so this isn't fatal — but a failure here is a
-                // signal that something odd happened (network blip, rollback
-                // mid-finally), and the alternative of swallowing silently
-                // makes investigation in production harder than it needs
-                // to be.
+                // Closing the connection releases the session-level lock
+                // anyway, so this is just a signal that something odd happened.
                 log.LogError(ex, "Failed to release seed advisory lock {LockKey}; lock will be released on connection close", LockKey);
             }
             await conn.CloseAsync();
@@ -126,8 +108,7 @@ public static class Seeder
         var blob = container.GetBlobClient(BlobName(seed));
         if (await blob.ExistsAsync(ct)) return;
 
-        // picsum.photos returns a stable image per `seed` so re-runs across
-        // dev machines look identical. 800x500 is fine for review thumbnails.
+        // picsum.photos returns a stable image per `seed` so re-runs match across machines.
         using var response = await http.GetAsync(seed, ct);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
@@ -137,8 +118,7 @@ public static class Seeder
     private static string BlobName(string seed) => $"seed/{seed}.jpg";
     private static string BuildPublicUrl(string seed) => $"/api/images/{BlobName(seed)}";
 
-    // The seed-defined product image URLs use the public-URL form (`/api/images/seed/...`).
-    // Reverse to get the picsum seed for upload-time work.
+    // Reverse `/api/images/seed/{seed}.jpg` back to the picsum seed name.
     private static string? SlugFromUrl(string? url)
     {
         if (string.IsNullOrEmpty(url)) return null;

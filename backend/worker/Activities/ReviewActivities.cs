@@ -8,13 +8,6 @@ using Temporalio.Activities;
 
 namespace Reviews.Worker;
 
-// Each activity owns a small durable step of the review workflows in
-// shared/Workflows. Errors propagate back to Temporal which retries with
-// exponential backoff per its activity-default policy.
-//
-// Activities are scoped — one DbContext per invocation, disposed when the
-// activity returns. SaveChangesAsync wraps each unit of work in a single
-// transaction; no manual BeginTransactionAsync needed.
 public class ReviewActivities(
     ReviewsDbContext db,
     IConnectionMultiplexer redis,
@@ -23,8 +16,6 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.PersistReview)]
     public async Task<string> PersistAsync(SubmitReviewInput input)
     {
-        // Constructor enforces the rating/body invariants; status defaults to
-        // Pending. The Approve activity flips it later in the workflow.
         var review = new Review(
             id:         input.ReviewId,
             productId:  input.ProductId,
@@ -40,9 +31,8 @@ public class ReviewActivities(
             "Persisted review {ReviewId} (Pending) for product {ProductId}",
             input.ReviewId, input.ProductId);
 
-        // Resolve the slug once and hand it back so the workflow can address
-        // its cache-invalidation activity by slug without a second lookup.
-        // SingleAsync: PK lookup, exactly one row exists.
+        // Slug returned so the workflow's cache-invalidation activity doesn't
+        // need a second lookup.
         return await db.Products
             .AsNoTracking()
             .Where(p => p.Id == input.ProductId)
@@ -53,7 +43,6 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.ApproveReview)]
     public async Task ApproveAsync(Guid reviewId)
     {
-        // SingleOrDefault: PK lookup; either the row exists or it doesn't.
         var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
         if (review is null)
         {
@@ -97,8 +86,6 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.ApplyReviewEdit)]
     public async Task ApplyEditAsync(EditReviewInput input)
     {
-        // SingleOrDefault — composite filter on PK + AuthorId + alive status
-        // narrows to at most one row.
         var review = await db.Reviews
             .Where(r => r.Id == input.ReviewId
                      && r.AuthorId == input.AuthorId
@@ -128,9 +115,8 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.RecordVote)]
     public async Task<VoteResult> RecordVoteAsync(VoteInput input)
     {
-        // Resolve product slug and confirm the review is live in the same shot.
-        // Pinning to Approved means votes can't accrue on deleted/rejected/
-        // pending reviews even if a stale client tried.
+        // Pinning to Approved blocks votes on deleted/rejected/pending reviews
+        // even from a stale client.
         var slug = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == input.ReviewId && r.Status == ReviewStatus.Approved)
@@ -138,15 +124,10 @@ public class ReviewActivities(
             .SingleOrDefaultAsync();
         if (slug is null) return new VoteResult(false, string.Empty);
 
-        // Try to update the existing (review, voter) row in one statement;
-        // if no row matched, INSERT. Safe to be the only writer per pair
-        // because the workflow id collapses concurrent same-user votes
-        // (IdConflictPolicy.UseExisting joins the in-flight execution).
-        //
-        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext to
-        // ride out transient Postgres errors. That strategy refuses
-        // user-initiated transactions unless wrapped in ExecuteAsync, so the
-        // vote write + score recompute live inside one strategy-managed unit.
+        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext;
+        // that strategy refuses user-initiated transactions unless wrapped in
+        // ExecuteAsync, so vote write + score recompute live in one
+        // strategy-managed unit.
         var strategy = db.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
@@ -162,9 +143,7 @@ public class ReviewActivities(
                 await db.SaveChangesAsync();
             }
 
-            // Recompute denormalized Review.Score from source-of-truth vote
-            // rows so it self-heals on every vote (any drift corrects within
-            // a tick). Single UPDATE … SET Score = (subquery) — no entity load.
+            // Recompute Score from vote rows so it self-heals on every write.
             await db.Reviews
                 .Where(r => r.Id == input.ReviewId)
                 .ExecuteUpdateAsync(s => s
@@ -184,9 +163,6 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.InvalidateProductCaches)]
     public async Task InvalidateProductCachesAsync(string productSlug)
     {
-        // Invalidate-and-let-next-read-rebuild beats compute-and-write here:
-        // the workflow doesn't have to know the cached payloads' shapes, and
-        // a cache miss on the next request is the cheapest possible repair.
         var keys = ReviewsCacheKeys.AffectedBy(productSlug)
             .Select(k => (RedisKey)k)
             .ToArray();

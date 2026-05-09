@@ -12,10 +12,8 @@ public record EditReviewInput(
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
 
-// Edits to recent reviews go straight through; edits to reviews older than an
-// hour wait for a moderator signal first. The cutoff exists because once a
-// review has had time to influence other readers' decisions, retroactive
-// rewriting is the kind of thing a moderator should see.
+// Edits within the first hour go straight through; older edits wait for a
+// moderator (retroactive rewrites of already-influential reviews need a look).
 [Workflow]
 public class EditReviewWorkflow
 {

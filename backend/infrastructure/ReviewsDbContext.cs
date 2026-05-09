@@ -8,8 +8,6 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
 {
     public const string Schema = "reviews";
 
-    // Column max lengths — exposed so clients (UI / DTO validators) can pick
-    // the same numbers from one place. Keeps DB and boundary checks honest.
     public const int SlugMaxLength = 100;
     public const int NameMaxLength = 200;
     public const int DescriptionMaxLength = 4000;
@@ -18,9 +16,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
     public const int TitleMaxLength = 200;
     public const int BodyMaxLength = 4000;
     public const int MaxImagesPerReview = 5;
-    // Per-URL cap on each entry in Review.ImageUrls. Defends against absurdly
-    // long URLs (e.g. someone POSTing a base64 data: URI). Our own uploaded
-    // paths are ~50 chars; 1000 leaves room for SAS-tokenised blob URLs.
+    // 1000 leaves room for SAS-tokenised blob URLs (our own paths are ~50 chars).
     public const int ReviewImageUrlMaxLength = 1000;
 
     public DbSet<Product> Products => Set<Product>();
@@ -35,8 +31,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
         {
             e.ToTable("products");
             e.HasKey(p => p.Id);
-            // Matches docs/flows.md: product IDs are int64 and provided by the
-            // upstream catalog (this service doesn't generate them).
+            // Product IDs come from the upstream catalog; we never generate them.
             e.Property(p => p.Id).ValueGeneratedNever();
             e.Property(p => p.Slug).IsRequired().HasMaxLength(SlugMaxLength);
             e.HasIndex(p => p.Slug).IsUnique();
@@ -50,47 +45,28 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
         {
             e.ToTable("reviews");
             e.HasKey(r => r.Id);
-            // Application-side UUIDv7 generation (Sequential.NewGuid) — keep
-            // ValueGeneratedNever so EF doesn't try to fill in a Guid.NewGuid()
-            // default when callers forget. The seed factory and the controller
-            // both supply the value explicitly.
+            // We supply UUIDv7 ids ourselves (Sequential.NewGuid); ValueGeneratedNever
+            // stops EF from substituting Guid.NewGuid() if a caller forgets.
             e.Property(r => r.Id).ValueGeneratedNever();
             e.Property(r => r.AuthorName).IsRequired().HasMaxLength(AuthorNameMaxLength);
             e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
             e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
 
-            // Rating is the `Rating` enum on the CLR side, smallint on disk.
-            // Member values 1..5 line up with the storage encoding so the
-            // existing CHECK on numeric range still applies.
             e.Property(r => r.Rating)
                 .HasConversion<short>()
                 .HasColumnType("smallint");
-            // CHECK constraints reference column names verbatim — quote
-            // PascalCase identifiers so Postgres treats them case-sensitively
-            // the way EF Core stores them.
             e.ToTable(t => t.HasCheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5"));
 
-            // Cap how many image URLs a single review can carry. text[] doesn't
-            // have a built-in length constraint so it's a CHECK on cardinality.
             e.ToTable(t => t.HasCheckConstraint(
                 "ck_reviews_image_count",
                 $"array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= {MaxImagesPerReview}"));
 
-            // Per-URL length cap (ReviewImageUrlMaxLength) lives only at the
-            // controller layer (ValidateImageUrls). Postgres CHECK constraints
-            // can't contain subqueries, and there's no built-in for "max
-            // element length in a text[]". A DOMAIN type would do it but
-            // EF Core doesn't map domains natively; not worth the round-trip
-            // for what's already a defense-in-depth check.
+            // Per-URL length cap is enforced only at the controller (Postgres
+            // CHECK can't reach into text[] elements without a DOMAIN type).
 
-            // Status is persisted as integer (the default for enums in EF Core
-            // — explicit member values are pinned in ReviewStatus.cs). Pending
-            // is both the CLR default *and* the DB default; HasSentinel(Pending)
-            // tells EF that "the property is at the CLR default" means "let the
-            // DB default kick in" rather than "I forgot to set it" — silences
-            // the no-sentinel warning. CHECK guards against bogus int values
-            // sneaking in via raw SQL.
+            // HasSentinel(Pending): Pending is both the CLR default and the DB
+            // default, so EF treats "unset" as "let the DB default fire".
             e.Property(r => r.Status)
                 .HasDefaultValue(ReviewStatus.Pending)
                 .HasSentinel(ReviewStatus.Pending);
@@ -107,18 +83,14 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 .HasForeignKey(r => r.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // One live review per (product, author). The partial index ignores
-            // soft-deleted rows so a user who deletes their review can re-post.
-            // Status filter compares against the integer encoding of Deleted (3)
-            // rather than the prior text 'Deleted' literal.
+            // One live review per (product, author); soft-deleted rows are
+            // excluded so a user who deletes their review can re-post.
             e.HasIndex(r => new { r.ProductId, r.AuthorId })
                 .IsUnique()
                 .HasFilter($"\"Status\" <> {(int)ReviewStatus.Deleted}")
                 .HasDatabaseName("uq_reviews_product_author");
 
-            // Sort indexes for the three approved-only listings. Id is
-            // UUIDv7 (Sequential.NewGuid) so it doubles as a created-at
-            // tiebreaker — no separate CreatedAtUtc column in these indexes.
+            // Id is UUIDv7 so it doubles as a created-at tiebreaker.
             var approvedFilter = $"\"Status\" = {(int)ReviewStatus.Approved}";
             e.HasIndex(r => new { r.ProductId, r.Id })
                 .HasDatabaseName("idx_reviews_newest")
@@ -137,8 +109,6 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
         b.Entity<ReviewVote>(e =>
         {
             e.ToTable("review_votes");
-            // Composite PK (review_id, voter_id) is what makes flip-vote a
-            // single UPSERT and prevents double-voting at the storage layer.
             e.HasKey(v => new { v.ReviewId, v.VoterId });
             e.Property(v => v.IsUpvote).HasColumnName("IsUpvote");
             e.Property(v => v.CreatedAtUtc).HasDefaultValueSql("NOW()");

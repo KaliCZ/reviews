@@ -18,15 +18,10 @@ export interface SwappedEndpoints {
 }
 
 /**
- * Compute the final OIDC endpoint set after swapping discovered host names.
- *
- * Browser-facing endpoints (authorize, end_session) MUST use the public URL
- * since the user's browser hits them directly. Server-to-server endpoints
- * (token, userinfo, jwks) MUST use the internal URL so we don't bounce
- * through ingress for every back-channel call. The `issuer` claim itself
- * stays public — it's what the API validates as the `iss` claim on tokens.
- *
- * Pure function — extracted from createOidcClient for testability.
+ * Browser-facing endpoints (authorize, end_session) stay on the public URL;
+ * server-to-server (token, userinfo, jwks) swap to internal so back-channel
+ * calls don't bounce through ingress. `issuer` stays public so the API's
+ * `iss` claim validation matches the token.
  */
 export function swapEndpoints(
   discoveredMetadata: Record<string, unknown>,
@@ -35,7 +30,6 @@ export function swapEndpoints(
 ): SwappedEndpoints {
   const swap = (u: string | undefined): string | undefined => {
     if (!u) return u;
-    // Idempotent: if it's already pointing at the internal host, leave it.
     if (u.startsWith(issuerInternal)) return u;
     return u.replace(issuerPublic, issuerInternal);
   };
@@ -51,9 +45,8 @@ export function swapEndpoints(
 }
 
 /**
- * Discover OIDC metadata (via the internal URL so JWKS works inside docker)
- * and build a configured client. Returns null when client credentials are
- * missing or discovery fails — callers degrade gracefully (auth disabled).
+ * Returns null when creds are missing or discovery fails so callers can
+ * degrade gracefully (auth disabled, no crash).
  */
 export async function createOidcClient(options: OidcClientOptions): Promise<Client | null> {
   const { issuerPublic, issuerInternal, clientId, clientSecret, port } = options;
@@ -65,10 +58,8 @@ export async function createOidcClient(options: OidcClientOptions): Promise<Clie
     return null;
   }
 
-  // ZITADEL routes by Host header (matches ZITADEL_EXTERNALDOMAIN), so
-  // every server-to-server hit needs Host: <public-host> even when we're
-  // dialing the internal docker DNS name. Patch the global openid-client
-  // HTTP options to inject the header on every request.
+  // ZITADEL routes by Host header; server-to-server hits dial the internal
+  // docker DNS name but still need Host: <public-host> for vhost matching.
   const publicHost = new URL(issuerPublic).host;
   custom.setHttpOptionsDefaults({
     headers: { host: publicHost },

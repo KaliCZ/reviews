@@ -16,12 +16,9 @@ export class App implements OnInit {
   private readonly router = inject(Router);
 
   ngOnInit(): void {
-    // BFF call — unauthenticated returns 401 which the service swallows. The
-    // header re-renders reactively when the signal flips.
     this.auth.refresh();
   }
 
-  // Sign-in deep-links back to the page the user was on.
   loginHref(): string {
     const returnTo = encodeURIComponent(this.router.url || '/');
     return `/auth/login?returnTo=${returnTo}`;

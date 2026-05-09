@@ -1,9 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { I18nService, LOCALES, Locale } from '../services/i18n.service';
 
-// Two-locale segmented toggle. Tiny enough to render inline in the header
-// next to the theme toggle. Keeps language switching one click away — no
-// dropdown overhead for two options.
 @Component({
   selector: 'app-language-toggle',
   template: `

@@ -3,15 +3,8 @@ import { isPlatformBrowser } from '@angular/common';
 import en from '../i18n/en.json';
 import cs from '../i18n/cs.json';
 
-// Two-locale runtime i18n. The bundles are imported as JSON, picked at
-// startup based on a localStorage key. Switching locale flips a signal so
-// templates re-render via the t() lookup. Keep the surface tiny — anything
-// fancier (per-locale routes, static prerendering) should go through
-// @angular/localize, which is heavier than what we need here.
-//
-// Lookup format: dotted path with optional `{var}` placeholders that get
-// replaced from the params object. Missing keys return the key itself —
-// makes regressions visible in the UI rather than silent.
+// Runtime i18n with localStorage persistence. Missing keys return the key
+// itself so regressions show up in the UI instead of silently disappearing.
 export type Locale = 'en' | 'cs';
 
 export const LOCALES: readonly Locale[] = ['en', 'cs'] as const;
@@ -51,7 +44,6 @@ export class I18nService {
     this.applyHtmlLang(locale);
   }
 
-  // Templates use `{{ t('common.submit') }}` — params is optional.
   t(key: string, params?: Record<string, string | number>): string {
     const value = this.lookup(this.bundle(), key);
     if (typeof value !== 'string') return key;

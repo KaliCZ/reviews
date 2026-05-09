@@ -1,18 +1,9 @@
-// @angular/compiler must load before any Angular DI metadata is read so that
-// JIT can compile partial-compiled libraries (e.g. @angular/common's
-// PlatformLocation). Without it, importing the service indirectly pulls in
-// unresolved JIT-only metadata and the test file fails to load.
+// JIT compiler load order: must come before any partial-compiled @angular/* import.
 import '@angular/compiler';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { I18nService } from './i18n.service';
 
-// Direct-construct the service with plain ctor args. The DOCUMENT and
-// PLATFORM_ID injection tokens just resolve to a Document and an opaque
-// object at runtime — under jsdom the `document` global stands in fine,
-// and 'browser' as the platform marker matches what isPlatformBrowser
-// looks for. Bypassing TestBed keeps these as fast unit tests.
 function makeService(): I18nService {
-  // Clear localStorage so each test starts in a known state.
   localStorage.clear();
   return new I18nService(document, 'browser');
 }
@@ -49,11 +40,6 @@ describe('I18nService', () => {
   it('replaces multiple {var} placeholders in a single string', () => {
     const svc = makeService();
     svc.set('en');
-    // common.waitingUploads = "Waiting for {n} upload(s)…" — verifies the
-    // single-placeholder path. Add a fake key with two placeholders by
-    // calling t() against a constructed format string isn't possible here,
-    // so we lean on Czech's longer form which has a {mb} placeholder for
-    // the size limit string.
     expect(svc.t('common.waitingUploads', { n: 3 })).toBe('Waiting for 3 upload(s)…');
     expect(svc.t('submit.photosLimit', { mb: 2 })).toBe('Each image must be 2 MB or less.');
   });
@@ -81,11 +67,9 @@ describe('I18nService', () => {
   });
 
   it('ignores unknown locale strings stored under the key', () => {
-    // Defence-in-depth — a stale or hand-edited localStorage value should
-    // fall back to detection (browser default), not crash.
     localStorage.setItem('locale', 'xx');
     const svc = new I18nService(document, 'browser');
-    // jsdom's navigator.language defaults to 'en-US', so we expect 'en'.
+    // jsdom's navigator.language defaults to 'en-US'.
     expect(svc.locale()).toBe('en');
   });
 });

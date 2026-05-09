@@ -2,10 +2,6 @@ using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Worker.Tests;
 
-// Dedicated entity-level tests for ReviewVote. The RecordVote activity now
-// uses EF tracking + Flip() instead of raw UPSERT, so the entity behaviour
-// is on the runtime hot path (not just the seed/read path). Pin the
-// invariants so a future tweak shows up in test diffs.
 public class ReviewVoteTests
 {
     private static readonly Guid AReview = Guid.Parse("11111111-1111-1111-1111-111111111111");
@@ -40,9 +36,7 @@ public class ReviewVoteTests
     [Fact]
     public void Flip_with_same_value_is_idempotent()
     {
-        // Calling Flip with the current value is a harmless no-op — the
-        // RecordVote activity calls it unconditionally on the existing row,
-        // so the same-value case is the rapid-double-click path.
+        // Same-value path is the rapid-double-click case.
         var vote = new ReviewVote(AReview, AVoter, isUpvote: true);
         vote.Flip(true);
         Assert.True(vote.IsUpvote);
@@ -53,9 +47,6 @@ public class ReviewVoteTests
     [Fact]
     public void ScoreContribution_is_signed_one()
     {
-        // The score column on Review is sum(IsUpvote ? 1 : -1). Exposed on
-        // the entity so the recompute path doesn't have to know the
-        // bool→±1 mapping.
         Assert.Equal(1, new ReviewVote(AReview, AVoter, isUpvote: true).ScoreContribution);
         Assert.Equal(-1, new ReviewVote(AReview, AVoter, isUpvote: false).ScoreContribution);
     }

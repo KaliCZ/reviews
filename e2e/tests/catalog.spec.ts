@@ -1,11 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-// Smoke test for the public read paths — anonymous access, no auth needed.
-// Exercises product list → product detail → reviews rendering, which covers
-// the SSR + cache + DB read paths end-to-end.
-//
-// The auth + write flows aren't covered here yet — they need a logged-in
-// user and the OIDC dance, which is a separate fixture worth its own file.
+// Anonymous read smoke — exercises SSR + cache + DB end-to-end.
 test.describe('catalog browsing', () => {
   test('lists seeded products and shows reviews on the product page', async ({ page }) => {
     await page.goto('/');
@@ -24,7 +19,6 @@ test.describe('catalog browsing', () => {
     await expect(reviewBodies.first()).toBeVisible({ timeout: 15_000 });
     expect(await reviewBodies.count()).toBeGreaterThan(0);
 
-    // Anonymous viewers see "Sign in to write a review", not the form.
     await expect(page.getByRole('link', { name: /Sign in to write a review/i })).toBeVisible();
   });
 });

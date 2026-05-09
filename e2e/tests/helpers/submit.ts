@@ -28,9 +28,6 @@ export interface SubmitResult {
   workflowId: string;
 }
 
-// Navigates to the product, opens Write-a-review, fills + submits, returns
-// the workflowId from the 202. Caller asserts post-submit visibility, which
-// differs between the auto-approve and moderation-gated paths.
 export async function submitReview(
   page: Page,
   opts: SubmitOptions,
@@ -58,8 +55,6 @@ export async function submitReview(
   return { workflowId: accepted.workflowId };
 }
 
-// Polls the product page (with reload) until a review with the given body is
-// visible. Generous timeout for shared CI runners.
 export async function waitForReviewVisible(
   page: Page,
   productSlug: string,

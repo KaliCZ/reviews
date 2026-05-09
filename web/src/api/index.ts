@@ -1,32 +1,18 @@
-// Hand-written wire DTOs that mirror the API. Kept in sync with the .NET DTOs
-// in `backend/api/Models/Dtos.cs`. Previously generated from the OpenAPI spec
-// via openapi-typescript; the generated `schema.d.ts` still ships for callers
-// that want the raw spec shape, but the SPA imports from this file for the
-// trimmed/named surface its components actually use.
+// Hand-written DTOs mirroring backend/api/Models/Dtos.cs.
 
-// Limits the API enforces — re-stated here so the SPA can size form fields
-// and validate before submitting. Keep in sync with ReviewsDbContext on the
-// backend; the API still rejects anything past these.
+// Mirror ReviewsDbContext + ImagesController. Backend still rejects anything past these.
 export const Limits = {
   titleMax: 200,
   bodyMax: 4000,
   bodyMin: 10,
   maxImages: 5,
-  // Per-URL cap for entries in a review's imageUrls; matches the
-  // ReviewImageUrlMaxLength CHECK on the reviews table.
   imageUrlMax: 1000,
-  // 2 MiB; matches ImagesController.MaxImageBytes.
   maxImageBytes: 2 * 1024 * 1024,
   allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const,
 } as const;
 
-// Wire enum for the reviews listing sort key. Backend serialises the C#
-// enum via JsonStringEnumConverter; case-insensitive on read so lowercase
-// also works.
 export type ReviewSort = 'Newest' | 'Helpful' | 'Highest' | 'Lowest';
 
-// Star rating on the wire — integer 1..5 enforced by RatingJsonConverter on
-// the API side. SPA uses a plain number.
 export type Rating = 1 | 2 | 3 | 4 | 5;
 
 export interface ProductSummary {
@@ -61,13 +47,10 @@ export interface ReviewItem {
   score: number;
   createdAtUtc: string;
   updatedAtUtc: string;
-  // True = upvote, false = downvote, null = no vote from current viewer.
   myVote: boolean | null;
   mine: boolean;
 }
 
-// Offset-pagination payload — the SPA can render a real "page X of Y" UI
-// instead of forward-only cursor links.
 export interface ReviewsPage {
   items: ReviewItem[];
   page: number;
@@ -75,10 +58,8 @@ export interface ReviewsPage {
   totalCount: number;
 }
 
-// Request DTOs leave rating as `number` so SPA forms (which already track
-// 0..5 via the star widget) don't need a cast at every submit. The API
-// enforces 1..5 at the wire layer via RatingJsonConverter — invalid
-// integers come back as 400 before the controller runs.
+// rating stays as `number` here so SPA forms don't need a cast at submit.
+// The API's RatingJsonConverter enforces 1..5 at parse time.
 export interface SubmitReviewRequest {
   productId: number;
   rating: number;
@@ -112,8 +93,7 @@ export interface UploadedImage {
   url: string;
 }
 
-// SPA-only state (auth metadata from the BFF, not the upstream API) — no
-// OpenAPI counterpart. Lives here so consumers have one import.
+// BFF-only (no OpenAPI counterpart on the upstream API).
 export interface AuthMe {
   authenticated: boolean;
   user?: { sub: string; name?: string; email?: string };

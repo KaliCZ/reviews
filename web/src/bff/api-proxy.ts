@@ -2,8 +2,7 @@ import type { Application, NextFunction, Request, Response } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import type { Client } from 'openid-client';
 
-// Pulls the express-session module augmentation (req.session.tokenSet) into
-// every consumer of api-proxy via transitive import.
+// Side-effect import: pulls the req.session.tokenSet module augmentation.
 import './session';
 
 export interface ApiProxyOptions {
@@ -11,19 +10,13 @@ export interface ApiProxyOptions {
   oidcClient: Client | null;
 }
 
-/**
- * Refresh an about-to-expire access token before forwarding the API call.
- * Concurrent requests on the same session race-but-don't-corrupt because
- * express-session serializes writes per session.
- *
- * Exported separately from the middleware so unit tests can drive its
- * decision tree directly without spinning up Express.
- */
+// express-session serializes writes per session, so concurrent refreshes
+// race-but-don't-corrupt. Exported for unit tests.
 export async function ensureFreshToken(req: Request, oidcClient: Client | null): Promise<void> {
   const ts = req.session.tokenSet;
   if (!ts || !oidcClient) return;
   const now = Math.floor(Date.now() / 1000);
-  if (ts.expires_at && ts.expires_at - now > 60) return; // still fresh
+  if (ts.expires_at && ts.expires_at - now > 60) return;
   if (!ts.refresh_token) return;
   try {
     const refreshed = await oidcClient.refresh(ts.refresh_token);
@@ -42,12 +35,7 @@ export async function ensureFreshToken(req: Request, oidcClient: Client | null):
   }
 }
 
-/**
- * Mount the token-refresh middleware and the upstream API proxy on /api.
- *
- * pathFilter (not app.use mounting) preserves the `/api` prefix on the
- * forwarded URL so the upstream sees /api/products, not /products.
- */
+// pathFilter (not app.use mounting) keeps the `/api` prefix on forwarded URLs.
 export function registerApiProxy(app: Application, options: ApiProxyOptions): void {
   const { apiUrl, oidcClient } = options;
 
@@ -70,8 +58,7 @@ export function registerApiProxy(app: Application, options: ApiProxyOptions): vo
           if (ts?.access_token) {
             proxyReq.setHeader('Authorization', `Bearer ${ts.access_token}`);
           }
-          // Don't leak the BFF session cookie upstream — the API is
-          // cookie-blind and shouldn't see them.
+          // BFF session cookie stays at the BFF.
           proxyReq.removeHeader('cookie');
         },
       },

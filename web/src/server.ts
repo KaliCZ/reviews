@@ -16,10 +16,8 @@ const config = loadConfig();
 const browserDistFolder = join(import.meta.dirname, '../browser');
 const angularApp = new AngularNodeAppEngine();
 
-// Lazy app builder: defers Redis connect and OIDC discovery to first request.
-// Angular's SSR build imports this module to extract the request handler;
-// doing connect-on-import would crash the build (and any cold-start in an
-// environment where the deps aren't ready yet).
+// Lazy: Angular's SSR build imports this module at build time, so Redis
+// connect / OIDC discovery have to defer to first request.
 let appPromise: Promise<Application> | null = null;
 
 function getApp(): Promise<Application> {
@@ -64,10 +62,8 @@ if (isMainModule(import.meta.url) || process.env['pm_id']) {
   );
 }
 
-// Angular SSR / serverless invocation entry. First request triggers the
-// async build; subsequent requests reuse the cached promise. Express's
-// callable form accepts node-shaped Request/Response at runtime; the @types
-// signature narrows to express's own types, hence the cast.
+// Cast: express's @types narrow callable to express's own Request/Response,
+// but the runtime accepts node-shaped req/res objects from Angular SSR.
 export const reqHandler = createNodeRequestHandler(async (req, res, next) => {
   const app = await getApp();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

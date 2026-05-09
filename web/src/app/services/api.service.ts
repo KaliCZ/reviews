@@ -13,9 +13,7 @@ import {
   UploadedImage,
 } from '../models';
 
-// Thin wrapper around HttpClient — pure URL/payload shape, no business logic.
-// All calls go through `/api/*`, which the BFF proxies to the upstream API
-// after attaching the user's Bearer token.
+// Calls go through `/api/*` so the BFF proxy attaches the Bearer token.
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -32,9 +30,7 @@ export class ApiService {
     return this.http.get<ProductDetail>(`/api/products/${encodeURIComponent(slug)}`);
   }
 
-  // Offset pagination + multi-rating filter (rating params repeat: ?rating=4&rating=5).
-  // The sort enum lands as its C# member name (Newest / Helpful / Highest /
-  // Lowest); the API is case-insensitive on read.
+  // Multi-rating filter repeats the param: ?rating=4&rating=5.
   listReviews(slug: string, params: ReviewListParams = {}): Observable<ReviewsPage> {
     const q = new URLSearchParams();
     if (params.sort) q.set('sort', params.sort);
@@ -62,8 +58,6 @@ export class ApiService {
     return this.http.delete<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}`);
   }
 
-  // True = upvote, false = downvote — matches the boolean wire shape the API
-  // settled on after dropping the prior tri-state ±1 short.
   voteReview(id: string, isUpvote: boolean): Observable<AcceptedResponse> {
     return this.http.post<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`, {
       isUpvote,

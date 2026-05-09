@@ -1,9 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { ThemeService, ThemeChoice } from '../services/theme.service';
 
-// Three-state cycle: system → light → dark → system. The icon reflects the
-// resolved theme (sun in dark, moon in light) so a quick glance tells the
-// user what'll happen on click.
+// system → light → dark → system. Icon reflects the resolved (system-aware) theme.
 @Component({
   selector: 'app-theme-toggle',
   template: `

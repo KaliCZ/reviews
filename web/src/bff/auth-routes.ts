@@ -1,12 +1,7 @@
 import type { Application, Request, Response } from 'express';
 import { generators, type Client } from 'openid-client';
 
-/**
- * Mount /auth/login, /auth/callback, /auth/logout, /auth/me on the given app.
- * When oidcClient is null (discovery failed or creds missing), the routes
- * return 503 instead of crashing — lets the SPA boot and show a friendly
- * "auth unavailable" state instead of a hard error.
- */
+// 503 when oidcClient is null so the SPA can boot with auth disabled.
 export function registerAuthRoutes(
   app: Application,
   oidcClient: Client | null,
@@ -76,8 +71,7 @@ export function registerAuthRoutes(
     });
   });
 
-  // /auth/me — minimal profile data the SPA uses to render auth state.
-  // Tokens stay strictly server-side; the SPA only sees who the user is.
+  // Tokens stay server-side; only profile data crosses to the SPA.
   app.get('/auth/me', (req: Request, res: Response): void => {
     if (!req.session.user) {
       res.status(401).json({ authenticated: false });

@@ -214,15 +214,9 @@ export class SubmitReviewPage {
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
-  // Counts in-flight upload calls. The submit button stays disabled while
-  // this is > 0 — submitting before an upload finishes would either drop
-  // the image (URL not yet known) or race the form's image-list state.
+  // Submit stays disabled while > 0 so we don't post before URLs are known.
   protected readonly uploadsInFlight = signal(0);
 
-  // SPA-side keeps the rating as a plain number (1..5) — the API's
-  // RatingJsonConverter rejects out-of-range integers at the wire boundary,
-  // so no client-side narrowing buys us anything but TypeScript ceremony at
-  // every star-click handler.
   protected rating = 5;
   protected title = '';
   protected body = '';

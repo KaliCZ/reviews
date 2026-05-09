@@ -217,12 +217,8 @@ export class EditReviewPage {
       const s = this.slug();
       const id = this.reviewId();
       if (!s || !id) return;
-      // Hydrate from the product's review list — paged forward by page
-      // number until the target review id appears. Acceptable because the
-      // only way a user reaches this page is from their own review on the
-      // product page (where it's already loaded). For deep-links from a
-      // notification etc., a /api/reviews/:id endpoint would be the right
-      // add — out of scope for the kickoff.
+      // No /api/reviews/:id endpoint yet, so page through the listing.
+      // Reachable only from the user's own review on the product page.
       this.lookupOnPage(s, id, 1);
     });
   }

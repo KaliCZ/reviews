@@ -17,10 +17,6 @@ declare module 'express-session' {
   }
 }
 
-/**
- * Connect to Redis and return a configured express-session middleware.
- * The Redis client connects eagerly so the first request doesn't pay for it.
- */
 export async function createSessionMiddleware(
   redisUrl: string,
   sessionSecret: string,
@@ -37,8 +33,8 @@ export async function createSessionMiddleware(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // toggle on behind real HTTPS in prod
-      maxAge: 1000 * 60 * 60 * 8, // 8h idle
+      secure: false, // flip on behind HTTPS in prod
+      maxAge: 1000 * 60 * 60 * 8,
     },
   });
 }

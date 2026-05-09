@@ -14,18 +14,9 @@ public record SubmitReviewInput(
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
 
-// Submit-review flow per docs/flows.md §3:
-//   - Every review persists immediately as Pending (the entity ctor's default).
-//   - 3- and 4-star reviews flip to Approved right after the persist step,
-//     synchronously inside the same workflow run.
-//   - 1-, 2-, and 5-star reviews wait for an Approve/Reject signal from a
-//     moderator (no timeout — moderation may take days). On Approve they flip
-//     to Approved; on Reject they flip to Rejected (the row stays in the DB
-//     as the audit trail).
-//
-// The workflow is the durability boundary: persist + status flip + cache
-// invalidation run as separate retried activities, so a crash mid-write can't
-// leave the cache and DB out of sync.
+// Submit-review flow per docs/flows.md §3: persist as Pending, then 3/4-star
+// auto-approve while 1/2/5-star wait on a moderator signal (no timeout).
+// Rejected rows stay in the DB as the audit trail.
 [Workflow]
 public class SubmitReviewWorkflow
 {
@@ -51,11 +42,8 @@ public class SubmitReviewWorkflow
     [WorkflowRun]
     public async Task<string> RunAsync(SubmitReviewInput input)
     {
-        // Persist as Pending — the only path that creates Review rows. Done
-        // first so the moderator UI (which reads from the DB) can surface the
-        // pending row while the workflow waits for a signal. PersistReview
-        // returns the product slug so we can invalidate the right cache keys
-        // without a follow-up lookup.
+        // Persist first so the moderator UI (DB-backed) can surface the
+        // Pending row while the workflow waits for a signal.
         var slug = await Workflow.ExecuteActivityAsync<string>(
             ReviewActivityNames.PersistReview,
             new object[] { input },
@@ -72,8 +60,7 @@ public class SubmitReviewWorkflow
                     ReviewActivityNames.RejectReview,
                     new object[] { input.ReviewId },
                     new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
-                // No cache refresh on reject — Rejected rows aren't visible
-                // anyway (the listing index is partial on Status = Approved).
+                // No cache invalidate: listing index is partial on Status=Approved.
                 return "rejected";
             }
         }

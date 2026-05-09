@@ -1,14 +1,9 @@
-// @angular/compiler must load before any Angular DI metadata is read so that
-// JIT can compile partial-compiled libraries (e.g. @angular/common's
-// PlatformLocation). Without it, importing the service indirectly pulls in
-// unresolved JIT-only metadata and the test file fails to load.
+// JIT compiler load order: must come before any partial-compiled @angular/* import.
 import '@angular/compiler';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ThemeService } from './theme.service';
 
-// Mock matchMedia globally — jsdom doesn't ship with one. Tests that need
-// a specific result (system → dark vs light) override this within the test
-// itself via vi.stubGlobal.
+// jsdom doesn't ship matchMedia.
 function stubMatchMedia(matches: boolean): void {
   vi.stubGlobal('matchMedia', (query: string) => ({
     matches,

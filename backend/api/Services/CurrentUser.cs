@@ -6,26 +6,14 @@ using StrongTypes;
 
 namespace Reviews.Api.Services;
 
-// Resolves the current OIDC user from the request's ClaimsPrincipal. The
-// ZITADEL `sub` claim is a string (numeric per ZITADEL's defaults); we hash
-// it into a Guid so the rest of the system can keep using Guid PKs without
-// caring how the IdP shapes its user ids. The mapping is deterministic, so
-// the same `sub` always yields the same Guid — safe to use as a stable
-// AuthorId/VoterId across requests and restarts.
-//
-// The User record is itself non-nullable in shape (every field required) — the
-// nullability lives one level up: the accessor returns `User?`, and `null`
-// means "no authenticated viewer". Callers narrow once and then have a
-// fully-populated user instead of dancing around three nullable fields.
+// The `sub` claim is hashed into a Guid (see SubToGuid) so AuthorId/VoterId
+// stay Guid-shaped regardless of how the IdP formats user ids. Deterministic,
+// so the same `sub` always yields the same Guid.
 public interface ICurrentUser
 {
     User? User { get; }
 }
 
-// Display name comes from `name` / `preferred_username` claims, with a
-// fallback to email-local-part. ZITADEL's default profile scope yields all
-// three. NonEmptyString on Sub/Name keeps the contract honest — if the IdP
-// ever returns a blank claim we fail at construction rather than later.
 public sealed record User
 {
     public required Guid Id { get; init; }
@@ -62,9 +50,6 @@ public class CurrentUser : ICurrentUser
 
     public static Guid SubToGuid(string sub)
     {
-        // SHA-256 → take first 16 bytes → Guid. Stable, collision-resistant
-        // enough for application-level identifiers, and reversible only with
-        // brute force which doesn't matter here.
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(sub));
         return new Guid(bytes.AsSpan(0, 16));
     }

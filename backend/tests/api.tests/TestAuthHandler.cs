@@ -6,9 +6,7 @@ using Microsoft.Extensions.Options;
 
 namespace Reviews.Api.Tests;
 
-// Always-authenticates handler used by the integration test factory in place
-// of JwtBearer. Issues a synthetic identity so [Authorize] passes; tests
-// targeting the validation-failure path don't need a real user.
+// Always-authenticates handler swapped in for JwtBearer in integration tests.
 public sealed class TestAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options,
     ILoggerFactory logger,
