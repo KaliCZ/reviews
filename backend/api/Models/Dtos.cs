@@ -63,25 +63,25 @@ public enum ReviewSort
 
 public record SubmitReviewRequest
 {
-    public required long ProductId { get; init; }
-    public required Rating Rating { get; init; }
-    public required NonEmptyString Title { get; init; }
-    public required NonEmptyString Body { get; init; }
+    public long ProductId { get; init; }
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
-    public required NonEmptyString TurnstileToken { get; init; }
+    public NonEmptyString TurnstileToken { get; init; } = default!;
 }
 
 public record EditReviewRequest
 {
-    public required Rating Rating { get; init; }
-    public required NonEmptyString Title { get; init; }
-    public required NonEmptyString Body { get; init; }
+    public Rating Rating { get; init; }
+    public NonEmptyString Title { get; init; } = default!;
+    public NonEmptyString Body { get; init; } = default!;
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
 }
 
 public record VoteRequest
 {
-    public required bool IsUpvote { get; init; }
+    public bool IsUpvote { get; init; }
 }
 
 public record AcceptedResponse(string WorkflowId, string Status);

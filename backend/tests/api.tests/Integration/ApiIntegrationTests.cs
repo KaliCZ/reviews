@@ -302,8 +302,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Empty_post_returns_400_with_validation_problem_details()
     {
-        // STJ's "first failing member" varies between runs — we assert on the
-        // 400 + non-empty errors object, NOT the exact error key shape.
         var response = await fx.ApiClient.PostAsync("/api/reviews",
             new StringContent("{}", Encoding.UTF8, "application/json"));
 
@@ -311,22 +309,18 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = doc.RootElement;
-        // ProblemDetails wire shape — pin the field names we hand to the SPA.
         AssertString(root, "title");
         AssertString(root, "type");
         Assert.Equal(400, root.GetProperty("status").GetInt32());
 
         var errors = root.GetProperty("errors");
         Assert.Equal(JsonValueKind.Object, errors.ValueKind);
-        var keys = errors.EnumerateObject().ToList();
-        Assert.True(keys.Count > 0, "expected at least one validation error key");
-        foreach (var k in keys)
-        {
-            Assert.Equal(JsonValueKind.Array, k.Value.ValueKind);
-            Assert.True(k.Value.GetArrayLength() > 0);
-            foreach (var msg in k.Value.EnumerateArray())
-                Assert.Equal(JsonValueKind.String, msg.ValueKind);
-        }
+
+        // MVC model validation flags every missing non-nullable reference field.
+        var keys = errors.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("title", keys);
+        Assert.Contains("body", keys);
+        Assert.Contains("turnstileToken", keys);
     }
 
     // ---- helpers ----
