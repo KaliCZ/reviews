@@ -1,10 +1,11 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { RouterLink, RouterOutlet, Router } from '@angular/router';
 import { AuthService } from './services/auth.service';
+import { ThemeToggle } from './components/theme-toggle';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, ThemeToggle],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

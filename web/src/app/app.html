@@ -1,6 +1,7 @@
 <header class="topbar">
   <a routerLink="/" class="brand">Reviews</a>
   <nav class="auth">
+    <app-theme-toggle />
     @if (auth.authenticated()) {
       <span class="who">Hi, {{ auth.displayName() }}</span>
       <a href="/auth/logout" class="link">Sign out</a>

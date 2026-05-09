@@ -77,7 +77,7 @@ import { ReviewItem } from '../models';
     `
       .review {
         padding: 1rem 0;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid var(--color-outline-variant);
       }
       .review header {
         display: flex;
@@ -88,7 +88,7 @@ import { ReviewItem } from '../models';
         font-weight: 600;
       }
       .meta {
-        color: #666;
+        color: var(--color-on-surface-muted);
         font-size: 0.85rem;
         margin: 0.25rem 0 0.5rem;
         display: flex;
@@ -122,17 +122,18 @@ import { ReviewItem } from '../models';
         gap: 0.4rem;
       }
       .vote {
-        background: #fff;
-        border: 1px solid #ccc;
+        background: var(--color-surface);
+        border: 1px solid var(--color-outline);
+        color: var(--color-on-surface);
         padding: 0.15rem 0.5rem;
         border-radius: 4px;
         cursor: pointer;
         font-size: 1rem;
       }
       .vote.active {
-        background: #2563eb;
-        color: #fff;
-        border-color: #2563eb;
+        background: var(--color-primary);
+        color: var(--color-on-primary);
+        border-color: var(--color-primary);
       }
       .vote:disabled {
         opacity: 0.5;
@@ -151,7 +152,7 @@ import { ReviewItem } from '../models';
         background: none;
         border: none;
         padding: 0;
-        color: #2563eb;
+        color: var(--color-link);
         cursor: pointer;
         font-size: 0.9rem;
         text-decoration: none;
@@ -160,7 +161,7 @@ import { ReviewItem } from '../models';
         text-decoration: underline;
       }
       .danger {
-        color: #dc2626;
+        color: var(--color-error);
       }
     `,
   ],
