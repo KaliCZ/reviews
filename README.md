@@ -72,23 +72,18 @@ After it boots (all links available in aspire dashboard):
 
 ### Registering your own user
 
-If you self-register through the sign-in flow, ZITADEL sends a verification code to the user's email. There's no SMTP wired up locally, so the email goes nowhere and the user stays stuck in `USER_STATE_INITIAL`. Two ways to unblock yourself:
-
-**A) Quick API call (recommended).** The bootstrap container leaves a service-account PAT at `infra/zitadel/.secrets/admin-pat.txt`. Find your user's id and verify the email:
+Self-registering through the sign-in flow lands you on a "enter the verification code" page. ZITADEL would normally email the code, but no SMTP is wired up locally — instead, ZITADEL logs the code as a fallback. Grab it from the container logs and paste it into the UI:
 
 ```bash
-PAT=$(cat infra/zitadel/.secrets/admin-pat.txt)
-# find the user
-curl -sS -X POST http://localhost:8080/management/v1/users/_search \
-  -H "Authorization: Bearer $PAT" -H "Host: localhost:8080" -H "Content-Type: application/json" -d '{}'
-# verify (paste the id from above)
-curl -sS -X POST http://localhost:8080/management/v1/users/<USER_ID>/_verify_email \
-  -H "Authorization: Bearer $PAT" -H "Host: localhost:8080" -H "Content-Type: application/json" -d '{}'
+docker logs $(docker ps --format '{{.Names}}' | grep '^zitadel-' | grep -v bootstrap) 2>&1 \
+  | grep -oE 'Code:[A-Z0-9]+' | tail -1
 ```
 
-**B) ZITADEL Console.** Open <http://localhost:8080> and sign in as `zitadel-admin@reviews.localhost` / `Password1!` (note: the full string including `@reviews.localhost` goes in the username field — it's a Zitadel loginname, not an email). Switch to the `reviews` org (top-left dropdown), open the user from **Users**, then click the verify icon **next to the email field** on their profile. The top-level "Activate user" button is for re-activating deactivated users, not for email verification.
+That returns the latest InitCode (`Code:XXXXXX`). Paste the six characters after `Code:` into the verification page and the OIDC login flow completes.
 
-After that the OIDC login flow works. For background on how the admin user and OIDC app get there in the first place, see [Bootstrapping ZITADEL](#bootstrapping-zitadel).
+Note: Admin endpoints like `SetEmail` / `VerifyEmail` reject these users with "User is not yet initialized" — going through the UI with the logged code is the path that works. If you need a fresh code, click "resend" in the UI (or call `POST /management/v1/users/{userId}/_resend_initialization` with the bootstrap PAT at `infra/zitadel/.secrets/admin-pat.txt`) and grep the logs again. The pre-seeded `alice` test user skips this entirely — she's imported as already-verified via the bootstrap script.
+
+For background on the admin user and OIDC app provisioning, see [Bootstrapping ZITADEL](#bootstrapping-zitadel).
 
 ## Tests
 
