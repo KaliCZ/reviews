@@ -21,18 +21,21 @@ import { Limits, ReviewItem } from '../models';
           >Your rating
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
-        <label
-          >Title (optional)
+        <label class="field">
+          Title
           <input
             type="text"
             [(ngModel)]="title"
             name="title"
+            required
             [maxlength]="Limits.titleMax"
-            [placeholder]="'Up to ' + Limits.titleMax + ' characters'"
           />
+          <small class="counter" [class.over]="title.length > Limits.titleMax">
+            {{ title.length }}/{{ Limits.titleMax }}
+          </small>
         </label>
-        <label
-          >Review
+        <label class="field">
+          Review
           <textarea
             [(ngModel)]="body"
             name="body"
@@ -41,6 +44,16 @@ import { Limits, ReviewItem } from '../models';
             [minlength]="Limits.bodyMin"
             [maxlength]="Limits.bodyMax"
           ></textarea>
+          <small
+            class="counter"
+            [class.over]="body.length > Limits.bodyMax"
+            [class.under]="body.trim().length > 0 && body.trim().length < Limits.bodyMin"
+          >
+            {{ body.length }}/{{ Limits.bodyMax }}
+            @if (body.trim().length > 0 && body.trim().length < Limits.bodyMin) {
+              · {{ Limits.bodyMin }} min
+            }
+          </small>
         </label>
 
         <fieldset>
@@ -74,7 +87,16 @@ import { Limits, ReviewItem } from '../models';
           <p class="error">{{ e }}</p>
         }
 
-        <button type="submit" [disabled]="saving() || body.trim().length < Limits.bodyMin">
+        <button
+          type="submit"
+          [disabled]="
+            saving() ||
+            title.trim().length === 0 ||
+            title.length > Limits.titleMax ||
+            body.trim().length < Limits.bodyMin ||
+            body.length > Limits.bodyMax
+          "
+        >
           {{ saving() ? 'Saving...' : 'Save changes' }}
         </button>
       </form>
@@ -87,6 +109,19 @@ import { Limits, ReviewItem } from '../models';
       label {
         display: block;
         margin: 0.75rem 0;
+      }
+      .counter {
+        display: block;
+        margin-top: 0.25rem;
+        color: #666;
+        font-size: 0.8rem;
+        text-align: right;
+      }
+      .counter.over {
+        color: #b91c1c;
+      }
+      .counter.under {
+        color: #b45309;
       }
       fieldset {
         margin: 0.75rem 0;
@@ -213,7 +248,7 @@ export class EditReviewPage {
   private fillFrom(r: ReviewItem) {
     this.review.set(r);
     this.rating = r.rating;
-    this.title = r.title ?? '';
+    this.title = r.title;
     this.body = r.body;
     this.imageUrls = [...r.imageUrls];
   }
@@ -264,11 +299,10 @@ export class EditReviewPage {
     if (!r) return;
     this.saving.set(true);
     this.error.set(null);
-    const trimmedTitle = this.title.trim();
     this.api
       .editReview(r.id, {
         rating: this.rating,
-        title: trimmedTitle.length ? trimmedTitle : undefined,
+        title: this.title.trim(),
         body: this.body.trim(),
         imageUrls: this.imageUrls,
       })

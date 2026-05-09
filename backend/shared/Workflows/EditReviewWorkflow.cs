@@ -7,7 +7,7 @@ public record EditReviewInput(
     Guid ReviewId,
     Guid AuthorId,
     short Rating,
-    NonEmptyString? Title,
+    NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
 

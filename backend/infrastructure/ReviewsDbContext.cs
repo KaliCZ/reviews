@@ -47,7 +47,7 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.HasKey(r => r.Id);
             e.Property(r => r.Id).HasDefaultValueSql("gen_random_uuid()");
             e.Property(r => r.AuthorName).IsRequired().HasMaxLength(AuthorNameMaxLength);
-            e.Property(r => r.Title).HasMaxLength(TitleMaxLength);
+            e.Property(r => r.Title).IsRequired().HasMaxLength(TitleMaxLength);
             e.Property(r => r.Body).IsRequired().HasMaxLength(BodyMaxLength);
             e.Property(r => r.ImageUrls).HasColumnType("text[]");
             e.Property(r => r.Rating);

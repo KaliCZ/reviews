@@ -39,7 +39,7 @@ public class Review
         Guid authorId,
         NonEmptyString authorName,
         short rating,
-        NonEmptyString? title,
+        NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<NonEmptyString> imageUrls)
     {
@@ -67,7 +67,7 @@ public class Review
     public NonEmptyString AuthorName { get; private set; } = null!;
 
     public short Rating { get; private set; }
-    public NonEmptyString? Title { get; private set; }
+    public NonEmptyString Title { get; private set; } = null!;
     public NonEmptyString Body { get; private set; } = null!;
 
     // Stored as Postgres text[]; EF Core's Npgsql provider maps List<string>
@@ -88,7 +88,7 @@ public class Review
     // Apply an author-driven edit. Doesn't change Status — an edit to an
     // already-Approved review stays Approved; an edit to a Pending one stays
     // Pending until the workflow signals through.
-    public void ApplyEdit(short rating, NonEmptyString? title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
+    public void ApplyEdit(short rating, NonEmptyString title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
     {
         if (rating is < 1 or > 5)
             throw new ArgumentOutOfRangeException(nameof(rating), rating, "Rating must be between 1 and 5");
@@ -132,7 +132,7 @@ public class Review
         Guid authorId,
         NonEmptyString authorName,
         short rating,
-        NonEmptyString? title,
+        NonEmptyString title,
         NonEmptyString body,
         IReadOnlyList<string> imageUrls,
         int score,

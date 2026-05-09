@@ -12,11 +12,18 @@ namespace Reviews.Shared.Tests;
 // shape, we want hard failures, not silent persistence of garbage.
 public class SubmitReviewInputJsonTests
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // Mirror the API's JSON pipeline (Program.cs AddJsonOptions): respect
+    // C#'s nullable annotations so missing / null fields on a non-nullable
+    // record parameter throw JsonException, not bind silently.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
 
     private static string ValidPayload(
         string body = "Looks great",
-        string? title = "Solid",
+        string title = "Solid",
         string authorName = "Alice",
         string[]? imageUrls = null) =>
         $$"""
@@ -39,7 +46,7 @@ public class SubmitReviewInputJsonTests
         Assert.NotNull(input);
         Assert.Equal("Looks great", input!.Body.Value);
         Assert.Equal("Alice", input.AuthorName.Value);
-        Assert.Equal("Solid", input.Title!.Value);
+        Assert.Equal("Solid", input.Title.Value);
     }
 
     [Fact]
@@ -57,20 +64,37 @@ public class SubmitReviewInputJsonTests
     }
 
     [Fact]
-    public void Empty_title_is_rejected_when_present()
+    public void Empty_title_is_rejected()
     {
-        // Optional NonEmptyString? — null is fine, "" is not.
         var json = ValidPayload(title: "");
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewInput>(json, Json));
     }
 
     [Fact]
-    public void Null_title_round_trips_as_no_title()
+    public void Whitespace_title_is_rejected()
     {
-        var json = ValidPayload(title: null);
-        var input = JsonSerializer.Deserialize<SubmitReviewInput>(json, Json);
-        Assert.NotNull(input);
-        Assert.Null(input!.Title);
+        var json = ValidPayload(title: "  \t\n  ");
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewInput>(json, Json));
+    }
+
+    [Fact]
+    public void Null_title_is_rejected()
+    {
+        // Title is required NonEmptyString — `null` on the wire violates the
+        // contract just like an empty string would.
+        var json = $$"""
+        {
+            "reviewId": "11111111-1111-1111-1111-111111111111",
+            "productId": 1,
+            "authorId": "22222222-2222-2222-2222-222222222222",
+            "authorName": "Alice",
+            "rating": 4,
+            "title": null,
+            "body": "Looks great",
+            "imageUrls": []
+        }
+        """;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewInput>(json, Json));
     }
 
     [Fact]
@@ -95,7 +119,7 @@ public class SubmitReviewInputJsonTests
             "reviewId": "11111111-1111-1111-1111-111111111111",
             "authorId": "22222222-2222-2222-2222-222222222222",
             "rating": 3,
-            "title": null,
+            "title": "Updated",
             "body": "",
             "imageUrls": []
         }

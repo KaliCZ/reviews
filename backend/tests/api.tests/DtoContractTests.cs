@@ -11,11 +11,19 @@ namespace Reviews.Api.Tests;
 // translation of JsonException.
 public class DtoContractTests
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    // Mirror the API's JSON pipeline (AddJsonOptions in Program.cs). Without
+    // RespectNullableAnnotations, STJ silently binds `null` / missing
+    // properties into non-nullable record parameters; with it, they throw
+    // JsonException on the wire — same shape the controller sees.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
 
     private static string SubmitPayload(
         string body = "Looks great",
-        string? title = "Solid",
+        string title = "Solid",
         string turnstile = "test-token",
         string[]? imageUrls = null) =>
         $$"""
@@ -34,7 +42,8 @@ public class DtoContractTests
     {
         var req = JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(), Json);
         Assert.NotNull(req);
-        Assert.Equal("Looks great", req!.Body.Value);
+        Assert.Equal("Solid", req!.Title.Value);
+        Assert.Equal("Looks great", req.Body.Value);
         Assert.Equal("test-token", req.TurnstileToken.Value);
         Assert.Null(req.ImageUrls);
     }
@@ -54,18 +63,35 @@ public class DtoContractTests
     }
 
     [Fact]
-    public void Submit_with_explicit_empty_title_is_rejected()
+    public void Submit_with_empty_title_is_rejected()
     {
         Assert.Throws<JsonException>(
             () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(title: ""), Json));
     }
 
     [Fact]
-    public void Submit_with_null_title_is_accepted()
+    public void Submit_with_whitespace_title_is_rejected()
     {
-        var req = JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(title: null), Json);
-        Assert.NotNull(req);
-        Assert.Null(req!.Title);
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize<SubmitReviewRequest>(SubmitPayload(title: "   "), Json));
+    }
+
+    [Fact]
+    public void Submit_with_null_title_is_rejected()
+    {
+        // Title is required NonEmptyString — null violates the contract
+        // exactly like an empty string. `null` triggers the converter just
+        // the same as a too-short value would.
+        var json = """
+        {
+            "productId": 1,
+            "rating": 4,
+            "title": null,
+            "body": "Looks great",
+            "turnstileToken": "test-token"
+        }
+        """;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<SubmitReviewRequest>(json, Json));
     }
 
     [Fact]
@@ -89,7 +115,7 @@ public class DtoContractTests
         const string json = """
         {
             "rating": 3,
-            "title": null,
+            "title": "Updated title",
             "body": "",
             "imageUrls": []
         }
@@ -104,6 +130,21 @@ public class DtoContractTests
         {
             "rating": 3,
             "title": "   ",
+            "body": "Updated body",
+            "imageUrls": []
+        }
+        """;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<EditReviewRequest>(json, Json));
+    }
+
+    [Fact]
+    public void Edit_with_missing_title_is_rejected()
+    {
+        // Title is required — omitting the property leaves it null, which
+        // the NonEmptyString converter rejects.
+        const string json = """
+        {
+            "rating": 3,
             "body": "Updated body",
             "imageUrls": []
         }

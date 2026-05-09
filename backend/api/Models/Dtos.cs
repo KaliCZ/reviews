@@ -34,7 +34,7 @@ public record ReviewItem(
     Guid AuthorId,
     NonEmptyString AuthorName,
     short Rating,
-    NonEmptyString? Title,
+    NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls,
     int Score,
@@ -56,7 +56,7 @@ public record ReviewsPage(
 public record SubmitReviewRequest(
     long ProductId,
     short Rating,
-    NonEmptyString? Title,
+    NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString>? ImageUrls,
     // Cloudflare Turnstile token from the widget. Required in production;
@@ -65,7 +65,7 @@ public record SubmitReviewRequest(
 
 public record EditReviewRequest(
     short Rating,
-    NonEmptyString? Title,
+    NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString>? ImageUrls);
 

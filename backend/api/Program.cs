@@ -59,6 +59,14 @@ builder.Services.AddControllers()
         // get readable union literals (`'newest' | 'helpful' | …`) instead
         // of bare integers.
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+
+        // Treat C#'s nullable annotations as enforceable on the wire: a JSON
+        // payload that omits a non-nullable property (or sends `null` for
+        // it) fails deserialization with JsonException instead of silently
+        // binding null into a NonEmptyString slot. ASP.NET turns the
+        // exception into a 400 before the action runs.
+        options.JsonSerializerOptions.RespectNullableAnnotations = true;
+        options.JsonSerializerOptions.RespectRequiredConstructorParameters = true;
     });
 
 // Swashbuckle's spec generator + UI. Picked over Microsoft.AspNetCore.OpenApi

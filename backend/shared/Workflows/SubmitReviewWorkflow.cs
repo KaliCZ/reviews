@@ -9,7 +9,7 @@ public record SubmitReviewInput(
     Guid AuthorId,
     NonEmptyString AuthorName,
     short Rating,
-    NonEmptyString? Title,
+    NonEmptyString Title,
     NonEmptyString Body,
     IReadOnlyList<NonEmptyString> ImageUrls);
 

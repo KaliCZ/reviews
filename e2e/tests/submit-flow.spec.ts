@@ -35,7 +35,7 @@ test('submit a 4-star review (auto-approved) and see it on the product page', as
 
   await expect(page.getByRole('heading', { name: /Write a review/i })).toBeVisible();
   await setRating(page, 4);
-  await page.getByLabel('Title (optional)').fill('Solid daily driver');
+  await page.getByLabel('Title', { exact: true }).fill('Solid daily driver');
   const body = `End-to-end test review ${Date.now()} — covers submit-flow auto-approval path.`;
   await page.getByLabel('Review', { exact: false }).fill(body);
 

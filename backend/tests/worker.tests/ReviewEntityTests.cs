@@ -3,10 +3,10 @@ using StrongTypes;
 
 namespace Reviews.Worker.Tests;
 
-// Entity-level invariants. The Review ctor accepts NonEmptyString for the
-// author / body / title-when-present, so empty strings are rejected at the
-// type system level (they can't be constructed). Rating is a primitive
-// short, so the range guard is checked separately.
+// Entity-level invariants. The Review ctor takes NonEmptyString for the
+// author / title / body, so empty strings are rejected at the type system
+// level (they can't be constructed). Rating is a primitive short, so the
+// range guard is checked separately.
 public class ReviewEntityTests
 {
     [Fact]
@@ -39,7 +39,7 @@ public class ReviewEntityTests
             authorId: Guid.NewGuid(),
             authorName: "Alice".ToNonEmpty(),
             rating: rating,
-            title: null,
+            title: "T".ToNonEmpty(),
             body: "Body".ToNonEmpty(),
             imageUrls: []));
     }
@@ -62,11 +62,11 @@ public class ReviewEntityTests
             authorId: Guid.NewGuid(),
             authorName: "Alice".ToNonEmpty(),
             rating: 4,
-            title: null,
+            title: "T".ToNonEmpty(),
             body: "Body".ToNonEmpty(),
             imageUrls: []);
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            review.ApplyEdit(0, null, "Body".ToNonEmpty(), []));
+            review.ApplyEdit(0, "T".ToNonEmpty(), "Body".ToNonEmpty(), []));
     }
 }
