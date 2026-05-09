@@ -1,0 +1,4 @@
+# Runtime-only state from zitadel + zitadel-bootstrap. Re-generated on first
+# boot from an empty postgres + zitadel volume; never check in.
+.secrets/
+.app-secrets/

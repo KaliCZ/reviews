@@ -1,21 +1,22 @@
 # Reviews
 
-A product reviews platform. This kickoff seeds the monorepo and a hello-world endpoint that proves the wiring works end-to-end (Angular → API → Temporal workflow → Worker → Redis).
+A product reviews platform — viewing, browsing, submitting, rating, editing, and deleting reviews — wired end-to-end through a real OIDC auth flow, durable Temporal workflows, EF Core migrations, blob-stored review images, and rate-limited write endpoints.
 
-The four user flows the product is built around — viewing reviews, browsing more, submitting, and rating — are described in [docs/flows.md](docs/flows.md).
+The four user flows the product is built around are described in [docs/flows.md](docs/flows.md).
 
 ## Stack
 
-- **API** — ASP.NET Core 10 (`backend/api/`)
-- **Worker** — .NET worker host running Temporal workflows + activities (`backend/worker/`)
-- **Shared library** — workflow type definitions referenced by both API and worker (`backend/shared/`)
-- **Frontend** — Angular 21 with SSR (`web/`)
-- **Cache** — Redis
-- **Database** — PostgreSQL (one server, separate databases for app, auth, and Temporal)
-- **Auth** — ZITADEL (OIDC, runs locally as a container; not yet wired into code)
-- **Blob storage** — Azurite locally (Azure Storage emulator, real Azure Blob in production)
-- **Workflow engine** — Temporal (server + UI), backed by the shared Postgres
-- **Orchestration** — .NET Aspire (`backend/apphost/`) + Docker Compose
+- **API** — ASP.NET Core 10 (`backend/api/`), JWT-Bearer protected, rate-limited writes.
+- **Worker** — .NET worker host running Temporal workflows + activities (`backend/worker/`).
+- **Shared library** — workflow type definitions referenced by both API and worker (`backend/shared/`).
+- **Infrastructure library** — EF Core `DbContext`, migrations, and the seeder (`backend/infrastructure/`).
+- **Frontend** — Angular 21 with SSR + a Backend-For-Frontend layer in the same Express server (`web/`).
+- **Cache** — Redis (cached review first-pages + BFF session store).
+- **Database** — PostgreSQL (one server, separate databases for app, auth, and Temporal).
+- **Auth** — ZITADEL via the BFF pattern: tokens stay server-side, browser holds an HTTP-only session cookie.
+- **Blob storage** — Azurite locally for review images, real Azure Blob in production (Aspire's `RunAsEmulator` toggle).
+- **Workflow engine** — Temporal (server + UI), backed by the shared Postgres.
+- **Orchestration** — .NET Aspire (`backend/apphost/`) + Docker Compose.
 
 ## Prerequisites
 
@@ -38,9 +39,7 @@ npm --prefix web install
 npm run aspire
 ```
 
-Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, and Aspire injects connection strings into the API automatically.
-
-No extra install needed beyond the prerequisites — the Aspire NuGet packages come down via `dotnet restore` like any dependency.
+Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, connection strings injected automatically.
 
 ### 2. `npm run dev` (no Aspire workload required)
 
@@ -48,7 +47,7 @@ No extra install needed beyond the prerequisites — the Aspire NuGet packages c
 npm run dev
 ```
 
-Starts Postgres, Redis, Azurite, ZITADEL, Temporal, and the Temporal UI via `docker compose -d`, then runs `dotnet watch` on both `api` and `worker` plus `ng serve` on the host, all under `concurrently` with hot reload. This is the lightest dev loop — just Docker for the infra, native dev servers for the code.
+Brings up Postgres, Redis, Azurite, ZITADEL, Temporal, and the Temporal UI via `docker compose up -d --wait`, then runs `dotnet watch` on `api` and `worker` plus `ng serve` on the host, all under `concurrently` with hot reload.
 
 Stop the infra containers with `docker compose down`.
 
@@ -58,104 +57,146 @@ Stop the infra containers with `docker compose down`.
 docker compose up --build
 ```
 
-Builds and runs everything containerized. Reviewer needs only Docker. Slower iteration (rebuilds on change) but faithfully matches what gets deployed.
+Builds and runs everything containerized. Reviewer needs only Docker.
 
 After it boots:
 - Frontend: <http://localhost:4000>
 - API: <http://localhost:8081>
-- ZITADEL Console: <http://localhost:8080>
+- ZITADEL Console: <http://localhost:8080> (admin login: `zitadel-admin@reviews.localhost` / `Password1!`)
 - Temporal UI: <http://localhost:8233>
+- Test user for the app: `alice@localhost` / `Password1!`
 
 ## Project structure
 
 ```
 reviews/
 ├── backend/
-│   ├── api/                .NET API (ASP.NET Core controllers)
+│   ├── api/                .NET API (controllers, JwtBearer auth, rate limiting)
 │   ├── worker/             Temporal worker (workflows + activities runtime)
 │   ├── shared/             Workflow type definitions (referenced by api + worker)
+│   ├── infrastructure/     EF Core: DbContext, entities, migrations, seeder
 │   ├── apphost/            Aspire orchestration project
 │   ├── service-defaults/   Shared OTel / health-check / service-discovery wiring
-│   └── tests/              xUnit test projects (one per app project that needs them)
-├── web/                    Angular SSR frontend
-├── infra/                  Infra helpers (Postgres init script)
+│   └── tests/              xUnit test projects
+├── web/                    Angular SSR frontend + BFF (in the same Express server)
+├── infra/
+│   ├── postgres-init.sh    Creates the additional databases on first start
+│   └── zitadel/
+│       ├── steps.yaml      ZITADEL FirstInstance bootstrap (admin + service-account PAT)
+│       └── bootstrap.sh    Provisions the OIDC app via mgmt API after first start
 ├── Reviews.slnx            .NET solution
 ├── docker-compose.yml      Containerized run path
-└── package.json            Root scripts: dev, aspire, e2e
+└── package.json            Root scripts: dev, dev:infra, aspire, e2e
 ```
 
 ## Design notes
 
-### Why three run paths?
+### Schema, migrations, and seed
 
-- **Aspire** for the inner dev loop — it gives the best observability and least friction once installed.
-- **`npm run dev`** as a fallback if you don't want the Aspire workload. Same hot-reload story, just orchestrated by `concurrently` + `docker compose` instead.
-- **Docker Compose** so a reviewer can clone and run with only Docker installed. Also matches deployment topology.
+The data model is owned by `Reviews.Infrastructure`. EF Core `DbContext` + migrations live in `backend/infrastructure/Migrations/`. The API runs `Database.MigrateAsync()` at startup, wrapped in a Postgres `pg_advisory_lock` so it's safe under multiple replicas — first wins, others see "no pending migrations" and continue. In production you'd flip `Reviews:AutoApply=false` and run a deploy-time bundle; in dev there's no pipeline and auto-apply is fine.
 
-The three paths share the same code; they only differ in how connection strings are injected.
+The seed runs immediately after, in the same lock-protected step. It inserts 10 products with deliberately mixed averages (some products average ~4.5+, others ~1.7-2.3, the rest middling), plus ~40 reviews — some carrying image URLs. **Image bytes themselves are downloaded from picsum.photos at first boot and uploaded to Azurite**, then served back through the API at `/api/images/{path}` so the URL is environment-agnostic (works through SSR proxy, in compose, in prod with real Azure Blob — no hardcoded host names).
 
-### Secrets and configuration
+The worker doesn't run migrations. It depends on the API's `/health` (Aspire `WaitFor`, compose `service_healthy`) so by the time it queries, the schema is ready. One owner, one path — no race.
 
-Each service reads its own config in its stack's native way; nothing is shared across services:
+### Auth: ZITADEL via the BFF pattern
 
-- **Backend (.NET)** — `backend/api/appsettings.Development.json` and `backend/worker/appsettings.Development.json`. .NET's `IConfiguration` picks them up automatically when `ASPNETCORE_ENVIRONMENT=Development` (the default for `dotnet watch`).
-- **Frontend (Angular)** — no env file needed locally. `web/proxy.conf.js` reads `process.env.API_URL` and falls back to `http://localhost:5146`, which matches the API's local listen address.
-- **Aspire** — orchestrates everything in code. Connection strings flow via `WithReference()`, the api gets `API_URL` via `WithEnvironment()`. Secret parameters (`postgres-password`, `zitadel-masterkey`) live in `backend/apphost/appsettings.Development.json` under `Parameters`.
-- **Docker Compose** — each service in `docker-compose.yml` declares its own `environment:` block inline. `postgres` only sees `POSTGRES_*`, `zitadel` only sees `ZITADEL_*`, the api container only sees its connection strings, and so on. No shared file fans values out across services.
-- **Production** — Add `builder.Configuration.AddAzureKeyVault(...)` in `backend/api/Program.cs` gated on `!IsDevelopment()`. Same code reads the values, source changes.
+OWASP-recommended SPA shape as of 2025: tokens stay server-side, the browser only ever holds an opaque session cookie.
 
-A local Vault container (HashiCorp Vault dev mode) was considered and deferred as YAGNI for the dev loop. The plumbing is set up such that adding it later is a configuration-source swap, not a code change.
+- **Browser** ↔ **Angular SSR / BFF**: HTTP-only session cookie, OIDC code-flow redirects via `/auth/login`, `/auth/callback`, `/auth/logout`, identity exposure via `/auth/me`. Sessions live in Redis (the same Redis the rest of the app uses). Token refresh happens server-side, transparent to the browser.
+- **BFF** ↔ **.NET API**: the `/api/*` proxy strips the cookie, attaches `Authorization: Bearer <access_token>` from the session, forwards. The API has no idea cookies exist — it's a pure JWT resource server.
+- **API** ↔ **ZITADEL**: standard `JwtBearer` validation against ZITADEL's JWKS, fetched from `.well-known/openid-configuration`. The `sub` claim is hashed (SHA-256 → first 16 bytes → Guid) into the application's `AuthorId` so the rest of the system stays Guid-keyed without knowing how the IdP shapes its IDs.
 
-### Why Temporal for the hello-world counter?
+#### How ZITADEL gets its OIDC app
 
-The hello endpoint deliberately runs through Temporal — `POST /api/hello { "by": N }` starts a workflow, the worker process picks it up, the activity increments the Redis counter, and the result flows back. The point is to prove the workflow boundary works end-to-end before any real domain logic exists.
+ZITADEL doesn't (yet) support project/app provisioning via its declarative `--steps` YAML. So the bootstrap is two-phase:
 
-Why a separate worker process and not run workflows inside the API:
+1. **`infra/zitadel/steps.yaml`** runs on first start of an empty zitadel database (`zitadel start-from-init --steps /steps.yaml`). Creates the default org, the human admin, and a `bootstrap` service-account whose PAT is written to a shared volume.
+2. **`zitadel-bootstrap`** (a one-shot init container) waits for ZITADEL to be healthy, reads the PAT, calls the management API to create-or-find the project + OIDC app, and writes `ZITADEL_ISSUER` / `ZITADEL_CLIENT_ID` / `ZITADEL_CLIENT_SECRET` to a second shared location. The api and web containers wait on this completing successfully and read the env file at startup (`DotEnvLoader` in C#, `dotenv` in the BFF).
+
+Both shared locations are bind-mounted host directories (`infra/zitadel/.secrets/`, `infra/zitadel/.app-secrets/`), which means the same provisioning is shared between the compose and Aspire run paths, and you can read the resulting credentials from the host. Reset by deleting both directories or running `docker compose down -v`.
+
+### Public vs internal URLs
+
+Inside docker, `localhost:8080` (the user-visible ZITADEL URL) doesn't resolve to the IdP — that's the api/web container's own perspective. Two URLs cover this:
+
+- **Public**: `http://localhost:8080` — what ends up in the JWT `iss` claim and what the browser redirects to. The .NET API validates token issuers against this string.
+- **Internal**: `http://zitadel:8080` — what the api uses to fetch JWKS, and what the BFF uses for code-exchange / userinfo / refresh calls.
+
+The BFF builds a custom OIDC `Issuer` object that splits these per-endpoint; the API's `JwtBearer` config sets `MetadataAddress` to internal and `ValidIssuer` to public.
+
+### Rate limiting
+
+ASP.NET Core's `RateLimiter` middleware on the write endpoints only — reads are cache-fronted and uncapped. The partition key is `user_id|ip` so an attacker can't sidestep by rotating IPs while logged in, or by logging in/out from one IP. 30 writes/minute per partition; rejected requests get `429`.
+
+### Cloudflare Turnstile
+
+The submit-review form gates on a Turnstile token, verified server-side by the API against `challenges.cloudflare.com/turnstile/v0/siteverify`. Dev uses Cloudflare's documented test keys (always-passes site key + always-accepts secret), so no real Cloudflare account is needed. Production swaps both via `Turnstile:SiteKey` / `Turnstile:SecretKey` config — nothing else changes.
+
+### Workflows
+
+The mutating flows from `docs/flows.md` map onto four Temporal workflows in `backend/shared/Workflows/`:
+
+| Workflow | Moderation gate | Activities |
+|---|---|---|
+| `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject` signal; 3 and 4 auto-persist | `PersistReview`, `RefreshFirstPageCache` |
+| `EditReviewWorkflow` | Edits to reviews >1h old wait for moderator signal | `LookupReview`, `ApplyReviewEdit`, `RefreshFirstPageCache` |
+| `DeleteReviewWorkflow` | Same 1h moderation cutoff | `LookupReview`, `SoftDeleteReview`, `RefreshFirstPageCache` |
+| `RateReviewWorkflow` | None — votes are uncontentious | `UpsertVote` (UPSERT + score recompute in one tx), `RefreshFirstPageCache` |
+
+There's no admin UI yet. Moderator approval happens by **opening the pending workflow in the Temporal UI** (<http://localhost:8233>) and sending a typed `Approve` or `Reject` signal. The workflow's `WaitConditionAsync` resumes from there — that's the whole moderation surface, deliberately kept thin so a real admin tool can replace it without changing the durable contract.
+
+The cache invariant is workflow-owned: the `RefreshFirstPageCache` activity blows away the page-1 Redis key after every mutation, and the next read repopulates from Postgres. Crash between persist and cache-refresh? Temporal retries the failed activity, not the whole flow.
+
+### Why a separate worker process
 
 - **Workers are the unit of horizontal scale for Temporal.** You scale workers (CPU-bound work) independently from the API (request-bound work).
-- **Workflow code redeploy semantics are different from API code.** Active workflows pin to the worker version that started them; rolling out a workflow change is a versioned operation. Coupling that to API deploys is painful.
-- **It also gives the demo a real "background process" to point at**, which matches what real Temporal deployments look like.
+- **Workflow code redeploy semantics differ from API code.** Active workflows pin to the worker version that started them; rolling out workflow changes is a versioned operation. Coupling that to API deploys is painful.
 
-The workflow type lives in `shared/`, referenced by both the API (which starts workflows) and the worker (which executes them). The activity implementation, with its Redis dependency, lives only in the worker.
+### Why Angular SSR, not CSR or static
 
-### Why Angular SSR, not CSR or static?
+This is a reviews platform — product and review pages need to be crawlable for SEO with full content rendered server-side, including structured data. CSR would tank organic discovery. The same Express server doubles as the BFF, so SSR pass and OIDC plumbing share one Node process.
 
-This is a reviews platform — product and review pages need to be crawlable for SEO with full content rendered server-side, including structured data (`schema.org/Review`). CSR would tank organic discovery. Long-term the plan is hybrid: SSR for product/review pages, prerender for marketing, CSR for the user dashboard.
+### Cache shape
 
-### Auth flow: BFF pattern (planned)
+Page-1 review listings (default sort=newest, no filters) get cached at `reviews:product:{id}:page:1` with a 1h TTL. The cached payload deliberately strips per-viewer fields (`MyVote`, `Mine`); on read, the API merges those in via a single PK lookup against `review_votes`. Other sorts/filters/pages go straight to Postgres — sort × filter × page would explode the cache cardinality, and the long tail isn't worth it.
 
-When ZITADEL is wired in, the Angular SSR Express server doubles as a Backend-For-Frontend:
+## Verifying the run
 
-- The browser holds an HTTP-only session cookie. **No tokens in JavaScript.**
-- The Express server runs the OIDC code flow against ZITADEL (`/auth/login`, `/auth/callback`, `/auth/logout`).
-- Tokens are kept server-side, keyed by session. Single-instance: in memory. Real deploys: Redis-backed (we already have Redis in the stack).
-- The existing `/api/*` proxy gets a middleware that reads the session and attaches `Authorization: Bearer …` to the upstream API call.
-- The .NET API treats those Bearer tokens as a standard OIDC resource server (JWT validation against ZITADEL's JWKS).
+After bringing the stack up:
 
-This is the OWASP-recommended pattern for SPAs in 2025 and lets the SSR pass also know who the user is on first render.
+1. Visit <http://localhost:4000>. The product list shows 10 items with star ratings.
+2. Click a product (e.g. Sony WH-1000XM5 → mostly 4-5 star, or Acme Smartwatch → mostly 1-2 star) to see its first page of reviews. The Sony page averages ~4.6; Acme ~1.8 — the seed mix is what makes the rating UI obviously do something.
+3. Click **Sign in** → ZITADEL login → enter `alice` / `Password1!` → redirected back signed in.
+4. **Write a review**. 3- or 4-star reviews appear immediately. 1-, 2-, or 5-star reviews are durably submitted but pending — open Temporal UI, find the `SubmitReview` workflow, click **Send Signal**, pick `Approve`, and the review lands.
+5. **Vote** on any review. The score updates within a tick (the workflow runs async and the cache invalidates on completion).
+6. **Edit your own review**. Edits within the first hour apply immediately. Edits after that wait for an `Approve` signal in Temporal UI — same mechanism as new-review moderation.
+7. **Delete your own review**. Same 1h policy.
 
-### Why ZITADEL over Keycloak / GoTrue / FusionAuth / SuperTokens?
+If you want to nuke and re-bootstrap auth (e.g. if you wiped Postgres but the local secrets are stale): `docker compose down -v && rm -rf infra/zitadel/.secrets infra/zitadel/.app-secrets`.
 
-- **ZITADEL** is modern, OIDC-spec-compliant, lightweight (Go, ~150MB image, ~5s startup), and supports the auth bits an MCP server with full OAuth 2.1 would need (Dynamic Client Registration, Resource Indicators).
-- **Keycloak** has a first-party Aspire integration but is Java (~600MB, ~30s startup).
-- **GoTrue** is anemic standalone (built for Supabase context).
-- **FusionAuth** is Java-weight without Keycloak's Aspire integration.
-- **SuperTokens** is more SDK-than-server-shaped.
+## End-to-end tests
 
-The ZITADEL container is seeded but not yet wired into the API or frontend. Auth is the next milestone.
+`npm run e2e` runs Playwright against the docker-compose stack.
 
-### Why Azurite for blob storage?
+The suite covers the four user flows from `docs/flows.md`:
 
-It's the Microsoft-official local emulator for Azure Storage. Aspire's storage integration has a one-line `RunAsEmulator()` toggle that runs the Azurite container locally; the same code talks to real Azure Blob in production with just a different connection string. If we'd picked S3 / MinIO instead, the same pattern would work, but Azurite pairs more naturally with the Aspire → Azure Container Apps deployment story.
+| Test | What it covers |
+|---|---|
+| `catalog.spec.ts` | Anonymous browse → product page renders SSR-rendered reviews + star averages |
+| `sign-in.spec.ts` | OIDC code+PKCE flow against ZITADEL → `/auth/me` returns the user → header shows display name |
+| `submit-flow.spec.ts` | Submit a 4-star review (auto-approved branch); upvote a review and watch the score recompute through the workflow + cache invalidate |
+| `moderation.spec.ts` | Submit a 5-star review (moderation branch), assert it isn't visible, then send the `Approve` signal to the workflow and watch it appear |
 
-### Deferred for later milestones
+`global-setup.ts` signs Alice into ZITADEL once (driving the v1 hosted login UI: username → password → skip the 2FA prompt) and saves the resulting BFF session cookie via Playwright's `storageState`. Tests that need an authed browser opt in with `test.use({ storageState: '.auth/storage-state.json' })`; the catalog test stays anonymous.
 
-- Wire ZITADEL into the API as an OIDC resource server, and into Angular as the OIDC client (with `/api/config` for SPA bootstrap config so we keep a single browser bundle across environments).
-- Domain model: products, reviews, ratings, moderation.
-- The MCP server, mounted on the API project (no separate host).
+### A note on signaling moderation workflows from tests
 
-## Verifying the kickoff
+Playwright *can* drive the Temporal UI — log in, find the workflow, click **Send Signal** — but it's brittle (the UI's DOM shifts between Temporal versions, and the action is asynchronous in ways that don't compose well with Playwright's auto-wait). The moderation spec uses the **`@temporalio/client` Node SDK** instead: the test grabs the workflow id from the API's 202 response, opens a Temporal client to `localhost:7233`, and calls `handle.signal('Approve', null)` directly. Same effect on the workflow, no UI version coupling.
 
-After running any of the three paths, visit the frontend URL, type an integer in the **Increment by** field, and click **Run workflow**. The page should show `Incremented via Temporal — count: N` with `N` increasing by your input on each click. That round-trip exercises Angular → SSR proxy → API → Temporal → Worker → Redis.
+## Deferred for later milestones
 
-You can watch the workflows execute in real time at the Temporal UI (<http://localhost:8233> in compose, or via the linked endpoint in the Aspire dashboard).
+- A real moderator surface (today: send a signal in the Temporal UI). Either an admin SPA, or — likely — an MCP server mounted on the API project so a Claude or another agent can fan out moderation actions.
+- Roles / permissions beyond "authenticated" (a "moderator" claim that gates a workflow's signal endpoints).
+- Reconciliation job for the denormalized `score` column (it's already self-healing on every vote, but a periodic full-reconcile is cheap insurance).
+- Direct-to-Azurite uploads for user review images (currently the seed uploads images; user submissions accept image URLs as text).

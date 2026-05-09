@@ -4,11 +4,13 @@ WORKDIR /src
 COPY ["worker/worker.csproj", "worker/"]
 COPY ["shared/shared.csproj", "shared/"]
 COPY ["service-defaults/service-defaults.csproj", "service-defaults/"]
+COPY ["infrastructure/infrastructure.csproj", "infrastructure/"]
 RUN dotnet restore "worker/worker.csproj"
 
 COPY worker/ worker/
 COPY shared/ shared/
 COPY service-defaults/ service-defaults/
+COPY infrastructure/ infrastructure/
 RUN dotnet publish "worker/worker.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

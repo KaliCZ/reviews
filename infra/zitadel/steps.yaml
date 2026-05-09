@@ -1,0 +1,40 @@
+# ZITADEL `start-from-init --steps` configuration. Runs only on first start
+# of an empty zitadel database; idempotent on subsequent boots (won't recreate
+# users that already exist).
+#
+# What this step file gets us:
+#   - A default org named "reviews"
+#   - A human admin (zitadel-admin) — you log into the console with this
+#   - A machine service account (`bootstrap`) with a never-expiring PAT
+#     written to the named volume at /zitadel-secrets/admin-pat.txt
+#
+# The PAT is consumed by the zitadel-bootstrap init container which
+# provisions the OIDC application via the management API. ZITADEL's --steps
+# does not yet support project/app provisioning declaratively (issue #8296),
+# which is why we need the second container.
+FirstInstance:
+  MachineKeyPath: /zitadel-secrets/machine-key.json
+  PatPath:        /zitadel-secrets/admin-pat.txt
+  InstanceName:   ZITADEL
+  DefaultLanguage: en
+  Org:
+    Name: reviews
+    Human:
+      UserName: zitadel-admin
+      FirstName: ZITADEL
+      LastName: Admin
+      Email:
+        Address: admin@localhost
+        Verified: true
+      Password: Password1!
+      # Default is true (forces a change on first login). Disabling so the
+      # admin password is usable straight away in dev — change in prod.
+      PasswordChangeRequired: false
+    Machine:
+      Machine:
+        Username: bootstrap
+        Name: bootstrap-sa
+      Pat:
+        # ~75 years out — a "never expires" sentinel for dev. Real deployments
+        # would rotate this through ZITADEL's API on a schedule.
+        ExpirationDate: "2099-01-01T00:00:00Z"

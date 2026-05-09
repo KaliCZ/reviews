@@ -56,8 +56,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Test
-        run: npm test -- --no-watch
+      # No Angular unit tests yet — the e2e job covers all product flows
+      # end-to-end against the real BFF + API + workers. Add a `Test` step
+      # here once `web/src/**/*.spec.ts` files exist.
 
   e2e:
     name: E2E
@@ -76,6 +77,17 @@ jobs:
       - name: Install Playwright browsers
         working-directory: e2e
         run: npx playwright install --with-deps chromium
+
+      # ZITADEL bind-mounts ./infra/zitadel/.secrets and writes admin-pat.txt
+      # there from inside the container (UID 1000). On the GH runner the dir
+      # doesn't exist on the host, so Docker auto-creates it as root, and
+      # ZITADEL's bootstrap migration fails with EACCES. Pre-creating the
+      # dirs with world-writable perms keeps both the zitadel and zitadel-
+      # bootstrap containers happy without us having to know their UIDs.
+      - name: Prepare zitadel bind-mount dirs
+        run: |
+          mkdir -p infra/zitadel/.secrets infra/zitadel/.app-secrets
+          chmod 0777 infra/zitadel/.secrets infra/zitadel/.app-secrets
 
       # Build and bring up the full compose stack; --wait blocks until every
       # service reports healthy. Playwright then runs against the running

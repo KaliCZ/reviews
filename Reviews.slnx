@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="backend/api/api.csproj" />
   <Project Path="backend/apphost/apphost.csproj" />
+  <Project Path="backend/infrastructure/infrastructure.csproj" />
   <Project Path="backend/service-defaults/service-defaults.csproj" />
   <Project Path="backend/shared/shared.csproj" />
   <Project Path="backend/worker/worker.csproj" />
