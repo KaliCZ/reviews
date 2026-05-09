@@ -1,6 +1,7 @@
 import type { Application, NextFunction, Request, Response } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import type { Client } from 'openid-client';
+import { logger } from './logger';
 
 // Side-effect import: pulls the req.session.tokenSet module augmentation.
 import './session';
@@ -30,7 +31,7 @@ export async function ensureFreshToken(req: Request, oidcClient: Client | null):
       req.session.save((err) => (err ? reject(err) : resolve())),
     );
   } catch (err) {
-    console.warn('[bff] token refresh failed; clearing session', err);
+    logger.warn({ err }, 'token refresh failed; clearing session');
     req.session.destroy(() => {});
   }
 }

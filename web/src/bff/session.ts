@@ -2,6 +2,7 @@ import RedisStore from 'connect-redis';
 import type { RequestHandler } from 'express';
 import session from 'express-session';
 import { createClient } from 'redis';
+import { logger } from './logger';
 
 declare module 'express-session' {
   interface SessionData {
@@ -28,7 +29,7 @@ export async function createSessionMiddleware(
         ? { tls: true, rejectUnauthorized: false }
         : undefined,
   });
-  redis.on('error', (err) => console.error('[bff] redis error', err));
+  redis.on('error', (err) => logger.error({ err }, 'redis error'));
   await redis.connect();
 
   return session({

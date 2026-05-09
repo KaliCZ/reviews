@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { registerApiProxy } from './bff/api-proxy';
 import { registerAuthRoutes } from './bff/auth-routes';
 import { loadConfig } from './bff/config';
+import { logger } from './bff/logger';
 import { createOidcClient } from './bff/oidc-client';
 import { createSessionMiddleware } from './bff/session';
 
@@ -57,7 +58,7 @@ if (isMainModule(import.meta.url) || process.env['pm_id']) {
   getApp().then((app) =>
     app.listen(config.port, (error) => {
       if (error) throw error;
-      console.log(`Reviews BFF listening on http://localhost:${config.port}`);
+      logger.info({ port: config.port }, 'Reviews BFF listening');
     }),
   );
 }
