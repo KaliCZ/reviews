@@ -138,31 +138,34 @@ public class ReviewActivities(
             .SingleOrDefaultAsync();
         if (slug is null) return new VoteResult(false, string.Empty);
 
-        // Fetch-or-create on the (review, voter) row. Safe to be the only
-        // writer per pair because the workflow id collapses concurrent same-
-        // user votes (UseExisting joins the in-flight execution).
-        var existing = await db.ReviewVotes
-            .SingleOrDefaultAsync(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId);
+        // Try to update the existing (review, voter) row in one statement;
+        // if no row matched, INSERT. Safe to be the only writer per pair
+        // because the workflow id collapses concurrent same-user votes
+        // (IdConflictPolicy.UseExisting joins the in-flight execution).
+        await using var tx = await db.Database.BeginTransactionAsync();
 
-        if (existing is null)
+        var updated = await db.ReviewVotes
+            .Where(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId)
+            .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, input.IsUpvote));
+
+        if (updated == 0)
         {
             db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
-        }
-        else
-        {
-            existing.Flip(input.IsUpvote);
+            await db.SaveChangesAsync();
         }
 
         // Recompute denormalized Review.Score from source-of-truth vote rows
-        // so it self-heals on every vote (any drift is corrected within a
-        // tick). Each vote contributes +1 (upvote) or -1 (downvote).
-        var review = await db.Reviews.SingleAsync(r => r.Id == input.ReviewId);
-        var score = await db.ReviewVotes
-            .Where(v => v.ReviewId == input.ReviewId)
-            .SumAsync(v => v.IsUpvote ? 1 : -1);
-        review.RecordScore(score);
+        // so it self-heals on every vote (any drift corrects within a tick).
+        // Single UPDATE … SET Score = (subquery) — no entity load.
+        await db.Reviews
+            .Where(r => r.Id == input.ReviewId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(r => r.Score, _ => db.ReviewVotes
+                    .Where(v => v.ReviewId == input.ReviewId)
+                    .Sum(v => v.IsUpvote ? 1 : -1))
+                .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow));
 
-        await db.SaveChangesAsync();
+        await tx.CommitAsync();
         logger.LogInformation(
             "Recorded vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
             input.IsUpvote, input.VoterId, input.ReviewId, slug);
