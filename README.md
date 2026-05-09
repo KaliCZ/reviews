@@ -2,25 +2,26 @@
 
 A product reviews platform: browse a catalog, read SSR-rendered product pages, sign in, then submit / edit / delete / vote on reviews.
 
-- Real OIDC auth via ZITADEL, surfaced to the SPA through the **BFF pattern** so tokens never reach the browser.
+- Real OIDC auth via ZITADEL, surfaced to the SPA through the **BFF pattern** — the browser only carries an opaque session cookie; access / id / refresh tokens stay server-side in Redis.
 - Mutating actions run through **durable Temporal workflows**, so async moderation (like approval process) is built in.
 - Reads are **cached in Redis** with workflow-driven invalidation — no TTL guesswork on hot pages.
 
-The user-facing flows — sign-in, browse, view, paginate, submit, edit, delete, vote, image upload — are described in [docs/flows.md](docs/flows.md).
+The four user flows the product is built around are described in [docs/flows.md](docs/flows.md).
 
 ## Stack
 
-- **API** — ASP.NET Core 10 (`backend/api/`), JWT-Bearer protected, rate-limited writes.
-- **Worker** — .NET worker host running Temporal workflows + activities (`backend/worker/`).
-- **Shared library** — workflow type definitions referenced by both API and worker (`backend/shared/`).
-- **Infrastructure library** — EF Core `DbContext`, migrations, and the seeder (`backend/infrastructure/`).
-- **Frontend** — Angular 21 with SSR + a Backend-For-Frontend layer in the same Express server (`web/`).
-- **Cache** — Redis (cached review first-pages + BFF session store).
-- **Database** — PostgreSQL (one server, separate databases for app, auth, and Temporal).
-- **Auth** — ZITADEL via the BFF pattern: tokens stay server-side, browser holds an HTTP-only session cookie.
-- **Blob storage** — Azurite locally for review images, real Azure Blob in production (Aspire's `RunAsEmulator` toggle).
-- **Workflow engine** — Temporal (server + UI), backed by the shared Postgres.
-- **Orchestration** — .NET Aspire (`backend/apphost/`) + Docker Compose.
+- **Backend** (`backend/`) — .NET 10
+  - **API** (`backend/api/`) — ASP.NET Core
+  - **Worker** (`backend/worker/`) — .NET worker host running Temporal workflows + activities
+  - **Infrastructure** (`backend/infrastructure/`) — EF Core (DbContext, migrations, seeder)
+  - **Apphost** (`backend/apphost/`) — .NET Aspire orchestration
+- **Frontend** (`web/`) — Angular 21 with SSR + a Backend-For-Frontend layer in the same Express server
+- **Database** — PostgreSQL
+- **Cache + sessions** — Redis
+- **Auth** — ZITADEL (OIDC)
+- **Workflow engine** — Temporal
+- **Blob storage** — Azurite locally, Azure Blob in production
+- **Orchestration** — .NET Aspire and Docker Compose (two run paths)
 
 ## Prerequisites
 
@@ -63,7 +64,7 @@ docker compose up --build
 
 Builds and runs everything containerized. Reviewer needs only Docker.
 
-After it boots:
+After it boots (all links available in aspire dashboard):
 - Frontend: <http://localhost:4000>
 - API: <http://localhost:8081>
 - ZITADEL Console: <http://localhost:8080> (admin login: `zitadel-admin@reviews.localhost` / `Password1!`)
@@ -219,4 +220,3 @@ Playwright *can* drive the Temporal UI — log in, find the workflow, click **Se
 - **TODO: denormalize review `count` and `average_rating` onto `Product`.** The catalog list and product detail compute these on the fly today (and the Redis cache hides the cost most of the time). The Temporal workflows already fan out on every review write, so the right place to maintain the denormalized columns is inside those activities — see [#5 (denormalized rating maintenance)](https://github.com/KaliCZ/reviews/issues/5) for the design notes.
 - **TODO: Postgres Row-Level Security as a second authorization layer.** Today, ownership checks for edit/delete/vote live in the API and workflow activities — `currentUser.User!.Id` compared against `Review.AuthorId` before mutating. That's correct but single-layer: a missed check in a future controller is a cross-author write. RLS policies on `reviews.reviews` (and `reviews.review_votes`) keyed off a per-request `SET LOCAL app.current_user_id = '<guid>'` would catch it at the database. Needs (a) a request-scoped EF interceptor that issues the `SET LOCAL` before any query in the transaction, (b) a separate non-RLS role for migrations/seeder/worker activities that legitimately operate cross-user, (c) policies written so anonymous reads (catalog, review listings) still work — likely `USING (true)` for SELECT and tighter `WITH CHECK` for INSERT/UPDATE/DELETE.
 - **TODO: per-review translation.** Reviews are submitted in whatever the author wrote, but no language metadata is stored and there's no translate UI. A real implementation needs (a) server-side language detection at submit time (e.g. CLD3 or a backend call), (b) inline translation on demand — Chrome's `Translator` API where available, with a backend translation service (caching by `(review_id, target_lang)`) as the fallback.
-- **TODO: comment threads on reviews.** Today reviews are isolated: you can vote on one but not respond to it. The natural extension is a flat (or shallow-nested) comment thread per review — useful for an author clarifying a complaint, the brand owner replying with context, or other shoppers asking follow-ups. Schema-wise that's a `review_comments` table keyed `(review_id, comment_id)` with author + body + timestamps; the moderation gate could mirror the review submit flow (heuristic-tagged buckets through Temporal), and the cache surface needs a new key family or a comment-count denormalisation on `reviews`.
