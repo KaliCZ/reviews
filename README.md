@@ -161,12 +161,9 @@ Sorts, filters, and pages past 1 go straight to Postgres — caching their cross
 
 ## Deferred for later milestones
 
-- **Moderator surface.** Today moderators sign workflows in the Temporal UI. Either an admin SPA or an MCP server on the API so an agent can fan out moderation actions.
-- **Roles beyond "authenticated"** — a `moderator` claim that gates the signal endpoints.
-- **Reconcile the denormalized `score`** on a schedule. It's self-healing on every vote, but a periodic sweep is cheap insurance.
-- **Direct uploads of user review images.** Today only the seed uploads images; user submissions take image URLs as text.
-- **CDN in front of `/api/images`** (CloudFront / Cloudflare / Azure Front Door). Stored URLs become CDN URLs with no DB-side change; the controller stays as a private-asset fallback.
-- **Denormalize `count` + `average_rating` onto `Product`.** Computed on the fly today; the Temporal workflows already fan out on every review write, so the activities are the right place to maintain the columns. Design notes in [#5](https://github.com/KaliCZ/reviews/issues/5).
-- **Postgres Row-Level Security as a second authorization layer.** Ownership checks live in the API + activities today; that's correct but single-layer. RLS policies keyed off a per-request `SET LOCAL app.current_user_id` would catch a missed check at the DB. Needs an EF interceptor for the `SET LOCAL`, a non-RLS role for migrations/seeder/worker, and policies that still permit anonymous catalog/listing reads.
-- **Per-review translation.** No language metadata is stored today. A real implementation needs server-side language detection at submit time and inline translation on demand (Chrome's `Translator` API where available, a backend service as fallback, cached by `(review_id, target_lang)`).
-- **Comment threads on reviews.** Today reviews are isolated — vote-only. A flat thread per review (author clarifications, brand-owner replies, shopper follow-ups) is the natural extension. Schema: `review_comments` keyed `(review_id, comment_id)`; moderation can mirror the review submit flow.
+- **Moderator surface + roles.** Today moderators sign workflows in the Temporal UI. Either an admin SPA or an MCP server on the API so an agent can fan out moderation actions, gated by a `moderator` claim.
+- **Serve review images via a CDN**, bypassing the API.
+- **Snapshot average rating and review count onto `Product`** (computed on the fly today). Design notes in [#5](https://github.com/KaliCZ/reviews/issues/5).
+- **Postgres Row-Level Security** as a second authorization layer.
+- **Per-review translation** — language detection at submit time, translation on demand.
+- **Comment threads on reviews.** Author clarifications, brand-owner replies, shopper follow-ups.
