@@ -72,11 +72,21 @@ After it boots (all links available in aspire dashboard):
 
 ### Registering your own user
 
-If you self-register through the sign-in flow, ZITADEL sends a verification code to the user's email. There's no SMTP wired up locally, so the email goes nowhere — to unblock yourself, mark the email verified manually:
+If you self-register through the sign-in flow, ZITADEL sends a verification code to the user's email. There's no SMTP wired up locally, so the email goes nowhere and the user stays stuck in `USER_STATE_INITIAL`. Two ways to unblock yourself:
 
-1. Open the [ZITADEL Console](http://localhost:8080) and sign in as `zitadel-admin@reviews.localhost` / `Password1!`.
-2. Switch to the `reviews` org (top-left org dropdown).
-3. **Users** → click the user → on their profile, hit **Verify email**.
+**A) Quick API call (recommended).** The bootstrap container leaves a service-account PAT at `infra/zitadel/.secrets/admin-pat.txt`. Find your user's id and verify the email:
+
+```bash
+PAT=$(cat infra/zitadel/.secrets/admin-pat.txt)
+# find the user
+curl -sS -X POST http://localhost:8080/management/v1/users/_search \
+  -H "Authorization: Bearer $PAT" -H "Host: localhost:8080" -H "Content-Type: application/json" -d '{}'
+# verify (paste the id from above)
+curl -sS -X POST http://localhost:8080/management/v1/users/<USER_ID>/_verify_email \
+  -H "Authorization: Bearer $PAT" -H "Host: localhost:8080" -H "Content-Type: application/json" -d '{}'
+```
+
+**B) ZITADEL Console.** Open <http://localhost:8080> and sign in as `zitadel-admin@reviews.localhost` / `Password1!` (note: the full string including `@reviews.localhost` goes in the username field — it's a Zitadel loginname, not an email). Switch to the `reviews` org (top-left dropdown), open the user from **Users**, then click the verify icon **next to the email field** on their profile. The top-level "Activate user" button is for re-activating deactivated users, not for email verification.
 
 After that the OIDC login flow works. For background on how the admin user and OIDC app get there in the first place, see [Bootstrapping ZITADEL](#bootstrapping-zitadel).
 
