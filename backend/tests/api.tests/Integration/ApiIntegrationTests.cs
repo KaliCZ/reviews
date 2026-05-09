@@ -297,6 +297,50 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             $"UpdatedAtUtc ({edited.UpdatedAtUtc:O}) should be at or after CreatedAtUtc ({originalCreatedAt:O})");
     }
 
+    // -- Denormalized Product.ReviewCount / AverageRating (issue #5) ----
+
+    [Fact]
+    public async Task Submit_then_approve_recomputes_product_aggregates()
+    {
+        // Product 6 (iPad Air) has 4 seeded reviews with ratings {5, 4, 5, 4}.
+        const long productId = 6;
+
+        long beforeCount;
+        double beforeAvg;
+        await using (var db = fx.CreateDbContext())
+        {
+            var p = await db.Products.AsNoTracking()
+                .Where(x => x.Id == productId)
+                .Select(x => new { x.ReviewCount, x.AverageRating })
+                .SingleAsync();
+            beforeCount = p.ReviewCount;
+            beforeAvg = p.AverageRating;
+        }
+        Assert.Equal(4, beforeCount);
+        Assert.True(beforeAvg > 0);
+
+        // 4-star auto-approves (no moderator signal needed).
+        var (body, _, _) = MakeSubmitPayload(productId, rating: 4);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+        var workflowId = JsonDocument.Parse(await submit.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
+
+        await using var dbCheck = fx.CreateDbContext();
+        var after = await dbCheck.Products.AsNoTracking()
+            .Where(x => x.Id == productId)
+            .Select(x => new { x.ReviewCount, x.AverageRating })
+            .SingleAsync();
+        Assert.Equal(beforeCount + 1, after.ReviewCount);
+
+        // Truth check via SQL aggregation against the source-of-truth rows.
+        var truthAvg = await dbCheck.Reviews.AsNoTracking()
+            .Where(r => r.ProductId == productId && r.Status == ReviewStatus.Approved)
+            .AverageAsync(r => (double)(short)r.Rating);
+        Assert.Equal(truthAvg, after.AverageRating, precision: 6);
+    }
+
     // -- POST /api/reviews — negative validation case --------------------
 
     [Fact]

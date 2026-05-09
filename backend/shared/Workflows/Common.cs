@@ -14,6 +14,7 @@ public static class ReviewActivityNames
     public const string ApplyReviewEdit = "ApplyReviewEdit";
     public const string SoftDeleteReview = "SoftDeleteReview";
     public const string RecordVote = "RecordVote";
+    public const string RecomputeProductRating = "RecomputeProductRating";
     public const string InvalidateProductCaches = "InvalidateProductCaches";
 }
 
