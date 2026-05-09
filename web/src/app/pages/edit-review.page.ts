@@ -22,11 +22,17 @@ import { Limits, ReviewItem } from '../models';
           <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
         </label>
         <label
-          >Title (optional, up to {{ Limits.titleMax }} characters)
-          <input type="text" [(ngModel)]="title" name="title" [maxlength]="Limits.titleMax" />
+          >Title (optional)
+          <input
+            type="text"
+            [(ngModel)]="title"
+            name="title"
+            [maxlength]="Limits.titleMax"
+            [placeholder]="'Up to ' + Limits.titleMax + ' characters'"
+          />
         </label>
         <label
-          >Review ({{ Limits.bodyMin }}–{{ Limits.bodyMax }} characters)
+          >Review
           <textarea
             [(ngModel)]="body"
             name="body"
