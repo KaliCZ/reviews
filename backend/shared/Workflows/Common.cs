@@ -11,6 +11,8 @@ public static class ReviewQueues
 public static class ReviewActivityNames
 {
     public const string PersistReview = "PersistReview";
+    public const string ApproveReview = "ApproveReview";
+    public const string RejectReview = "RejectReview";
     public const string LookupReview = "LookupReview";
     public const string ApplyReviewEdit = "ApplyReviewEdit";
     public const string SoftDeleteReview = "SoftDeleteReview";

@@ -13,13 +13,17 @@ public record SubmitReviewInput(
     IReadOnlyList<string> ImageUrls);
 
 // Submit-review flow per docs/flows.md §3:
-//   - 3- and 4-star reviews persist immediately.
+//   - Every review persists immediately as Pending (the entity ctor's default).
+//   - 3- and 4-star reviews flip to Approved right after the persist step,
+//     synchronously inside the same workflow run.
 //   - 1-, 2-, and 5-star reviews wait for an Approve/Reject signal from a
-//     moderator. Today the moderator sends that signal manually from the
-//     Temporal UI; later it'll be a moderation tool / MCP surface.
-// The workflow is the durability boundary: persist + first-page-cache refresh
-// run as separate retried activities, so a crash mid-write can't leave the
-// cache and DB out of sync.
+//     moderator (no timeout — moderation may take days). On Approve they flip
+//     to Approved; on Reject they flip to Rejected (the row stays in the DB
+//     as the audit trail).
+//
+// The workflow is the durability boundary: persist + status flip + first-page
+// cache refresh run as separate retried activities, so a crash mid-write can't
+// leave the cache and DB out of sync.
 [Workflow]
 public class SubmitReviewWorkflow
 {
@@ -45,23 +49,34 @@ public class SubmitReviewWorkflow
     [WorkflowRun]
     public async Task<string> RunAsync(SubmitReviewInput input)
     {
-        var needsModeration = input.Rating is 1 or 2 or 5;
-
-        if (needsModeration)
-        {
-            // No timeout — the docs are explicit that human moderation may
-            // take days. Temporal's durable timers + signal-and-resume are the
-            // whole reason this lives in a workflow rather than a job queue.
-            await Workflow.WaitConditionAsync(() => decision is not null);
-            // On reject, we don't write anything — the review never reached the
-            // database, and the workflow's own history is the audit trail.
-            if (decision!.Approved is false) return "rejected";
-        }
-
+        // Persist as Pending — the only path that creates Review rows. Done
+        // first so the moderator UI (which reads from the DB) can surface the
+        // pending row while the workflow waits for a signal.
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.PersistReview,
             new object[] { input },
             new() { StartToCloseTimeout = TimeSpan.FromSeconds(15) });
+
+        var needsModeration = input.Rating is 1 or 2 or 5;
+        if (needsModeration)
+        {
+            await Workflow.WaitConditionAsync(() => decision is not null);
+            if (decision!.Approved is false)
+            {
+                await Workflow.ExecuteActivityAsync(
+                    ReviewActivityNames.RejectReview,
+                    new object[] { input.ReviewId },
+                    new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
+                // No cache refresh on reject — Rejected rows aren't visible
+                // anyway (the listing index is partial on Status = Approved).
+                return "rejected";
+            }
+        }
+
+        await Workflow.ExecuteActivityAsync(
+            ReviewActivityNames.ApproveReview,
+            new object[] { input.ReviewId },
+            new() { StartToCloseTimeout = TimeSpan.FromSeconds(10) });
 
         await Workflow.ExecuteActivityAsync(
             ReviewActivityNames.RefreshFirstPageCache,

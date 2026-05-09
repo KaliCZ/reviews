@@ -45,7 +45,7 @@ namespace Reviews.Infrastructure.Migrations
                     Title = table.Column<string>(type: "text", nullable: true),
                     Body = table.Column<string>(type: "text", nullable: false),
                     ImageUrls = table.Column<List<string>>(type: "text[]", nullable: false),
-                    Status = table.Column<string>(type: "text", nullable: false, defaultValue: "Approved"),
+                    Status = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     Score = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()"),
                     UpdatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()")
@@ -54,6 +54,7 @@ namespace Reviews.Infrastructure.Migrations
                 {
                     table.PrimaryKey("PK_reviews", x => x.Id);
                     table.CheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5");
+                    table.CheckConstraint("ck_reviews_status", "\"Status\" BETWEEN 0 AND 3");
                     table.ForeignKey(
                         name: "FK_reviews_products_ProductId",
                         column: x => x.ProductId,
@@ -99,7 +100,7 @@ namespace Reviews.Infrastructure.Migrations
                 table: "reviews",
                 columns: new[] { "ProductId", "Score", "Id" },
                 descending: new[] { false, true, true },
-                filter: "\"Status\" = 'Approved'");
+                filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(
                 name: "idx_reviews_newest",
@@ -107,7 +108,7 @@ namespace Reviews.Infrastructure.Migrations
                 table: "reviews",
                 columns: new[] { "ProductId", "CreatedAt", "Id" },
                 descending: new[] { false, true, true },
-                filter: "\"Status\" = 'Approved'");
+                filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(
                 name: "idx_reviews_rating",
@@ -115,7 +116,7 @@ namespace Reviews.Infrastructure.Migrations
                 table: "reviews",
                 columns: new[] { "ProductId", "Rating", "CreatedAt", "Id" },
                 descending: new[] { false, true, true, true },
-                filter: "\"Status\" = 'Approved'");
+                filter: "\"Status\" = 1");
 
             migrationBuilder.CreateIndex(
                 name: "uq_reviews_product_author",
@@ -123,7 +124,7 @@ namespace Reviews.Infrastructure.Migrations
                 table: "reviews",
                 columns: new[] { "ProductId", "AuthorId" },
                 unique: true,
-                filter: "\"Status\" <> 'Deleted'");
+                filter: "\"Status\" <> 3");
         }
 
         /// <inheritdoc />

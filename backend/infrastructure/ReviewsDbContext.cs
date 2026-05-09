@@ -42,11 +42,21 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             // PascalCase identifiers so Postgres treats them case-sensitively
             // the way EF Core stores them.
             e.ToTable(t => t.HasCheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5"));
-            // Status persists as text — readable in psql, no surprise int values
-            // when looking at the table directly.
+
+            // Status is persisted as integer (the default for enums in EF Core
+            // — explicit member values are pinned in ReviewStatus.cs). Pending
+            // is both the CLR default *and* the DB default; HasSentinel(Pending)
+            // tells EF that "the property is at the CLR default" means "let the
+            // DB default kick in" rather than "I forgot to set it" — silences
+            // the no-sentinel warning. CHECK guards against bogus int values
+            // sneaking in via raw SQL.
             e.Property(r => r.Status)
-                .HasConversion<string>()
-                .HasDefaultValue(ReviewStatus.Approved);
+                .HasDefaultValue(ReviewStatus.Pending)
+                .HasSentinel(ReviewStatus.Pending);
+            e.ToTable(t => t.HasCheckConstraint(
+                "ck_reviews_status",
+                $"\"Status\" BETWEEN {(int)ReviewStatus.Pending} AND {(int)ReviewStatus.Deleted}"));
+
             e.Property(r => r.Score).HasDefaultValue(0);
             e.Property(r => r.CreatedAt).HasDefaultValueSql("NOW()");
             e.Property(r => r.UpdatedAt).HasDefaultValueSql("NOW()");
@@ -58,25 +68,29 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
 
             // One live review per (product, author). The partial index ignores
             // soft-deleted rows so a user who deletes their review can re-post.
+            // Status filter compares against the integer encoding of Deleted (3)
+            // rather than the prior text 'Deleted' literal.
             e.HasIndex(r => new { r.ProductId, r.AuthorId })
                 .IsUnique()
-                .HasFilter("\"Status\" <> 'Deleted'")
+                .HasFilter($"\"Status\" <> {(int)ReviewStatus.Deleted}")
                 .HasDatabaseName("uq_reviews_product_author");
 
             // Sort indexes for keyset pagination. Each carries the (id)
             // tiebreaker so pagination is fully deterministic. Filtered to
-            // Approved so they stay tight (no pending/rejected/deleted noise).
+            // Approved (int 1) so they stay tight (no pending/rejected/deleted
+            // noise).
+            var approvedFilter = $"\"Status\" = {(int)ReviewStatus.Approved}";
             e.HasIndex(r => new { r.ProductId, r.CreatedAt, r.Id })
                 .HasDatabaseName("idx_reviews_newest")
-                .HasFilter("\"Status\" = 'Approved'")
+                .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
             e.HasIndex(r => new { r.ProductId, r.Score, r.Id })
                 .HasDatabaseName("idx_reviews_helpful")
-                .HasFilter("\"Status\" = 'Approved'")
+                .HasFilter(approvedFilter)
                 .IsDescending(false, true, true);
             e.HasIndex(r => new { r.ProductId, r.Rating, r.CreatedAt, r.Id })
                 .HasDatabaseName("idx_reviews_rating")
-                .HasFilter("\"Status\" = 'Approved'")
+                .HasFilter(approvedFilter)
                 .IsDescending(false, true, true, true);
         });
 

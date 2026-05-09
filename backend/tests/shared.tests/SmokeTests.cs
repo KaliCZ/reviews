@@ -26,6 +26,8 @@ public class SmokeTests
         var names = new[]
         {
             ReviewActivityNames.PersistReview,
+            ReviewActivityNames.ApproveReview,
+            ReviewActivityNames.RejectReview,
             ReviewActivityNames.LookupReview,
             ReviewActivityNames.ApplyReviewEdit,
             ReviewActivityNames.SoftDeleteReview,

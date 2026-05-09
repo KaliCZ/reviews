@@ -24,25 +24,33 @@ internal static class SeedDefinitions
 
     public static IEnumerable<Product> Products() =>
     [
-        new() { Id = 1,  Slug = "sony-wh-1000xm5",        Name = "Sony WH-1000XM5 Wireless Headphones", Description = "Flagship over-ear ANC headphones with industry-leading noise cancellation and 30-hour battery life.", ImageUrl = ProductImage("sony-wh") },
-        new() { Id = 2,  Slug = "usb-c-cable-pack",       Name = "USB-C Cable 3-Pack (1m)",             Description = "Three braided USB-C to USB-C cables, 60W PD, 480Mbps data.",                                       ImageUrl = ProductImage("usbc-cable") },
-        new() { Id = 3,  Slug = "acme-smartwatch",        Name = "Acme Pro Smartwatch",                 Description = "Fitness tracking, heart-rate monitoring, GPS, and a 1.4-inch AMOLED display.",                     ImageUrl = ProductImage("acme-watch") },
-        new() { Id = 4,  Slug = "logi-mx-master-3s",      Name = "Logitech MX Master 3S",               Description = "Ultra-quiet clicks, 8K-DPI sensor, MagSpeed scroll wheel, multi-device pairing.",                  ImageUrl = ProductImage("logi-mx") },
-        new() { Id = 5,  Slug = "boombox-mini",           Name = "BoomBox Mini Bluetooth Speaker",      Description = "Compact portable speaker with 6-hour battery and IPX5 splash resistance.",                        ImageUrl = ProductImage("boombox") },
-        new() { Id = 6,  Slug = "ipad-air-11",            Name = "iPad Air 11\" (M3, 256GB)",           Description = "M3 chip, Liquid Retina display, Apple Pencil Pro support.",                                       ImageUrl = ProductImage("ipad-air") },
-        new() { Id = 7,  Slug = "xyz-mechanical-keyboard", Name = "XYZ Mechanical Keyboard (Brown switches)", Description = "Hot-swappable 75% layout, PBT keycaps, USB-C and Bluetooth.",                              ImageUrl = ProductImage("mechkeyb") },
-        new() { Id = 8,  Slug = "travelpro-tripod",       Name = "TravelPro Phone Tripod",              Description = "Aluminum tripod with phone mount and Bluetooth shutter remote.",                                  ImageUrl = ProductImage("tripod") },
-        new() { Id = 9,  Slug = "single-origin-coffee",   Name = "Highland Single-Origin Coffee 1kg",   Description = "Whole-bean Ethiopia Yirgacheffe, light roast, brewed within 14 days of roasting.",                ImageUrl = ProductImage("coffee") },
-        new() { Id = 10, Slug = "powerjuice-10000",       Name = "PowerJuice 10000 Mini Power Bank",    Description = "10,000mAh USB-C PD power bank with passthrough charging.",                                        ImageUrl = ProductImage("powerbank") },
+        new(1,  "sony-wh-1000xm5",         "Sony WH-1000XM5 Wireless Headphones", "Flagship over-ear ANC headphones with industry-leading noise cancellation and 30-hour battery life.", ProductImage("sony-wh")),
+        new(2,  "usb-c-cable-pack",        "USB-C Cable 3-Pack (1m)",             "Three braided USB-C to USB-C cables, 60W PD, 480Mbps data.",                                       ProductImage("usbc-cable")),
+        new(3,  "acme-smartwatch",         "Acme Pro Smartwatch",                 "Fitness tracking, heart-rate monitoring, GPS, and a 1.4-inch AMOLED display.",                     ProductImage("acme-watch")),
+        new(4,  "logi-mx-master-3s",       "Logitech MX Master 3S",               "Ultra-quiet clicks, 8K-DPI sensor, MagSpeed scroll wheel, multi-device pairing.",                  ProductImage("logi-mx")),
+        new(5,  "boombox-mini",            "BoomBox Mini Bluetooth Speaker",      "Compact portable speaker with 6-hour battery and IPX5 splash resistance.",                         ProductImage("boombox")),
+        new(6,  "ipad-air-11",             "iPad Air 11\" (M3, 256GB)",           "M3 chip, Liquid Retina display, Apple Pencil Pro support.",                                        ProductImage("ipad-air")),
+        new(7,  "xyz-mechanical-keyboard", "XYZ Mechanical Keyboard (Brown switches)", "Hot-swappable 75% layout, PBT keycaps, USB-C and Bluetooth.",                                 ProductImage("mechkeyb")),
+        new(8,  "travelpro-tripod",        "TravelPro Phone Tripod",              "Aluminum tripod with phone mount and Bluetooth shutter remote.",                                   ProductImage("tripod")),
+        new(9,  "single-origin-coffee",    "Highland Single-Origin Coffee 1kg",   "Whole-bean Ethiopia Yirgacheffe, light roast, brewed within 14 days of roasting.",                 ProductImage("coffee")),
+        new(10, "powerjuice-10000",        "PowerJuice 10000 Mini Power Bank",    "10,000mAh USB-C PD power bank with passthrough charging.",                                         ProductImage("powerbank")),
     ];
 
-    // (Review, picsum-seeds-to-upload-as-image_urls). The seeder dereferences
-    // the seeds into Azurite blob URLs at runtime. Reviews with no seeds get
-    // an empty image_urls list. Created-at offsets give the list a natural
-    // order under sort=newest.
-    public record SeedReview(Review Review, string[] ImageSeeds);
+    // Raw seed data; the Seeder turns image-seed strings into Azurite blob
+    // URLs and constructs the entity via Review.CreateSeed. CreatedAt offsets
+    // give the list a natural order under sort=newest.
+    public record SeedReviewData(
+        long ProductId,
+        Guid AuthorId,
+        string AuthorName,
+        short Rating,
+        string Title,
+        string Body,
+        int Score,
+        DateTime CreatedAt,
+        IReadOnlyList<string> ImageSeeds);
 
-    public static IEnumerable<SeedReview> Reviews()
+    public static IEnumerable<SeedReviewData> Reviews()
     {
         var now = DateTime.UtcNow;
         DateTime daysAgo(int n) => now.AddDays(-n);
@@ -110,22 +118,10 @@ internal static class SeedDefinitions
         yield return New(10, Bob,   "Bob",   2, "Got hot",                     "Got uncomfortably hot mid-charge a couple of times. Stopped using it.",                                                 daysAgo(5),  score:  5);
     }
 
-    private static SeedReview New(
+    private static SeedReviewData New(
         long productId, Guid authorId, string authorName, short rating,
         string title, string body, DateTime createdAt, int score, params string[] imageSeeds) =>
-        new(new Review
-        {
-            ProductId = productId,
-            AuthorId = authorId,
-            AuthorName = authorName,
-            Rating = rating,
-            Title = title,
-            Body = body,
-            Score = score,
-            Status = ReviewStatus.Approved,
-            CreatedAt = createdAt,
-            UpdatedAt = createdAt,
-        }, imageSeeds);
+        new(productId, authorId, authorName, rating, title, body, score, createdAt, imageSeeds);
 
     private static string ProductImage(string seed) => $"/api/images/seed/{seed}.jpg";
 }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
+using Reviews.Infrastructure.Entities;
 
 namespace Reviews.Infrastructure.Seeding;
 
@@ -72,8 +73,23 @@ public static class Seeder
             await db.Products.AddRangeAsync(SeedDefinitions.Products(), ct);
             foreach (var sr in seedReviews)
             {
-                sr.Review.ImageUrls = sr.ImageSeeds.Select(BuildPublicUrl).ToList();
-                db.Reviews.Add(sr.Review);
+                // Seeded rows represent already-moderated demo data — go in
+                // pre-Approved with backdated timestamps. The Review.CreateSeed
+                // factory is the only path that bypasses the public ctor's
+                // "starts as Pending" invariant; restricted to this assembly.
+                var imageUrls = sr.ImageSeeds.Select(BuildPublicUrl).ToList();
+                var review = Review.CreateSeed(
+                    productId:  sr.ProductId,
+                    authorId:   sr.AuthorId,
+                    authorName: sr.AuthorName,
+                    rating:     sr.Rating,
+                    title:      sr.Title,
+                    body:       sr.Body,
+                    imageUrls:  imageUrls,
+                    score:      sr.Score,
+                    status:     ReviewStatus.Approved,
+                    createdAt:  sr.CreatedAt);
+                db.Reviews.Add(review);
             }
             await db.SaveChangesAsync(ct);
             log.LogInformation("Seeded {Products} products and {Reviews} reviews",

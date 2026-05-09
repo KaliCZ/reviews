@@ -26,20 +26,50 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.PersistReview)]
     public async Task PersistAsync(SubmitReviewInput input)
     {
-        db.Reviews.Add(new Review
-        {
-            Id = input.ReviewId,
-            ProductId = input.ProductId,
-            AuthorId = input.AuthorId,
-            AuthorName = input.AuthorName,
-            Rating = input.Rating,
-            Title = input.Title,
-            Body = input.Body,
-            ImageUrls = input.ImageUrls.ToList(),
-            Status = ReviewStatus.Approved,
-        });
+        // Constructor enforces the rating/body invariants; status defaults to
+        // Pending. The Approve activity flips it later in the workflow.
+        var review = new Review(
+            id:         input.ReviewId,
+            productId:  input.ProductId,
+            authorId:   input.AuthorId,
+            authorName: input.AuthorName,
+            rating:     input.Rating,
+            title:      input.Title,
+            body:       input.Body,
+            imageUrls:  input.ImageUrls);
+        db.Reviews.Add(review);
         await db.SaveChangesAsync();
-        logger.LogInformation("Persisted review {ReviewId} for product {ProductId}", input.ReviewId, input.ProductId);
+        logger.LogInformation(
+            "Persisted review {ReviewId} (Pending) for product {ProductId}",
+            input.ReviewId, input.ProductId);
+    }
+
+    [Activity(ReviewActivityNames.ApproveReview)]
+    public async Task ApproveAsync(Guid reviewId)
+    {
+        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        if (review is null)
+        {
+            logger.LogWarning("Approve: review {ReviewId} not found", reviewId);
+            return;
+        }
+        review.Approve();
+        await db.SaveChangesAsync();
+        logger.LogInformation("Approved review {ReviewId}", reviewId);
+    }
+
+    [Activity(ReviewActivityNames.RejectReview)]
+    public async Task RejectAsync(Guid reviewId)
+    {
+        var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
+        if (review is null)
+        {
+            logger.LogWarning("Reject: review {ReviewId} not found", reviewId);
+            return;
+        }
+        review.Reject();
+        await db.SaveChangesAsync();
+        logger.LogInformation("Rejected review {ReviewId}", reviewId);
     }
 
     [Activity(ReviewActivityNames.LookupReview)]
@@ -71,11 +101,7 @@ public class ReviewActivities(
             return;
         }
 
-        review.Rating = input.Rating;
-        review.Title = input.Title;
-        review.Body = input.Body;
-        review.ImageUrls = input.ImageUrls.ToList();
-        review.UpdatedAt = DateTime.UtcNow;
+        review.ApplyEdit(input.Rating, input.Title, input.Body, input.ImageUrls);
         await db.SaveChangesAsync();
         logger.LogInformation("Applied edit to review {ReviewId}", input.ReviewId);
     }
@@ -85,8 +111,7 @@ public class ReviewActivities(
     {
         var review = await db.Reviews.FirstOrDefaultAsync(r => r.Id == reviewId);
         if (review is null) return;
-        review.Status = ReviewStatus.Deleted;
-        review.UpdatedAt = DateTime.UtcNow;
+        review.SoftDelete();
         await db.SaveChangesAsync();
         logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
     }
@@ -95,8 +120,8 @@ public class ReviewActivities(
     public async Task<long?> UpsertVoteAsync(VoteInput input)
     {
         // Resolve product_id and confirm the review is live in the same shot.
-        // Pinning to Approved means votes can't accrue on deleted/rejected
-        // reviews even if a stale client tried.
+        // Pinning to Approved means votes can't accrue on deleted/rejected/
+        // pending reviews even if a stale client tried.
         var productId = await db.Reviews
             .AsNoTracking()
             .Where(r => r.Id == input.ReviewId && r.Status == ReviewStatus.Approved)

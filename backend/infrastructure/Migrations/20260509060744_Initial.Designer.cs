@@ -13,7 +13,7 @@ using Reviews.Infrastructure;
 namespace Reviews.Infrastructure.Migrations
 {
     [DbContext(typeof(ReviewsDbContext))]
-    [Migration("20260508183815_Initial")]
+    [Migration("20260509060744_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -98,11 +98,10 @@ namespace Reviews.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<string>("Status")
-                        .IsRequired()
+                    b.Property<int>("Status")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("Approved");
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Title")
                         .HasColumnType("text");
@@ -117,26 +116,28 @@ namespace Reviews.Infrastructure.Migrations
                     b.HasIndex("ProductId", "AuthorId")
                         .IsUnique()
                         .HasDatabaseName("uq_reviews_product_author")
-                        .HasFilter("\"Status\" <> 'Deleted'");
+                        .HasFilter("\"Status\" <> 3");
 
                     b.HasIndex("ProductId", "CreatedAt", "Id")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("idx_reviews_newest")
-                        .HasFilter("\"Status\" = 'Approved'");
+                        .HasFilter("\"Status\" = 1");
 
                     b.HasIndex("ProductId", "Score", "Id")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("idx_reviews_helpful")
-                        .HasFilter("\"Status\" = 'Approved'");
+                        .HasFilter("\"Status\" = 1");
 
                     b.HasIndex("ProductId", "Rating", "CreatedAt", "Id")
                         .IsDescending(false, true, true, true)
                         .HasDatabaseName("idx_reviews_rating")
-                        .HasFilter("\"Status\" = 'Approved'");
+                        .HasFilter("\"Status\" = 1");
 
                     b.ToTable("reviews", "reviews", t =>
                         {
                             t.HasCheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5");
+
+                            t.HasCheckConstraint("ck_reviews_status", "\"Status\" BETWEEN 0 AND 3");
                         });
                 });
 
