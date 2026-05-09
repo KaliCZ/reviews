@@ -1,51 +1,20 @@
-// Mirror the API DTOs in backend/api/Models/Dtos.cs. Keep the shapes in
-// sync; if the API changes, tests catch the type errors first.
+// Wire DTOs come from `web/src/api`, which is generated from the API's
+// OpenAPI spec by `npm run generate:client`. This file just re-exports the
+// types the components consume so callers don't need to know the codegen
+// path.
 
-export interface ProductSummary {
-  id: number;
-  slug: string;
-  name: string;
-  imageUrl: string | null;
-  averageRating: number;
-  reviewCount: number;
-}
+export type {
+  ProductSummary,
+  ProductDetail,
+  ReviewItem,
+  ReviewsPage,
+  SubmitReviewRequest,
+  EditReviewRequest,
+  VoteRequest,
+  AcceptedResponse,
+  ConfigResponse,
+  UploadedImage,
+  AuthMe,
+} from '../api';
 
-export interface ProductDetail extends ProductSummary {
-  description: string;
-  myReviewId: string | null;
-}
-
-export interface ReviewItem {
-  id: string;
-  productId: number;
-  authorId: string;
-  authorName: string;
-  rating: number;
-  title: string | null;
-  body: string;
-  imageUrls: string[];
-  score: number;
-  createdAt: string;
-  updatedAt: string;
-  myVote: number | null;
-  mine: boolean;
-}
-
-export interface ReviewsPage {
-  items: ReviewItem[];
-  nextCursor: string | null;
-}
-
-export interface AcceptedResponse {
-  workflowId: string;
-  status: string;
-}
-
-export interface ConfigResponse {
-  turnstileSiteKey: string;
-}
-
-export interface AuthMe {
-  authenticated: boolean;
-  user?: { sub: string; name?: string; email?: string };
-}
+export { Limits } from '../api';

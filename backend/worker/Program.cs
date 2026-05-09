@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Reviews.Infrastructure;
 using Reviews.Shared;
 using Reviews.Worker;
+using StrongTypes.EfCore;
 using Temporalio.Extensions.Hosting;
 
 // WebApplication.CreateBuilder gives us the same generic host the worker had
@@ -16,6 +17,7 @@ builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
 {
     opts.UseNpgsql(o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
+    opts.UseStrongTypes();
 });
 builder.AddRedisClient(connectionName: "cache");
 

@@ -1,3 +1,4 @@
+using StrongTypes;
 using Temporalio.Workflows;
 
 namespace Reviews.Shared;
@@ -6,9 +7,9 @@ public record EditReviewInput(
     Guid ReviewId,
     Guid AuthorId,
     short Rating,
-    string? Title,
-    string Body,
-    IReadOnlyList<string> ImageUrls);
+    NonEmptyString? Title,
+    NonEmptyString Body,
+    IReadOnlyList<NonEmptyString> ImageUrls);
 
 // Edits to recent reviews go straight through; edits to reviews older than an
 // hour wait for a moderator signal first. The cutoff exists because once a

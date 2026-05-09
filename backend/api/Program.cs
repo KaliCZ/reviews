@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 using Reviews.Api.Auth;
 using Reviews.Infrastructure;
 using Reviews.Infrastructure.Seeding;
+using StrongTypes.EfCore;
+using StrongTypes.OpenApi.Swashbuckle;
 
 // zitadel-bootstrap writes ZITADEL_ISSUER / ZITADEL_CLIENT_ID / ZITADEL_CLIENT_SECRET
 // into /run/secrets/zitadel.env (compose) or the path at $ZITADEL_ENV_FILE
@@ -18,6 +21,7 @@ builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<ReviewsDbContext>("reviews", configureDbContextOptions: opts =>
 {
     opts.UseNpgsql(o => o.MigrationsHistoryTable("__ef_migrations_history", ReviewsDbContext.Schema));
+    opts.UseStrongTypes();
 });
 
 builder.AddRedisClient(connectionName: "cache");
@@ -48,8 +52,40 @@ builder.Services.AddReviewsRateLimiting();
 
 builder.Services.AddHealthChecks().AddInfraHealthChecks();
 
-builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Enums on the wire as their string names — generated TS clients
+        // get readable union literals (`'newest' | 'helpful' | …`) instead
+        // of bare integers.
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
+
+// Swashbuckle's spec generator + UI. Picked over Microsoft.AspNetCore.OpenApi
+// because the StrongTypes integration is cleaner on this pipeline (the skill's
+// openapi.md spells out the rough edges in the Microsoft hooks).
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo { Title = "Reviews API", Version = "v1" });
+    // Surface C#'s nullability into the spec — `string` is required, `string?`
+    // is optional, ditto for the StrongTypes wrappers. Without this,
+    // Swashbuckle marks every property as optional and the generated TS
+    // client lets every field be undefined.
+    options.SupportNonNullableReferenceTypes();
+    options.AddStrongTypes();
+    options.SchemaFilter<RequireNonNullableSchemaFilter>();
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "ZITADEL access token (Bearer).",
+    });
+    options.OperationFilter<AuthorizeOperationFilter>();
+});
 
 builder.Services.AddCors(options =>
 {
@@ -75,9 +111,12 @@ if (app.Configuration.GetValue("Reviews:AutoApply", true))
 
 app.MapDefaultEndpoints();
 
+// Spec is always exposed (the SPA's client-codegen step pulls it from a running
+// dev API); Swagger UI is dev-only since prod traffic shouldn't browse it.
+app.UseSwagger();
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseSwaggerUI();
 }
 
 app.UseCors();

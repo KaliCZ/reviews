@@ -3,6 +3,7 @@ using Reviews.Infrastructure;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
 using StackExchange.Redis;
+using StrongTypes;
 using Temporalio.Activities;
 
 namespace Reviews.Worker;

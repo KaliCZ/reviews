@@ -11,8 +11,10 @@
     <PackageReference Include="Aspire.Npgsql" Version="13.2.4" />
     <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="13.2.4" />
     <PackageReference Include="Aspire.StackExchange.Redis" Version="13.2.4" />
+    <PackageReference Include="Kalicz.StrongTypes" Version="1.1.0" />
+    <PackageReference Include="Kalicz.StrongTypes.OpenApi.Swashbuckle" Version="1.1.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
     <PackageReference Include="Temporalio" Version="1.14.0" />
     <PackageReference Include="Temporalio.Extensions.Hosting" Version="1.14.0" />
   </ItemGroup>

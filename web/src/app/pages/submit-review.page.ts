@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
-import { ProductDetail } from '../models';
+import { Limits, ProductDetail } from '../models';
 
 @Component({
   imports: [FormsModule, RouterLink, StarRating, TurnstileComponent],
@@ -22,31 +22,48 @@ import { ProductDetail } from '../models';
         </label>
 
         <label
-          >Title (optional)
-          <input type="text" [(ngModel)]="title" name="title" maxlength="120" />
+          >Title (optional, up to {{ Limits.titleMax }} characters)
+          <input type="text" [(ngModel)]="title" name="title" [maxlength]="Limits.titleMax" />
         </label>
 
         <label
-          >Review
+          >Review ({{ Limits.bodyMin }}–{{ Limits.bodyMax }} characters)
           <textarea
             [(ngModel)]="body"
             name="body"
             rows="6"
             required
-            minlength="10"
-            maxlength="4000"
+            [minlength]="Limits.bodyMin"
+            [maxlength]="Limits.bodyMax"
           ></textarea>
         </label>
 
-        <label
-          >Image URLs (one per line, optional)
-          <textarea
-            [(ngModel)]="imageUrlsRaw"
-            name="imageUrls"
-            rows="3"
-            placeholder="https://..."
-          ></textarea>
-        </label>
+        <fieldset>
+          <legend>Photos (optional, up to {{ Limits.maxImages }})</legend>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            (change)="onFiles($event)"
+            [disabled]="uploadedUrls.length >= Limits.maxImages"
+          />
+          <p class="muted">
+            Each image must be {{ Limits.maxImageBytes / (1024 * 1024) }} MB or less.
+          </p>
+          @if (uploadError(); as ue) {
+            <p class="error">{{ ue }}</p>
+          }
+          @if (uploadedUrls.length > 0) {
+            <ul class="uploaded">
+              @for (u of uploadedUrls; track u) {
+                <li>
+                  <img [src]="u" alt="uploaded" />
+                  <button type="button" (click)="removeUploaded(u)">Remove</button>
+                </li>
+              }
+            </ul>
+          }
+        </fieldset>
 
         @if (siteKey(); as sk) {
           <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
@@ -76,6 +93,12 @@ import { ProductDetail } from '../models';
         display: block;
         margin: 0.75rem 0;
       }
+      fieldset {
+        margin: 0.75rem 0;
+        padding: 0.75rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
       input[type='text'],
       textarea {
         display: block;
@@ -99,6 +122,33 @@ import { ProductDetail } from '../models';
         background: #93c5fd;
         cursor: not-allowed;
       }
+      .uploaded {
+        list-style: none;
+        padding: 0;
+        margin: 0.5rem 0 0;
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .uploaded li {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+      }
+      .uploaded img {
+        width: 96px;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 4px;
+        border: 1px solid #eee;
+      }
+      .uploaded button {
+        background: transparent;
+        color: #b91c1c;
+        padding: 0.125rem 0.5rem;
+        font-size: 0.85rem;
+      }
       .error {
         color: #b91c1c;
       }
@@ -118,17 +168,19 @@ export class SubmitReviewPage {
   private readonly router = inject(Router);
 
   readonly slug = input.required<string>();
+  protected readonly Limits = Limits;
 
   protected readonly product = signal<ProductDetail | null>(null);
   protected readonly notFound = signal(false);
   protected readonly siteKey = signal<string | null>(null);
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
+  protected readonly uploadError = signal<string | null>(null);
 
   protected rating = 5;
   protected title = '';
   protected body = '';
-  protected imageUrlsRaw = '';
+  protected uploadedUrls: string[] = [];
   protected turnstileToken = '';
 
   constructor() {
@@ -147,11 +199,53 @@ export class SubmitReviewPage {
 
   canSubmit(): boolean {
     return (
-      this.body.trim().length >= 10 &&
+      this.body.trim().length >= Limits.bodyMin &&
+      this.body.length <= Limits.bodyMax &&
+      this.title.length <= Limits.titleMax &&
       this.rating >= 1 &&
       this.rating <= 5 &&
       this.turnstileToken.length > 0
     );
+  }
+
+  onFiles(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (!files.length) return;
+    this.uploadError.set(null);
+
+    const slotsRemaining = Limits.maxImages - this.uploadedUrls.length;
+    if (files.length > slotsRemaining) {
+      this.uploadError.set(
+        `You can attach at most ${Limits.maxImages} images (${slotsRemaining} remaining).`,
+      );
+      return;
+    }
+
+    for (const f of files) {
+      if (f.size > Limits.maxImageBytes) {
+        this.uploadError.set(
+          `${f.name} is too large (max ${Limits.maxImageBytes / (1024 * 1024)} MB).`,
+        );
+        return;
+      }
+      if (!Limits.allowedImageTypes.includes(f.type as (typeof Limits.allowedImageTypes)[number])) {
+        this.uploadError.set(`${f.name}: unsupported type ${f.type || 'unknown'}.`);
+        return;
+      }
+    }
+
+    for (const f of files) {
+      this.api.uploadImage(f).subscribe({
+        next: (res) => this.uploadedUrls.push(res.url),
+        error: (err) => this.uploadError.set(err.error ?? err.message ?? 'Upload failed'),
+      });
+    }
+  }
+
+  removeUploaded(url: string) {
+    this.uploadedUrls = this.uploadedUrls.filter((u) => u !== url);
   }
 
   submit(e: Event): void {
@@ -161,18 +255,15 @@ export class SubmitReviewPage {
 
     this.submitting.set(true);
     this.error.set(null);
-    const imageUrls = this.imageUrlsRaw
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const trimmedTitle = this.title.trim();
 
     this.api
       .submitReview({
         productId: p.id,
         rating: this.rating,
-        title: this.title.trim() || undefined,
+        title: trimmedTitle.length ? trimmedTitle : undefined,
         body: this.body.trim(),
-        imageUrls: imageUrls.length ? imageUrls : undefined,
+        imageUrls: this.uploadedUrls.length ? this.uploadedUrls : undefined,
         turnstileToken: this.turnstileToken,
       })
       .subscribe({

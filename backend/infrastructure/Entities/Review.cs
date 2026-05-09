@@ -1,3 +1,5 @@
+using StrongTypes;
+
 namespace Reviews.Infrastructure.Entities;
 
 // Persisted as integer (column type integer). Explicit member values pin the
@@ -17,7 +19,8 @@ public enum ReviewStatus
 }
 
 // Aggregate root for a single review of a product. Invariants enforced by:
-//   - the public constructor (rating range, non-empty body/author),
+//   - the public constructor (rating range; non-empty body/author come for
+//     free from NonEmptyString),
 //   - mutation methods (ApplyEdit / Approve / Reject / SoftDelete),
 //   - the partial unique index in ReviewsDbContext (one live review per author).
 //
@@ -34,16 +37,14 @@ public class Review
         Guid id,
         long productId,
         Guid authorId,
-        string authorName,
+        NonEmptyString authorName,
         short rating,
-        string? title,
-        string body,
-        IReadOnlyList<string> imageUrls)
+        NonEmptyString? title,
+        NonEmptyString body,
+        IReadOnlyList<NonEmptyString> imageUrls)
     {
         if (rating is < 1 or > 5)
             throw new ArgumentOutOfRangeException(nameof(rating), rating, "Rating must be between 1 and 5");
-        ArgumentException.ThrowIfNullOrWhiteSpace(authorName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(body);
         ArgumentNullException.ThrowIfNull(imageUrls);
 
         Id = id;
@@ -53,7 +54,7 @@ public class Review
         Rating = rating;
         Title = title;
         Body = body;
-        ImageUrls = imageUrls.ToList();
+        ImageUrls = imageUrls.Select(u => u.Value).ToList();
         // Status defaults to Pending (CLR default of the enum). The temporal
         // submit workflow is the only path that flips it to Approved.
     }
@@ -63,14 +64,17 @@ public class Review
     public Product Product { get; private set; } = null!;
 
     public Guid AuthorId { get; private set; }
-    public string AuthorName { get; private set; } = string.Empty;
+    public NonEmptyString AuthorName { get; private set; } = null!;
 
     public short Rating { get; private set; }
-    public string? Title { get; private set; }
-    public string Body { get; private set; } = string.Empty;
+    public NonEmptyString? Title { get; private set; }
+    public NonEmptyString Body { get; private set; } = null!;
 
     // Stored as Postgres text[]; EF Core's Npgsql provider maps List<string>
-    // to text[] natively without a value converter.
+    // to text[] natively without a value converter. Element-level non-empty
+    // is enforced at the API boundary; persisting plain strings keeps the
+    // mapping straightforward (text[] vs. a NonEmptyString-element collection
+    // would need a custom value comparer per-element).
     public List<string> ImageUrls { get; private set; } = new();
 
     public ReviewStatus Status { get; private set; } = ReviewStatus.Pending;
@@ -84,17 +88,16 @@ public class Review
     // Apply an author-driven edit. Doesn't change Status — an edit to an
     // already-Approved review stays Approved; an edit to a Pending one stays
     // Pending until the workflow signals through.
-    public void ApplyEdit(short rating, string? title, string body, IReadOnlyList<string> imageUrls)
+    public void ApplyEdit(short rating, NonEmptyString? title, NonEmptyString body, IReadOnlyList<NonEmptyString> imageUrls)
     {
         if (rating is < 1 or > 5)
             throw new ArgumentOutOfRangeException(nameof(rating), rating, "Rating must be between 1 and 5");
-        ArgumentException.ThrowIfNullOrWhiteSpace(body);
         ArgumentNullException.ThrowIfNull(imageUrls);
 
         Rating = rating;
         Title = title;
         Body = body;
-        ImageUrls = imageUrls.ToList();
+        ImageUrls = imageUrls.Select(u => u.Value).ToList();
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -127,10 +130,10 @@ public class Review
     internal static Review CreateSeed(
         long productId,
         Guid authorId,
-        string authorName,
+        NonEmptyString authorName,
         short rating,
-        string? title,
-        string body,
+        NonEmptyString? title,
+        NonEmptyString body,
         IReadOnlyList<string> imageUrls,
         int score,
         ReviewStatus status,

@@ -1,22 +1,26 @@
+using StrongTypes;
+
 namespace Reviews.Api.Models;
 
-// JSON shapes the API and SPA agree on. `record` for value-equality and
-// terse declaration; nullable annotations carry intent into the payload.
+// JSON shapes the API and SPA agree on. `record` for value-equality and terse
+// declaration; StrongTypes wrappers carry intent into the payload — empty
+// strings, missing required fields and rating overflows fail at deserialization
+// before the controller runs (see the JsonConverter on each wrapper).
 
 public record ProductSummary(
     long Id,
-    string Slug,
-    string Name,
-    string? ImageUrl,
+    NonEmptyString Slug,
+    NonEmptyString Name,
+    NonEmptyString? ImageUrl,
     double AverageRating,
     int ReviewCount);
 
 public record ProductDetail(
     long Id,
-    string Slug,
-    string Name,
-    string Description,
-    string? ImageUrl,
+    NonEmptyString Slug,
+    NonEmptyString Name,
+    NonEmptyString Description,
+    NonEmptyString? ImageUrl,
     double AverageRating,
     int ReviewCount,
     // The user's existing review for this product, if any. Null when the
@@ -28,11 +32,11 @@ public record ReviewItem(
     Guid Id,
     long ProductId,
     Guid AuthorId,
-    string AuthorName,
+    NonEmptyString AuthorName,
     short Rating,
-    string? Title,
-    string Body,
-    IReadOnlyList<string> ImageUrls,
+    NonEmptyString? Title,
+    NonEmptyString Body,
+    IReadOnlyList<NonEmptyString> ImageUrls,
     int Score,
     DateTime CreatedAt,
     DateTime UpdatedAt,
@@ -52,23 +56,27 @@ public record ReviewsPage(
 public record SubmitReviewRequest(
     long ProductId,
     short Rating,
-    string? Title,
-    string Body,
-    IReadOnlyList<string>? ImageUrls,
+    NonEmptyString? Title,
+    NonEmptyString Body,
+    IReadOnlyList<NonEmptyString>? ImageUrls,
     // Cloudflare Turnstile token from the widget. Required in production;
     // dev uses Cloudflare's always-passes test keys.
-    string TurnstileToken);
+    NonEmptyString TurnstileToken);
 
 public record EditReviewRequest(
     short Rating,
-    string? Title,
-    string Body,
-    IReadOnlyList<string>? ImageUrls);
+    NonEmptyString? Title,
+    NonEmptyString Body,
+    IReadOnlyList<NonEmptyString>? ImageUrls);
 
 public record VoteRequest(short Value);
 
 // Returned by mutation endpoints — the caller uses workflowId to poll status
 // or to find the workflow in the Temporal UI for moderation.
-public record AcceptedResponse(string WorkflowId, string Status);
+public record AcceptedResponse(NonEmptyString WorkflowId, NonEmptyString Status);
 
-public record ConfigResponse(string TurnstileSiteKey);
+public record ConfigResponse(NonEmptyString TurnstileSiteKey);
+
+// Returned by POST /api/images — the public URL the SPA stores in the review's
+// ImageUrls. Servers and clients both use the same `/api/images/...` shape.
+public record UploadedImage(NonEmptyString Url);

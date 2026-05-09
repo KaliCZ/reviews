@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Reviews.Infrastructure.Entities;
+using StrongTypes;
 
 namespace Reviews.Infrastructure.Seeding;
 
@@ -51,7 +52,7 @@ public static class Seeder
 
             var seedReviews = SeedDefinitions.Reviews().ToList();
             var allSeeds = SeedDefinitions.Products()
-                .Select(p => SlugFromUrl(p.ImageUrl))
+                .Select(p => SlugFromUrl(p.ImageUrl?.Value))
                 .Concat(seedReviews.SelectMany(r => r.ImageSeeds))
                 .Where(s => s is not null)
                 .Distinct()
@@ -81,10 +82,10 @@ public static class Seeder
                 var review = Review.CreateSeed(
                     productId:  sr.ProductId,
                     authorId:   sr.AuthorId,
-                    authorName: sr.AuthorName,
+                    authorName: sr.AuthorName.ToNonEmpty(),
                     rating:     sr.Rating,
-                    title:      sr.Title,
-                    body:       sr.Body,
+                    title:      sr.Title.ToNonEmpty(),
+                    body:       sr.Body.ToNonEmpty(),
                     imageUrls:  imageUrls,
                     score:      sr.Score,
                     status:     ReviewStatus.Approved,

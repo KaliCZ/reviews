@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Reviews.Api.Models;
+using StrongTypes;
 
 namespace Reviews.Api.Controllers;
 
@@ -14,5 +15,5 @@ public class ConfigController(IConfiguration config) : ControllerBase
 {
     [HttpGet]
     public ActionResult<ConfigResponse> Get() => Ok(new ConfigResponse(
-        TurnstileSiteKey: config["Turnstile:SiteKey"] ?? "1x00000000000000000000AA"));
+        TurnstileSiteKey: (config["Turnstile:SiteKey"] ?? "1x00000000000000000000AA").ToNonEmpty()));
 }
