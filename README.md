@@ -185,7 +185,7 @@ If you want to nuke and re-bootstrap auth (e.g. if you wiped Postgres but the lo
 
 ## End-to-end tests
 
-`npm run e2e` runs Playwright against the docker-compose stack.
+`npm run test:e2e` runs Playwright against the docker-compose stack.
 
 The suite covers the four user flows from `docs/flows.md`:
 
