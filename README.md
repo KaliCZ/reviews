@@ -152,14 +152,6 @@ Three Redis surfaces, all invalidated by the workflow that mutates them:
 
 Sorts, filters, and pages past 1 go straight to Postgres — caching their cross-product would explode the keyspace and the long-tail traffic doesn't justify it. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read.
 
-## Verifying the run
-
-Sign in as `alice` / `Password1!`, then exercise each user flow end-to-end:
-
-- **Browse** — the catalog shows 10 seeded products with mixed averages.
-- **Submit a review** — 3- and 4-star reviews appear immediately; 1-, 2-, and 5-star ones land in `Pending` until you open the workflow in the Temporal UI and send `Approve`.
-- **Vote, edit, delete** — fresh edits/deletes (within 1h) apply immediately; older ones go through the same moderation signal.
-
 ## Tests
 
 - **Unit / integration** — `npm test` from the repo root. Runs the .NET solution (xUnit; the API integration suite spins up Postgres + Redis + Azurite via Testcontainers and an in-process Temporal dev server) and the frontend Vitest suite.
