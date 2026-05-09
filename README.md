@@ -81,10 +81,6 @@ docker logs $(docker ps --format '{{.Names}}' | grep '^zitadel-' | grep -v boots
 
 That returns the latest InitCode (`Code:XXXXXX`). Paste the six characters after `Code:` into the verification page and the OIDC login flow completes.
 
-Note: Admin endpoints like `SetEmail` / `VerifyEmail` reject these users with "User is not yet initialized" — going through the UI with the logged code is the path that works. If you need a fresh code, click "resend" in the UI (or call `POST /management/v1/users/{userId}/_resend_initialization` with the bootstrap PAT at `infra/zitadel/.secrets/admin-pat.txt`) and grep the logs again. The pre-seeded `alice` test user skips this entirely — she's imported as already-verified via the bootstrap script.
-
-For background on the admin user and OIDC app provisioning, see [Bootstrapping ZITADEL](#bootstrapping-zitadel).
-
 ## Tests
 
 - `npm test` — unit + integration tests (.NET + frontend Vitest).
