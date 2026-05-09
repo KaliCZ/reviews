@@ -61,7 +61,7 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithBindMount("../../infra/zitadel/bootstrap.sh", "/bootstrap.sh", isReadOnly: true)
     .WithBindMount(zitadelSecrets, "/zitadel-secrets", isReadOnly: true)
     .WithBindMount(appSecrets, "/app-secrets")
-    .WithEnvironment("ZITADEL_INTERNAL_URL", "http://localhost:8080")
+    .WithEnvironment("ZITADEL_INTERNAL_URL", "http://zitadel:8080")
     .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
     .WaitFor(zitadel);
 
