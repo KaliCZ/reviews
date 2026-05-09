@@ -10,14 +10,24 @@ const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
 
 // Each option compiles down to (sort, direction). Keeping the UI as one
 // dropdown matches the prior shape; the orthogonal API is exposed below.
-type SortOption = 'date-desc' | 'date-asc' | 'helpful-desc' | 'helpful-asc' | 'rating-desc' | 'rating-asc';
-const SORT_OPTIONS: ReadonlyArray<{ value: SortOption; sort: ReviewSort; direction: SortDirection }> = [
+type SortOption =
+  | 'date-desc'
+  | 'date-asc'
+  | 'helpful-desc'
+  | 'helpful-asc'
+  | 'rating-desc'
+  | 'rating-asc';
+const SORT_OPTIONS: ReadonlyArray<{
+  value: SortOption;
+  sort: ReviewSort;
+  direction: SortDirection;
+}> = [
   { value: 'helpful-desc', sort: 'Helpful', direction: 'Desc' },
-  { value: 'helpful-asc',  sort: 'Helpful', direction: 'Asc'  },
-  { value: 'date-desc',    sort: 'Date',    direction: 'Desc' },
-  { value: 'date-asc',     sort: 'Date',    direction: 'Asc'  },
-  { value: 'rating-desc',  sort: 'Rating',  direction: 'Desc' },
-  { value: 'rating-asc',   sort: 'Rating',  direction: 'Asc'  },
+  { value: 'helpful-asc', sort: 'Helpful', direction: 'Asc' },
+  { value: 'date-desc', sort: 'Date', direction: 'Desc' },
+  { value: 'date-asc', sort: 'Date', direction: 'Asc' },
+  { value: 'rating-desc', sort: 'Rating', direction: 'Desc' },
+  { value: 'rating-asc', sort: 'Rating', direction: 'Asc' },
 ];
 
 @Component({

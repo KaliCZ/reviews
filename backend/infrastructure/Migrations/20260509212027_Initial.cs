@@ -1,24 +1,19 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace Reviews.Infrastructure.Migrations
 {
-    // [DbContext] ties this migration to ReviewsDbContext — EF's migration
-    // discovery filters by it. Without the attribute, the assembly scan
-    // finds the Migration class but skips it ("No migrations were found in
-    // assembly 'infrastructure'").
-    [DbContext(typeof(ReviewsDbContext))]
-    [Migration("20260509000000_Initial")]
+    /// <inheritdoc />
     public partial class Initial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.EnsureSchema(name: "reviews");
+            migrationBuilder.EnsureSchema(
+                name: "reviews");
 
             migrationBuilder.CreateTable(
                 name: "products",
@@ -32,7 +27,7 @@ namespace Reviews.Infrastructure.Migrations
                     ImageUrl = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
                     CreatedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false, defaultValueSql: "NOW()"),
                     ReviewCount = table.Column<int>(type: "integer", nullable: false, defaultValue: 0),
-                    AverageRating = table.Column<double>(type: "double precision", nullable: false, defaultValue: 0d)
+                    AverageRating = table.Column<double>(type: "double precision", nullable: false, defaultValue: 0.0)
                 },
                 constraints: table =>
                 {
@@ -44,9 +39,6 @@ namespace Reviews.Infrastructure.Migrations
                 schema: "reviews",
                 columns: table => new
                 {
-                    // Application-side UUIDv7 generation (Sequential.NewGuid) — no
-                    // server-side default. Older Initial used gen_random_uuid()
-                    // which scatters across the btree on insert.
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     ProductId = table.Column<long>(type: "bigint", nullable: false),
                     AuthorId = table.Column<Guid>(type: "uuid", nullable: false),
@@ -63,10 +55,9 @@ namespace Reviews.Infrastructure.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_reviews", x => x.Id);
+                    table.CheckConstraint("ck_reviews_image_count", "array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= 5");
                     table.CheckConstraint("ck_reviews_rating", "\"Rating\" BETWEEN 1 AND 5");
                     table.CheckConstraint("ck_reviews_status", "\"Status\" BETWEEN 0 AND 3");
-                    table.CheckConstraint("ck_reviews_image_count",
-                        "array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= 5");
                     table.ForeignKey(
                         name: "FK_reviews_products_ProductId",
                         column: x => x.ProductId,
@@ -141,9 +132,17 @@ namespace Reviews.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(name: "review_votes", schema: "reviews");
-            migrationBuilder.DropTable(name: "reviews", schema: "reviews");
-            migrationBuilder.DropTable(name: "products", schema: "reviews");
+            migrationBuilder.DropTable(
+                name: "review_votes",
+                schema: "reviews");
+
+            migrationBuilder.DropTable(
+                name: "reviews",
+                schema: "reviews");
+
+            migrationBuilder.DropTable(
+                name: "products",
+                schema: "reviews");
         }
     }
 }

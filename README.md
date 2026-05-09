@@ -157,13 +157,14 @@ Three Redis surfaces, all invalidated by the workflow that mutates them:
 | `products:slug:{slug}` | Product metadata + average rating + review count | 24 hours |
 | `reviews:slug:{slug}:page:1` | First page of reviews, default sort | 24 hours |
 
+TTL is the upper bound — every entry is also evicted by the workflow that mutates the underlying data, so a fresh review surfaces immediately, not after a 24-hour wait. The 24h ceiling exists only to bound staleness if a workflow ever fails to invalidate.
+
 Sorts, filters, and pages past 1 go straight to Postgres — caching their cross-product would explode the keyspace and the long-tail traffic doesn't justify it. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read.
 
 ## Deferred for later milestones
 
 - **Moderator surface + roles.** Today moderators sign workflows in the Temporal UI. Either an admin SPA or an MCP server on the API so an agent can fan out moderation actions, gated by a `moderator` claim.
 - **Serve review images via a CDN**, bypassing the API.
-- **Snapshot average rating and review count onto `Product`** (computed on the fly today). Design notes in [#5](https://github.com/KaliCZ/reviews/issues/5).
 - **Postgres Row-Level Security** as a second authorization layer.
 - **Per-review translation** — language detection at submit time, translation on demand.
 - **Comment threads on reviews.** Author clarifications, brand-owner replies, shopper follow-ups.
