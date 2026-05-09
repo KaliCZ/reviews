@@ -16,6 +16,7 @@
     "waitingUploads": "Čeká se na {n} nahrávání…",
     "delete": "Smazat",
     "edit": "Upravit",
+    "remove": "Odebrat",
     "of": "z",
     "page": "Stránka",
     "prev": "← Předchozí",
@@ -30,6 +31,11 @@
     "reviewsHeading": "Recenze",
     "reviewCount": "{count} recenzí",
     "notFound": "Produkt nenalezen."
+  },
+  "productList": {
+    "heading": "Produkty",
+    "subtitle": "Procházejte katalog. Kliknutím na produkt zobrazíte recenze.",
+    "empty": "Zatím žádné produkty."
   },
   "reviewList": {
     "heading": "Všechny recenze",
@@ -47,28 +53,45 @@
   },
   "submit": {
     "heading": "Napsat recenzi pro {product}",
+    "backToProduct": "← Zpět na {name}",
     "rating": "Vaše hodnocení",
     "title": "Název",
     "body": "Recenze",
     "photos": "Fotky (volitelné, max {n})",
     "photosLimit": "Každá fotka může mít maximálně {mb} MB.",
     "moderationNotice": "Recenze s tímto hodnocením procházejí moderací, než se zveřejní. Schválení můžete sledovat v Temporal UI.",
+    "button": "Odeslat recenzi",
     "uploadFailed": "Nahrání selhalo",
-    "submitFailed": "Odeslání selhalo"
+    "submitFailed": "Odeslání selhalo",
+    "tooManyImages": "Můžete připojit nejvýše {max} obrázků (zbývá {remaining}).",
+    "imageTooLarge": "{name} je příliš velký (max {mb} MB).",
+    "imageBadType": "{name}: nepodporovaný typ {type}.",
+    "uploadedImageAlt": "nahraný obrázek"
   },
   "edit": {
     "heading": "Upravit vaši recenzi",
+    "photos": "Fotky (max {n})",
     "moderationNotice": "Úpravy recenzí starších než hodinu procházejí schválením moderátora. Schvalování probíhá v Temporal UI.",
     "saveFailed": "Uložení selhalo",
     "notFound": "Recenze nenalezena."
   },
   "vote": {
-    "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora."
+    "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora.",
+    "signInToVote": "Přihlaste se pro hlasování"
+  },
+  "reviewCard": {
+    "imageAlt": "fotka recenze"
+  },
+  "starRating": {
+    "ariaLabel": "{n} z 5 hvězdiček"
   },
   "theme": {
     "system": "Systém",
     "light": "Světlý",
-    "dark": "Tmavý"
+    "dark": "Tmavý",
+    "titleSystem": "Téma: systém (kliknutím přepnete na světlé)",
+    "titleLight": "Téma: světlé (kliknutím přepnete na tmavé)",
+    "titleDark": "Téma: tmavé (kliknutím přepnete na systém)"
   },
   "language": {
     "label": "Jazyk",
