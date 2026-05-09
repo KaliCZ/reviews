@@ -172,8 +172,8 @@ const SORT_OPTIONS: ReadonlyArray<{
         cursor: not-allowed;
       }
       .error {
-        background: var(--color-error-container, #fee2e2);
-        color: var(--color-on-error-container, #991b1b);
+        background: var(--color-error-container);
+        color: var(--color-on-error-container);
         padding: 0.5rem 0.75rem;
         border-radius: 4px;
         margin: 0.5rem 0;
