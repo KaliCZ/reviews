@@ -68,7 +68,18 @@ After it boots (all links available in aspire dashboard):
 - API: <http://localhost:8081>
 - ZITADEL Console: <http://localhost:8080> (admin login: `zitadel-admin@reviews.localhost` / `Password1!`)
 - Temporal UI: <http://localhost:8233>
-- Test user for the app: `alice@localhost` / `Password1!`
+- Test user for the app: `alice@localhost` / `Password1!` — pre-verified, log straight in.
+
+### Registering your own user
+
+Self-registering through the sign-in flow lands you on a "enter the verification code" page. ZITADEL would normally email the code, but no SMTP is wired up locally — instead, ZITADEL logs the code as a fallback. Grab it from the container logs and paste it into the UI:
+
+```bash
+docker logs $(docker ps --format '{{.Names}}' | grep '^zitadel-' | grep -v bootstrap) 2>&1 \
+  | grep -oE 'Code:[A-Z0-9]+' | tail -1
+```
+
+That returns the latest InitCode (`Code:XXXXXX`). Paste the six characters after `Code:` into the verification page and the OIDC login flow completes.
 
 ## Tests
 

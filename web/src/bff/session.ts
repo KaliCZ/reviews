@@ -21,7 +21,13 @@ export async function createSessionMiddleware(
   redisUrl: string,
   sessionSecret: string,
 ): Promise<RequestHandler> {
-  const redis = createClient({ url: redisUrl });
+  const redis = createClient({
+    url: redisUrl,
+    socket:
+      redisUrl.startsWith('rediss://') && process.env['REDIS_TLS_INSECURE'] === 'true'
+        ? { tls: true, rejectUnauthorized: false }
+        : undefined,
+  });
   redis.on('error', (err) => console.error('[bff] redis error', err));
   await redis.connect();
 

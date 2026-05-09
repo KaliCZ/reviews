@@ -19,6 +19,14 @@ var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databa
 var cache = builder.AddRedis("cache")
     .WithRedisInsight();
 
+// Aspire 13.3 generates a Redis password and exposes the primary endpoint over
+// TLS with a self-signed dev cert. The .NET integrations consume the resource's
+// connection string directly; the JS BFF needs a redis-URL-shaped env var, so
+// build one here. REDIS_TLS_INSECURE tells the BFF to skip cert validation —
+// prod uses CA-signed certs and leaves it unset.
+var redisUrl = ReferenceExpression.Create(
+    $"rediss://default:{cache.Resource.PasswordParameter!}@{cache.GetEndpoint("tcp").Property(EndpointProperty.Host)}:{cache.GetEndpoint("tcp").Property(EndpointProperty.Port)}");
+
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var images = storage.AddBlobs("images");
 
@@ -114,7 +122,8 @@ var web = builder.AddJavaScriptApp("web", "../../web", "start")
     // route crosses container boundaries.
     .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
     .WithEnvironment("ZITADEL_INTERNAL_URL", "http://localhost:8080")
-    .WithEnvironment("REDIS_URL", "redis://localhost:6379")
+    .WithEnvironment("REDIS_URL", redisUrl)
+    .WithEnvironment("REDIS_TLS_INSECURE", "true")
     .WithEnvironment("SESSION_SECRET", "dev-only-session-secret-rotate-in-prod")
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)
     .WithExternalHttpEndpoints()
