@@ -93,7 +93,7 @@ sequenceDiagram
     else cache miss
         A->>P: SELECT products + aggregates
         P-->>A: rows
-        A->>R: SET (TTL: 15m) cached payload
+        A->>R: SET (TTL: 24h) cached payload
     end
 
     A-->>S: ProductSummary[]
@@ -126,7 +126,7 @@ sequenceDiagram
             R-->>A: detail
         else miss
             A->>P: SELECT product
-            A->>R: SET (TTL: 1h)
+            A->>R: SET (TTL: 24h)
         end
         A-->>S: ProductDetail
     and

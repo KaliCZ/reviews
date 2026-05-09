@@ -153,8 +153,8 @@ Three Redis surfaces, all invalidated by the workflow that mutates them:
 
 | Key | What it caches | TTL |
 |---|---|---|
-| `products:list` | Catalog list | 15 min |
-| `products:slug:{slug}` | Product detail (viewer-agnostic) | 1 hour |
+| `products:list` | Catalog list | 24 hours |
+| `products:slug:{slug}` | Product metadata + average rating + review count | 24 hours |
 | `reviews:slug:{slug}:page:1` | First page of reviews, default sort | 24 hours |
 
 Sorts, filters, and pages past 1 go straight to Postgres — caching their cross-product would explode the keyspace and the long-tail traffic doesn't justify it. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read.

@@ -25,8 +25,8 @@ public class ProductsController(
 {
     private const int DefaultPageSize = 20;
     private const int MaxPageSize = 100;
-    private static readonly TimeSpan ListCacheTtl = TimeSpan.FromMinutes(15);
-    private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromHours(1);
+    private static readonly TimeSpan ListCacheTtl = TimeSpan.FromHours(24);
+    private static readonly TimeSpan DetailCacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan FirstPageCacheTtl = TimeSpan.FromHours(24);
 
     [HttpGet]
