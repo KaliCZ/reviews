@@ -77,11 +77,12 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
                 "ck_reviews_image_count",
                 $"array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= {MaxImagesPerReview}"));
 
-            // Per-URL length cap. Postgres array element constraints aren't
-            // a thing, so we evaluate via a subquery over unnest().
-            e.ToTable(t => t.HasCheckConstraint(
-                "ck_reviews_image_url_length",
-                $"(SELECT bool_and(length(u) <= {ReviewImageUrlMaxLength}) FROM unnest(\"ImageUrls\") u) IS NOT FALSE"));
+            // Per-URL length cap (ReviewImageUrlMaxLength) lives only at the
+            // controller layer (ValidateImageUrls). Postgres CHECK constraints
+            // can't contain subqueries, and there's no built-in for "max
+            // element length in a text[]". A DOMAIN type would do it but
+            // EF Core doesn't map domains natively; not worth the round-trip
+            // for what's already a defense-in-depth check.
 
             // Status is persisted as integer (the default for enums in EF Core
             // — explicit member values are pinned in ReviewStatus.cs). Pending
