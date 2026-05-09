@@ -65,6 +65,8 @@ namespace Reviews.Infrastructure.Migrations
                     table.CheckConstraint("ck_reviews_status", "\"Status\" BETWEEN 0 AND 3");
                     table.CheckConstraint("ck_reviews_image_count",
                         "array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= 5");
+                    table.CheckConstraint("ck_reviews_image_url_length",
+                        "(SELECT bool_and(length(u) <= 1000) FROM unnest(\"ImageUrls\") u) IS NOT FALSE");
                     table.ForeignKey(
                         name: "FK_reviews_products_ProductId",
                         column: x => x.ProductId,

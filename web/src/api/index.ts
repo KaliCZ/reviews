@@ -12,6 +12,9 @@ export const Limits = {
   bodyMax: 4000,
   bodyMin: 10,
   maxImages: 5,
+  // Per-URL cap for entries in a review's imageUrls; matches the
+  // ReviewImageUrlMaxLength CHECK on the reviews table.
+  imageUrlMax: 1000,
   // 2 MiB; matches ImagesController.MaxImageBytes.
   maxImageBytes: 2 * 1024 * 1024,
   allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const,

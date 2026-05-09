@@ -32,8 +32,7 @@ public class ReviewsController(
     public async Task<ActionResult<AcceptedResponse>> Submit(
         [FromBody] SubmitReviewRequest req, CancellationToken ct)
     {
-        if ((req.ImageUrls?.Count ?? 0) > ReviewsDbContext.MaxImagesPerReview)
-            return BadRequest($"At most {ReviewsDbContext.MaxImagesPerReview} images per review.");
+        if (ValidateImageUrls(req.ImageUrls) is { } error) return BadRequest(error);
 
         if (!await turnstile.VerifyAsync(req.TurnstileToken.Value, HttpContext.Connection.RemoteIpAddress?.ToString(), ct))
             return BadRequest("Turnstile verification failed.");
@@ -77,8 +76,7 @@ public class ReviewsController(
     public async Task<ActionResult<AcceptedResponse>> Edit(
         Guid id, [FromBody] EditReviewRequest req, CancellationToken ct)
     {
-        if ((req.ImageUrls?.Count ?? 0) > ReviewsDbContext.MaxImagesPerReview)
-            return BadRequest($"At most {ReviewsDbContext.MaxImagesPerReview} images per review.");
+        if (ValidateImageUrls(req.ImageUrls) is { } error) return BadRequest(error);
 
         var input = new EditReviewInput(
             ReviewId:  id,
@@ -124,5 +122,19 @@ public class ReviewsController(
                 IdConflictPolicy = Temporalio.Api.Enums.V1.WorkflowIdConflictPolicy.UseExisting,
             });
         return Accepted(new AcceptedResponse(handle.Id, "voted"));
+    }
+
+    // Returns an error message if the image-URL list is invalid (too many,
+    // or any URL too long), null otherwise. Mirrors the DB CHECK constraints
+    // so 400 fires before the workflow ever spins up.
+    private static string? ValidateImageUrls(IReadOnlyList<NonEmptyString>? urls)
+    {
+        if (urls is null) return null;
+        if (urls.Count > ReviewsDbContext.MaxImagesPerReview)
+            return $"At most {ReviewsDbContext.MaxImagesPerReview} images per review.";
+        foreach (var u in urls)
+            if (u.Value.Length > ReviewsDbContext.ReviewImageUrlMaxLength)
+                return $"Image URL exceeds {ReviewsDbContext.ReviewImageUrlMaxLength} characters.";
+        return null;
     }
 }

@@ -18,6 +18,10 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
     public const int TitleMaxLength = 200;
     public const int BodyMaxLength = 4000;
     public const int MaxImagesPerReview = 5;
+    // Per-URL cap on each entry in Review.ImageUrls. Defends against absurdly
+    // long URLs (e.g. someone POSTing a base64 data: URI). Our own uploaded
+    // paths are ~50 chars; 1000 leaves room for SAS-tokenised blob URLs.
+    public const int ReviewImageUrlMaxLength = 1000;
 
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Review> Reviews => Set<Review>();
@@ -72,6 +76,12 @@ public class ReviewsDbContext(DbContextOptions<ReviewsDbContext> options) : DbCo
             e.ToTable(t => t.HasCheckConstraint(
                 "ck_reviews_image_count",
                 $"array_length(\"ImageUrls\", 1) IS NULL OR array_length(\"ImageUrls\", 1) <= {MaxImagesPerReview}"));
+
+            // Per-URL length cap. Postgres array element constraints aren't
+            // a thing, so we evaluate via a subquery over unnest().
+            e.ToTable(t => t.HasCheckConstraint(
+                "ck_reviews_image_url_length",
+                $"(SELECT bool_and(length(u) <= {ReviewImageUrlMaxLength}) FROM unnest(\"ImageUrls\") u) IS NOT FALSE"));
 
             // Status is persisted as integer (the default for enums in EF Core
             // — explicit member values are pinned in ReviewStatus.cs). Pending
