@@ -11,7 +11,8 @@ export const Limits = {
   allowedImageTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const,
 } as const;
 
-export type ReviewSort = 'Newest' | 'Helpful' | 'Highest' | 'Lowest';
+export type ReviewSort = 'Date' | 'Helpful' | 'Rating';
+export type SortDirection = 'Asc' | 'Desc';
 
 export type Rating = 1 | 2 | 3 | 4 | 5;
 

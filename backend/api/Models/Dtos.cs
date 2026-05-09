@@ -55,10 +55,16 @@ public record ReviewsPage
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum ReviewSort
 {
-    Newest = 0,
+    Date = 0,
     Helpful = 1,
-    Highest = 2,
-    Lowest = 3,
+    Rating = 2,
+}
+
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum SortDirection
+{
+    Desc = 0,
+    Asc = 1,
 }
 
 public record SubmitReviewRequest

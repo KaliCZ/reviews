@@ -126,6 +126,7 @@ public class ProductsController(
     public async Task<ActionResult<ReviewsPage>> GetReviews(
         NonEmptyString slug,
         [FromQuery] ReviewSort sort = ReviewSort.Helpful,
+        [FromQuery] SortDirection direction = SortDirection.Desc,
         [FromQuery(Name = "rating")] HashSet<short>? ratings = null,
         [FromQuery] bool? hasPhotos = null,
         [FromQuery] int page = 1,
@@ -140,7 +141,8 @@ public class ProductsController(
             && pageSize == DefaultPageSize
             && (ratings is null || ratings.Count == 0)
             && hasPhotos is null
-            && sort == ReviewSort.Helpful;
+            && sort == ReviewSort.Helpful
+            && direction == SortDirection.Desc;
 
         if (isFirstPage)
         {
@@ -159,7 +161,7 @@ public class ProductsController(
             .SingleOrDefaultAsync(ct);
         if (product is null) return NotFound();
 
-        var built = await BuildPageAsync(product.Id, sort, ratings, hasPhotos, page, pageSize, ct);
+        var built = await BuildPageAsync(product.Id, sort, direction, ratings, hasPhotos, page, pageSize, ct);
 
         if (isFirstPage)
         {
@@ -182,6 +184,7 @@ public class ProductsController(
     private async Task<ReviewsPage> BuildPageAsync(
         long productId,
         ReviewSort sort,
+        SortDirection direction,
         HashSet<short>? ratings,
         bool? hasPhotos,
         int page,
@@ -195,13 +198,22 @@ public class ProductsController(
         if (ratings is { Count: > 0 }) q = q.Where(r => ratings.Contains((short)r.Rating));
         if (hasPhotos is true)         q = q.Where(r => r.ImageUrls.Count > 0);
 
-        // Review.Id is UUIDv7, so OrderBy(Id) is time-ordered (no CreatedAtUtc tiebreaker needed).
+        // Only the primary sort flips with `direction`. Score/Id tiebreakers
+        // stay descending so the most-helpful and most-recent review still
+        // wins inside any tie regardless of the chosen direction. Id is
+        // UUIDv7, so it doubles as a created-at tiebreaker.
+        var asc = direction == SortDirection.Asc;
         var ordered = sort switch
         {
-            ReviewSort.Helpful => q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            ReviewSort.Highest => q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            ReviewSort.Lowest  => q.OrderBy(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id),
-            _ /* Newest */     => q.OrderByDescending(r => r.Id),
+            ReviewSort.Helpful => asc
+                ? q.OrderBy(r => r.Score).ThenByDescending(r => r.Id)
+                : q.OrderByDescending(r => r.Score).ThenByDescending(r => r.Id),
+            ReviewSort.Rating => asc
+                ? q.OrderBy(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id)
+                : q.OrderByDescending(r => r.Rating).ThenByDescending(r => r.Score).ThenByDescending(r => r.Id),
+            _ /* Date */ => asc
+                ? q.OrderBy(r => r.Id)
+                : q.OrderByDescending(r => r.Id),
         };
 
         var total = await q.CountAsync(ct);
