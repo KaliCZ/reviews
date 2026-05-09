@@ -6,7 +6,7 @@ A product reviews platform: browse a catalog, read SSR-rendered product pages, s
 - Mutating actions run through **durable Temporal workflows**, so async moderation (like approval process) is built in.
 - Reads are **cached in Redis** with workflow-driven invalidation — no TTL guesswork on hot pages.
 
-The four user flows the product is built around are described in [docs/flows.md](docs/flows.md).
+User-facing flows — sign-in, catalog browse, product page, paginated/sorted listings, submit, edit, delete, vote, image upload — are walked through in [docs/flows.md](docs/flows.md).
 
 ## Stack
 
