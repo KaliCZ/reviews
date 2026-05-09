@@ -68,7 +68,17 @@ After it boots (all links available in aspire dashboard):
 - API: <http://localhost:8081>
 - ZITADEL Console: <http://localhost:8080> (admin login: `zitadel-admin@reviews.localhost` / `Password1!`)
 - Temporal UI: <http://localhost:8233>
-- Test user for the app: `alice@localhost` / `Password1!`
+- Test user for the app: `alice@localhost` / `Password1!` — pre-verified, log straight in.
+
+### Registering your own user
+
+If you self-register through the sign-in flow, ZITADEL sends a verification code to the user's email. There's no SMTP wired up locally, so the email goes nowhere — to unblock yourself, mark the email verified manually:
+
+1. Open the [ZITADEL Console](http://localhost:8080) and sign in as `zitadel-admin@reviews.localhost` / `Password1!`.
+2. Switch to the `reviews` org (top-left org dropdown).
+3. **Users** → click the user → on their profile, hit **Verify email**.
+
+After that the OIDC login flow works. For background on how the admin user and OIDC app get there in the first place, see [Bootstrapping ZITADEL](#bootstrapping-zitadel).
 
 ## Tests
 
