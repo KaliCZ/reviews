@@ -1,6 +1,12 @@
 # Reviews
 
-A product reviews platform — viewing, browsing, submitting, rating, editing, and deleting reviews — wired end-to-end through a real OIDC auth flow, durable Temporal workflows, EF Core migrations, blob-stored review images, and rate-limited write endpoints.
+A product reviews platform: browse a catalog, read SSR-rendered product pages, sign in, then submit / edit / delete / vote on reviews.
+
+Built as a deliberately complete vertical slice rather than a toy CRUD app:
+
+- Real OIDC auth via ZITADEL, surfaced to the SPA through the **BFF pattern** so tokens never reach the browser.
+- Mutating actions run through **durable Temporal workflows**, so async moderation (the 1-and-5-star and edit-after-1h gates) is built in by construction, not bolted on.
+- Reads are **cached in Redis** with workflow-driven invalidation — no TTL guesswork on hot pages.
 
 The four user flows the product is built around are described in [docs/flows.md](docs/flows.md).
 
@@ -86,7 +92,7 @@ reviews/
 │       └── bootstrap.sh    Provisions the OIDC app via mgmt API after first start
 ├── Reviews.slnx            .NET solution
 ├── docker-compose.yml      Containerized run path
-└── package.json            Root scripts: dev, dev:infra, aspire, e2e
+└── package.json            Root scripts: dev, dev:infra, aspire, test, test:e2e
 ```
 
 ## Design notes
@@ -167,7 +173,7 @@ Three slug-keyed Redis surfaces, all invalidated by `InvalidateProductCachesActi
 | `products:slug:{slug}` | Product detail without per-viewer fields | 1 hour |
 | `reviews:slug:{slug}:page:1` | First page of reviews (default sort, no filters) | 1 hour |
 
-Read-path order matters: each endpoint **checks Redis first**, then falls back to Postgres on miss and writes-through. The previous order (look up the product row, then check cache) defeated the cache for every cold request. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read via single PK lookups. Sorts, filters, and pages past 1 go straight to Postgres — `sort × filter × page` would explode cache cardinality, and the long tail isn't worth it. Cache keys live in `Reviews.Infrastructure.ReviewsCacheKeys` — single source of truth shared by the API (writes) and worker activities (invalidations).
+Read-path order matters: each endpoint **checks Redis first**, then falls back to Postgres on miss and writes-through. Per-viewer fields (`MyVote`, `Mine`, `MyReviewId`) are stripped before caching and re-merged on read via single PK lookups. Sorts, filters, and pages past 1 go straight to Postgres — `sort × filter × page` would explode cache cardinality, and the long tail isn't worth it. Cache keys live in `Reviews.Infrastructure.ReviewsCacheKeys` — single source of truth shared by the API (writes) and worker activities (invalidations).
 
 ## Verifying the run
 
@@ -183,11 +189,14 @@ After bringing the stack up:
 
 If you want to nuke and re-bootstrap auth (e.g. if you wiped Postgres but the local secrets are stale): `docker compose down -v && rm -rf infra/zitadel/.secrets infra/zitadel/.app-secrets`.
 
-## End-to-end tests
+## Tests
 
-`npm run test:e2e` runs Playwright against the docker-compose stack.
+There are three test suites:
 
-The suite covers the four user flows from `docs/flows.md`:
+- **Unit tests** — `npm test` from the repo root. Runs the .NET solution (xUnit, including the API integration suite that spins up Postgres + Redis + Azurite via Testcontainers and a real in-process Temporal dev server) and the frontend Vitest suite (BFF modules + SPA services).
+- **End-to-end** — `npm run test:e2e`. Brings up the full `docker-compose` stack and runs Playwright against it.
+
+The Playwright suite covers the four user flows from `docs/flows.md`:
 
 | Test | What it covers |
 |---|---|
@@ -211,4 +220,4 @@ Playwright *can* drive the Temporal UI — log in, find the workflow, click **Se
 - **TODO: serve review images via a CDN.** Today the API streams every blob byte through `ImagesController.Get` so the browser-visible URL stays environment-agnostic. Production should swap to a CDN (CloudFront / Cloudflare / Azure Front Door) keyed by the same blob path; the controller stays only as a fallback for private-asset egress. Stored URLs become CDN URLs with no DB-side change.
 - **TODO: denormalize review `count` and `average_rating` onto `Product`.** The catalog list and product detail compute these on the fly today (and the Redis cache hides the cost most of the time). The Temporal workflows already fan out on every review write, so the right place to maintain the denormalized columns is inside those activities — see [#5 (denormalized rating maintenance)](https://github.com/KaliCZ/reviews/issues/5) for the design notes.
 - **TODO: Postgres Row-Level Security as a second authorization layer.** Today, ownership checks for edit/delete/vote live in the API and workflow activities — `currentUser.User!.Id` compared against `Review.AuthorId` before mutating. That's correct but single-layer: a missed check in a future controller is a cross-author write. RLS policies on `reviews.reviews` (and `reviews.review_votes`) keyed off a per-request `SET LOCAL app.current_user_id = '<guid>'` would catch it at the database. Needs (a) a request-scoped EF interceptor that issues the `SET LOCAL` before any query in the transaction, (b) a separate non-RLS role for migrations/seeder/worker activities that legitimately operate cross-user, (c) policies written so anonymous reads (catalog, review listings) still work — likely `USING (true)` for SELECT and tighter `WITH CHECK` for INSERT/UPDATE/DELETE.
-- **TODO: per-review translation.** Reviews are submitted in whatever the author wrote, but no language metadata is stored and there's no translate UI. A real implementation needs (a) server-side language detection at submit time (e.g. CLD3 or a backend call), (b) inline translation on demand — Chrome's `Translator` API where available, with a backend translation service (caching by `(review_id, target_lang)`) as the fallback. An earlier prototype stamped the submitter's UI locale onto each review and linked out to Google Translate in a new tab; dropped because submitter-locale ≠ actual language and a new-tab redirect is materially worse UX than inline.
+- **TODO: per-review translation.** Reviews are submitted in whatever the author wrote, but no language metadata is stored and there's no translate UI. A real implementation needs (a) server-side language detection at submit time (e.g. CLD3 or a backend call), (b) inline translation on demand — Chrome's `Translator` API where available, with a backend translation service (caching by `(review_id, target_lang)`) as the fallback.
