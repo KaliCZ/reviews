@@ -8,9 +8,9 @@
 // imports server.ts statically) don't try to dial a non-existent collector.
 
 import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-grpc';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';

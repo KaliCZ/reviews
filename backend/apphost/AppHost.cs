@@ -129,9 +129,10 @@ var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)
     .WithExternalHttpEndpoints()
     // AddProject<T> wires this implicitly; AddJavaScriptApp doesn't, so the
-    // BFF's NodeSDK no-ops without it. HttpProtobuf because our exporters
-    // are @opentelemetry/exporter-*-otlp-proto.
-    .WithOtlpExporter(OtlpProtocol.HttpProtobuf)
+    // BFF's NodeSDK no-ops without it. Aspire defaults the protocol env var
+    // to grpc here regardless of the parameter, so the BFF ships the
+    // matching @opentelemetry/exporter-*-otlp-grpc packages.
+    .WithOtlpExporter()
     .WaitForCompletion(zitadelBootstrap);
 
 api.WithEnvironment("WEB_ORIGIN", web.GetEndpoint("http"));
