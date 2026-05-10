@@ -13,28 +13,30 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Per-worktree offset added to every host-port base below so parallel
-// AppHosts in different worktrees don't collide and individual services
-// keep stable URLs across restarts (browser bookmarks for zitadel/pgAdmin/
-// redisInsight, psql/redis-cli connections, etc.). Mirrored in
+// Per-worktree offset for the small set of services that genuinely need
+// pinned ports — see the table below. Everything else lets Aspire allocate
+// a random ephemeral port, which is collision-free between parallel
+// AppHosts because each process gets its own random pick. Mirrored in
 // scripts/aspire.mjs for the dashboard listeners.
+//
+// Birthday-collision math is on this offset: 10 worktrees / 1000 slots ≈
+// 4.4% chance two share an offset, in which case all six pinned services
+// collide simultaneously. Acceptable for current scale; if we push past it,
+// widen the modulus or add a runtime detect-and-bump.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
 
-// Per-worktree port bases. Spaced 1000 apart so the 0-999 offset can't push
-// one band into another's range. 24000-27999 is reserved for the AppHost's
-// own listeners (see scripts/aspire.mjs: dashboard, OTLP, MCP, resource).
-var postgresPort      = 15000 + portOffset;
-var apiPort           = 16000 + portOffset;
+// Pinned per-worktree because either functionally required (web's OIDC
+// redirect URI, temporal's scheme:"tcp" endpoint) or because the URL is
+// hit directly from a browser (login UI, dev-tooling dashboards) and
+// stable bookmarks across restarts are worth keeping. Bases spaced 1000
+// apart so the 0-999 offset can't push one band into another's range.
+// 24000-27999 is reserved for the AppHost's own listeners (see
+// scripts/aspire.mjs: dashboard, OTLP, MCP, resource service).
 var temporalGrpcPort  = 17000 + portOffset;
 var temporalUiPort    = 18000 + portOffset;
 var webPort           = 19000 + portOffset;
-var workerPort        = 20000 + portOffset;
-var redisPort         = 21000 + portOffset;
 var pgAdminPort       = 22000 + portOffset;
 var redisInsightPort  = 23000 + portOffset;
-var azuriteBlobPort   = 28000 + portOffset;
-var azuriteQueuePort  = 29000 + portOffset;
-var azuriteTablePort  = 30000 + portOffset;
 var zitadelPort       = 31000 + portOffset;
 
 // Stamps every container with com.docker.compose.project so Docker Desktop
@@ -43,7 +45,7 @@ var dockerGroup = $"reviews-aspire-{worktreeId}";
 
 // One per-AppHost postgres hosts all four logical DBs; isolation between
 // parallel AppHosts comes from the worktree-scoped data volume.
-var postgres = builder.AddPostgres("postgres", password: postgresPassword, port: postgresPort)
+var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume($"reviews-aspire-postgres-{worktreeId}")
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
     .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
@@ -55,7 +57,7 @@ var zitadelDb = postgres.AddDatabase("zitadel-db", databaseName: "zitadel");
 var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
 
-var cache = builder.AddRedis("cache", port: redisPort)
+var cache = builder.AddRedis("cache")
     .WithRedisInsight(insight => insight.WithHostPort(redisInsightPort).WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
@@ -65,11 +67,7 @@ var redisUrl = ReferenceExpression.Create(
     $"rediss://default:{cache.Resource.PasswordParameter!}@{cache.GetEndpoint("tcp").Property(EndpointProperty.Host)}:{cache.GetEndpoint("tcp").Property(EndpointProperty.Port)}");
 
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(emulator => emulator
-        .WithBlobPort(azuriteBlobPort)
-        .WithQueuePort(azuriteQueuePort)
-        .WithTablePort(azuriteTablePort)
-        .WithDockerGroup(dockerGroup));
+    .RunAsEmulator(emulator => emulator.WithDockerGroup(dockerGroup));
 var images = storage.AddBlobs("images");
 
 // Per-worktree secrets dirs (overridable via REVIEWS_*_SECRETS_DIR).
@@ -175,6 +173,7 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
 
 var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
     .WithHttpEndpoint(port: temporalUiPort, targetPort: 8080)
+    .WithHttpHealthCheck("/")
     .WithEnvironment("TEMPORAL_ADDRESS", ReferenceExpression.Create(
         $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}"))
     .WithDockerGroup(dockerGroup)
@@ -194,10 +193,11 @@ var temporalConnString = ReferenceExpression.Create(
 // launchProfileName:null so AppHost doesn't inherit launchSettings' :5146 —
 // that port belongs to `npm run dev` (`dotnet watch --project backend/api`),
 // and a leftover Aspire dcp proxy holding 5146 was crashing the compose-dev
-// api with EADDRINUSE.
+// api with EADDRINUSE. WithHttpEndpoint() with no port lets Aspire allocate
+// a random ephemeral one; consumers reach the api via WithReference.
 // API owns migrations + seed; worker waits on API health before querying.
 var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
-    .WithHttpEndpoint(port: apiPort)
+    .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
@@ -209,10 +209,11 @@ var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// Without an endpoint here ASP.NET defaults to :5000 and parallel AppHosts
-// would collide.
+// WithHttpEndpoint() (no port) overrides ASP.NET's default :5000 with an
+// Aspire-allocated random ephemeral port — without it, parallel AppHosts
+// would all fight over :5000.
 var workerService = builder.AddProject<Projects.worker>("worker")
-    .WithHttpEndpoint(port: workerPort)
+    .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
