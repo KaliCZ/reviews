@@ -172,7 +172,7 @@ Mutating actions with a moderation gate go through Temporal. Two workflows in `b
 | `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject`; 3 and 4 auto-approve |
 | `EditReviewWorkflow` | Edits >1h after submission wait for `Approve`/`Reject` |
 
-Voting and deletion are synchronous in the API request — single transactional update + cache `DEL`. Delete is gated by a fresh `auth_time` claim (≤ 5 min) so a stolen access token can't quietly remove a review; a stale token returns `401 reauth_required` and the SPA bounces through `/auth/login?maxAge=300` to re-prompt the user. All four write paths (submit / edit / delete / vote) require a Turnstile token. Cache invalidation is shared between sync handlers and workflow activities via `IReviewCacheInvalidator`.
+Voting and deletion are synchronous in the API request. Voting is a single transactional vote-row write (UPSERT to cast/flip, DELETE to clear) + cache `DEL` — see [docs/flows.md §8](docs/flows.md#8-voting-on-a-review). Delete is a single transactional update + cache `DEL`, gated by a fresh `auth_time` claim (≤ 5 min) so a stolen access token can't quietly remove a review; a stale token returns `401 reauth_required` and the SPA bounces through `/auth/login?maxAge=300` to re-prompt the user. All four write paths (submit / edit / delete / vote) require a Turnstile token. Cache invalidation is shared between sync handlers and workflow activities via `IReviewCacheInvalidator`, which retries a handful of times before logging and falling back to the 24h TTL.
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 
@@ -198,3 +198,4 @@ Sorts, filters, and pages past 1 go straight to Postgres — caching their cross
 - **Postgres Row-Level Security** as a second authorization layer.
 - **Per-review translation** — language detection at submit time, translation on demand.
 - **Comment threads on reviews.** Author clarifications, brand-owner replies, shopper follow-ups.
+- **Generate the SPA's API types from OpenAPI.** `web/src/api/schema.d.ts` is already produced by `npm run generate:client` from `openapi.json`, but `web/src/api/index.ts` restates the DTOs by hand. Alias `components['schemas']` from the generated schema and keep only the bits with no upstream counterpart (`Limits`, `AuthMe`, narrowed `Rating`) hand-written, so spec drift surfaces as a type error instead of silent disagreement.

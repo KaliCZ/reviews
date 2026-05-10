@@ -219,13 +219,7 @@ public class ReviewsController(
             }
 
             // Recompute Score from vote rows so it self-heals on every write.
-            await db.Reviews
-                .Where(r => r.Id == id)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Score, _ => db.ReviewVotes
-                        .Where(v => v.ReviewId == id)
-                        .Sum(v => v.IsUpvote ? 1 : -1))
-                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
+            await db.Reviews.RecomputeScoreAsync(id, ct);
 
             await tx.CommitAsync(ct);
         });
@@ -241,6 +235,42 @@ public class ReviewsController(
                 .Select(r => r.Score)
                 .SingleAsync(ct),
             req.IsUpvote));
+    }
+
+    [HttpDelete("{id:guid}/vote")]
+    public async Task<ActionResult<VoteResponse>> RemoveVote(Guid id, CancellationToken ct)
+    {
+        var user = currentUser.User!;
+
+        var slug = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Id == id && r.Status == ReviewStatus.Approved)
+            .Select(r => (string?)r.Product.Slug.Value)
+            .SingleOrDefaultAsync(ct);
+        if (slug is null) return NotFound();
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            await db.ReviewVotes
+                .Where(v => v.ReviewId == id && v.VoterId == user.Id)
+                .ExecuteDeleteAsync(ct);
+
+            await db.Reviews.RecomputeScoreAsync(id, ct);
+
+            await tx.CommitAsync(ct);
+        });
+
+        await cacheInvalidator.InvalidateProductAsync(slug, ct);
+
+        return Ok(new VoteResponse(
+            await db.Reviews.AsNoTracking()
+                .Where(r => r.Id == id)
+                .Select(r => r.Score)
+                .SingleAsync(ct),
+            null));
     }
 
     private Task<bool> VerifyTurnstileAsync(string token, CancellationToken ct) =>

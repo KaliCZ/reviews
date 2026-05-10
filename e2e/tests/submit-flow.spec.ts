@@ -78,3 +78,58 @@ test("upvote a review and see the score change", async ({ page }) => {
     )
     .not.toBe(before);
 });
+
+test("clicking your active vote removes it", async ({ page }) => {
+  await page.goto(`/products/${productSlug}`);
+
+  const otherReview = page
+    .locator("article.review")
+    .filter({ hasNot: page.getByRole("link", { name: /Edit/ }) })
+    .first();
+  await expect(otherReview).toBeVisible();
+
+  const upBtn = otherReview.locator("button.vote").first();
+  const downBtn = otherReview.locator("button.vote").last();
+  const score = otherReview.locator(".score");
+
+  // Normalise to "upvote active" regardless of any prior test's state. One
+  // click on ▲ goes down→up or none→up (both POST) or up→none (DELETE);
+  // a follow-up click recovers the up state from the none case.
+  const firstClick = page.waitForResponse((r) =>
+    /\/api\/reviews\/[^/]+\/vote$/.test(r.url()),
+  );
+  await upBtn.click();
+  await firstClick;
+  if (!(await upBtn.evaluate((el) => el.classList.contains("active")))) {
+    const recast = page.waitForResponse(
+      (r) =>
+        /\/api\/reviews\/[^/]+\/vote$/.test(r.url()) &&
+        r.request().method() === "POST",
+    );
+    await upBtn.click();
+    await recast;
+    await expect(upBtn).toHaveClass(/active/);
+  }
+  const withUpvote = parseInt((await score.textContent()) ?? "", 10);
+
+  // Removal: same button, but the SPA emits null and the client switches to
+  // DELETE /api/reviews/{id}/vote. Score drops by 1, no button stays active.
+  const removeResp = page.waitForResponse(
+    (r) =>
+      /\/api\/reviews\/[^/]+\/vote$/.test(r.url()) &&
+      r.request().method() === "DELETE",
+  );
+  await upBtn.click();
+  const r = await removeResp;
+  expect(r.status()).toBe(200);
+
+  await expect
+    .poll(
+      async () =>
+        parseInt((await otherReview.locator(".score").textContent()) ?? "", 10),
+      { timeout: 5_000 },
+    )
+    .toBe(withUpvote - 1);
+  await expect(upBtn).not.toHaveClass(/active/);
+  await expect(downBtn).not.toHaveClass(/active/);
+});

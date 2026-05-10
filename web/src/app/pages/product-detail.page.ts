@@ -223,15 +223,19 @@ export class ProductDetailPage {
     return `/auth/login?returnTo=${ret}`;
   }
 
-  onVote(e: { id: string; isUpvote: boolean }) {
-    if (!this.turnstileToken) {
+  onVote(e: { id: string; isUpvote: boolean | null }) {
+    if (e.isUpvote !== null && !this.turnstileToken) {
       this.actionError.set(this.i18n.t('vote.turnstileRequired'));
       return;
     }
     const token = this.turnstileToken;
     this.busy.set(e.id);
     this.actionError.set(null);
-    this.api.voteReview(e.id, e.isUpvote, token).subscribe({
+    const req$ =
+      e.isUpvote === null
+        ? this.api.removeVote(e.id)
+        : this.api.voteReview(e.id, e.isUpvote, token);
+    req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. No refetch needed.
         const pg = this.page();

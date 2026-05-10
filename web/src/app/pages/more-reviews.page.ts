@@ -253,15 +253,19 @@ export class MoreReviewsPage {
       .subscribe((pg) => this.page.set(pg));
   }
 
-  onVote(e: { id: string; isUpvote: boolean }) {
-    if (!this.turnstileToken) {
+  onVote(e: { id: string; isUpvote: boolean | null }) {
+    if (e.isUpvote !== null && !this.turnstileToken) {
       this.actionError.set(this.i18n.t('vote.turnstileRequired'));
       return;
     }
     const token = this.turnstileToken;
     this.busy.set(e.id);
     this.actionError.set(null);
-    this.api.voteReview(e.id, e.isUpvote, token).subscribe({
+    const req$ =
+      e.isUpvote === null
+        ? this.api.removeVote(e.id)
+        : this.api.voteReview(e.id, e.isUpvote, token);
+    req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. Sort order on the
         // current page may now be slightly stale until the user re-sorts /
