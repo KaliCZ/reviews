@@ -63,8 +63,9 @@ public static class Seeder
             foreach (var sr in seedReviews)
             {
                 var imageUrls = sr.ImageSeeds.Select(BuildPublicUrl).ToList();
+                var reviewId = Sequential.NewGuid();
                 var review = Review.CreateSeed(
-                    id:         Sequential.NewGuid(),
+                    id:         reviewId,
                     productId:  sr.ProductId,
                     authorId:   sr.AuthorId,
                     authorName: sr.AuthorName.ToNonEmpty(),
@@ -76,6 +77,8 @@ public static class Seeder
                     status:     ReviewStatus.Approved,
                     createdAt:  sr.CreatedAt);
                 db.Reviews.Add(review);
+                foreach (var (voterId, isUpvote) in sr.Votes)
+                    db.ReviewVotes.Add(new ReviewVote(reviewId, voterId, isUpvote));
             }
             await db.SaveChangesAsync(ct);
 
