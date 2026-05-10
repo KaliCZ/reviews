@@ -35,7 +35,8 @@
   "productList": {
     "heading": "Products",
     "subtitle": "Browse the catalog. Click a product to read its reviews.",
-    "empty": "No products yet."
+    "empty": "No products yet.",
+    "loadFailed": "Couldn't load products. Please try again."
   },
   "reviewList": {
     "heading": "All reviews",

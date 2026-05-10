@@ -6,6 +6,20 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <script>
+      // Synchronous theme bootstrap so the first paint already has the right
+      // palette. Runs before stylesheet evaluation; ThemeService re-applies
+      // post-hydration but the class is already correct so no transition fires.
+      (function () {
+        try {
+          var t = localStorage.getItem('theme');
+          var dark =
+            t === 'dark' ||
+            ((!t || t === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
     <!-- Cloudflare Turnstile script. ?render=explicit means we render the
          widget ourselves from app code (TurnstileComponent), so unrelated
          pages don't pay the cost of an auto-discovery scan. -->
