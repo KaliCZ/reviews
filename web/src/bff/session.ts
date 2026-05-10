@@ -13,6 +13,13 @@ declare module 'express-session' {
       expires_at?: number;
     };
     user?: { sub: string; name?: string; email?: string };
+    // Unix-seconds timestamp of the user's last interactive sign-in. Set on
+    // /auth/callback (which is the moment the user authenticated) and
+    // forwarded to the API as `X-Auth-Time` so step-up checks have a
+    // freshness signal even when the JWT access token doesn't carry the
+    // OIDC `auth_time` claim. Refresh-token grants don't go through the
+    // callback, so this stays pinned to the last real password prompt.
+    authTime?: number;
     codeVerifier?: string;
     returnTo?: string;
   }

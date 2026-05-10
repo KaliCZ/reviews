@@ -133,7 +133,7 @@ public class ReviewsController(
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        if (RecentAuth.RequireFresh(User, RecentAuth.DeleteFreshness, Response) is { } challenge)
+        if (RecentAuth.RequireFresh(User, RecentAuth.DeleteFreshness, Request, Response) is { } challenge)
             return challenge;
 
         var token = Request.Headers[TurnstileHeader].ToString();

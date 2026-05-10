@@ -59,6 +59,18 @@ export function registerApiProxy(app: Application, options: ApiProxyOptions): vo
           if (ts?.access_token) {
             proxyReq.setHeader('Authorization', `Bearer ${ts.access_token}`);
           }
+          // ZITADEL JWT access tokens don't carry `auth_time`, so the API's
+          // step-up check relies on this BFF-pinned header instead. We always
+          // set or clear the header here so an incoming spoofed X-Auth-Time
+          // from the SPA can never reach the API; the BFF is the only thing
+          // that reaches the API in our deployments, so the trust boundary
+          // is intact.
+          const authTime = req.session?.authTime;
+          if (typeof authTime === 'number') {
+            proxyReq.setHeader('X-Auth-Time', String(authTime));
+          } else {
+            proxyReq.removeHeader('X-Auth-Time');
+          }
           // BFF session cookie stays at the BFF.
           proxyReq.removeHeader('cookie');
         },

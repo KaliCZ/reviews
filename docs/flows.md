@@ -307,7 +307,7 @@ sequenceDiagram
 
 - **Soft delete only.** Vote rows reference the review by id; hard-deleting would either orphan them or require cascade cleanup that fights the "votes are durable evidence" property.
 - **Listing endpoints filter `Status != Deleted`** so soft-deleted reviews disappear from the SPA but stay queryable for moderation tooling.
-- **`auth_time` is the OIDC claim that timestamps the IdP's user-authentication event** — token refresh doesn't bump it, so step-up checks read it to require a real password prompt.
+- **`auth_time` is the OIDC claim that timestamps the IdP's user-authentication event** — token refresh doesn't bump it, so step-up checks read it to require a real password prompt. ZITADEL emits it in id_tokens but not in JWT access tokens, so the BFF pins it onto the session at `/auth/callback` and forwards it as `X-Auth-Time`; the API prefers the JWT claim and falls back to the header. The trust boundary is the BFF — only it talks to the API, and the proxy always overrides or strips `X-Auth-Time` on every request so the SPA can't spoof it.
 
 ---
 

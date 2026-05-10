@@ -55,6 +55,13 @@ export function registerAuthRoutes(
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
         email: typeof claims['email'] === 'string' ? claims['email'] : undefined,
       };
+      // Pin the freshness signal at the moment of authentication. Prefer the
+      // IdP's id_token `auth_time` (it survives BFF restarts within session
+      // lifetime), fall back to "now" when the IdP omits it — ZITADEL emits
+      // it in the id_token but it's not guaranteed in every OIDC deployment.
+      const authTimeClaim =
+        typeof claims['auth_time'] === 'number' ? claims['auth_time'] : undefined;
+      req.session.authTime = authTimeClaim ?? Math.floor(Date.now() / 1000);
       delete req.session.codeVerifier;
       const dest = req.session.returnTo ?? '/';
       delete req.session.returnTo;

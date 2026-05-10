@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Reviews.Api.Auth;
 using Reviews.Api.Services;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
@@ -448,6 +449,60 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Contains("reauth_required", resp.Headers.WwwAuthenticate.ToString());
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
         Assert.Equal("reauth_required", doc.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_falls_back_to_X_Auth_Time_header_when_jwt_lacks_claim()
+    {
+        // ZITADEL JWT access tokens don't carry `auth_time`; the BFF pins the
+        // freshness signal in the session and forwards it as X-Auth-Time.
+        // Simulate that path: omit the claim and supply a fresh header.
+        const long productId = 5;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+        var workflowId = JsonDocument.Parse(await submit.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews.AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+        }
+
+        var freshSeconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var del = new HttpRequestMessage(HttpMethod.Delete, $"/api/reviews/{reviewId}");
+        del.Headers.Add("X-Turnstile-Token", "stub-token");
+        del.Headers.Add(TestAuthHandler.AuthTimeHeader, TestAuthHandler.AuthTimeOmitMarker);
+        del.Headers.Add(RecentAuth.AuthTimeHeader, freshSeconds.ToString());
+
+        var resp = await fx.ApiClient.SendAsync(del);
+        Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_without_any_auth_time_signal_returns_401_reauth_required()
+    {
+        // No JWT claim, no header — the API has nothing to gate on, so it
+        // must reject rather than silently accept (closed by default).
+        Guid anyReviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            anyReviewId = await db.Reviews.AsNoTracking()
+                .Select(r => r.Id).FirstAsync();
+        }
+
+        var del = new HttpRequestMessage(HttpMethod.Delete, $"/api/reviews/{anyReviewId}");
+        del.Headers.Add("X-Turnstile-Token", "stub-token");
+        del.Headers.Add(TestAuthHandler.AuthTimeHeader, TestAuthHandler.AuthTimeOmitMarker);
+
+        var resp = await fx.ApiClient.SendAsync(del);
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        Assert.Contains("reauth_required", resp.Headers.WwwAuthenticate.ToString());
     }
 
     [Fact]
