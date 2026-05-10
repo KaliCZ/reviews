@@ -88,7 +88,7 @@
   "edit": {
     "heading": "Edit your review",
     "photos": "Photos (up to {n})",
-    "moderationNotice": "Edits to reviews older than an hour go through moderator approval before they apply. The Temporal UI is where moderators send approve/reject signals.",
+    "moderationNotice": "Your edit might go through an approval process before it appears.",
     "saveFailed": "Save failed",
     "notFound": "Review not found.",
     "successTitle": "Thanks — your edit was submitted!",

@@ -88,7 +88,7 @@
   "edit": {
     "heading": "Upravit vaši recenzi",
     "photos": "Fotky (max {n})",
-    "moderationNotice": "Úpravy recenzí starších než hodinu procházejí schválením moderátora. Schvalování probíhá v Temporal UI.",
+    "moderationNotice": "Vaše úprava může před zveřejněním projít schvalovacím procesem.",
     "saveFailed": "Uložení selhalo",
     "notFound": "Recenze nenalezena.",
     "successTitle": "Děkujeme — vaše úprava byla odeslána!",
