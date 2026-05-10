@@ -33,9 +33,8 @@ async function buildApp(): Promise<Application> {
 
   app.use(await createSessionMiddleware(config.redisUrl, config.sessionSecret));
 
-  // Tag the active server span with session/user identifiers so the dashboard
-  // can group/filter all BFF spans for one user across requests. Runs after
-  // the session middleware so req.session is populated.
+  // Must run after the session middleware so req.session is populated; the
+  // attributes let the dashboard group BFF spans by user/session.
   app.use((req: Request, _res: Response, next: NextFunction) => {
     const span = trace.getActiveSpan();
     if (span) {
@@ -46,8 +45,7 @@ async function buildApp(): Promise<Application> {
     next();
   });
 
-  // One structured access log per request. Skips assets / SSR HTML so the
-  // log feed mirrors the trace filter — only /api and /auth calls show up.
+  // Skip assets / SSR HTML so the log feed mirrors the trace filter.
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!req.url.startsWith('/api') && !req.url.startsWith('/auth')) return next();
     const start = Date.now();

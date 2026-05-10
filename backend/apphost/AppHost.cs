@@ -128,10 +128,6 @@ var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithEnvironment("SESSION_SECRET", "dev-only-session-secret-rotate-in-prod")
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)
     .WithExternalHttpEndpoints()
-    // AddProject<T> wires this implicitly; AddJavaScriptApp doesn't, so the
-    // BFF's NodeSDK no-ops without it. Aspire defaults the protocol env var
-    // to grpc here regardless of the parameter, so the BFF ships the
-    // matching @opentelemetry/exporter-*-otlp-grpc packages.
     .WithOtlpExporter()
     .WaitForCompletion(zitadelBootstrap);
 

@@ -51,11 +51,8 @@ public class Program
         builder.Services.AddReviewsAuth(builder.Configuration);
         builder.Services.AddReviewsRateLimiting();
 
-        // Structured request logs land in OTel via the ASP.NET ILogger pipeline,
-        // so the Aspire dashboard can filter for 401s without parsing free-form
-        // text. Bodies and header values stay off; the Authorization header is
-        // logged by name only (see CombineLogs path) so we can spot missing
-        // tokens without leaking secrets.
+        // Default fields include request/response headers — we omit them so the
+        // Authorization Bearer token never lands in logs.
         builder.Services.AddHttpLogging(o =>
         {
             o.LoggingFields = HttpLoggingFields.RequestMethod
