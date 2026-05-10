@@ -17,6 +17,14 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
+// Single per-worktree port offset (0..999), reused everywhere we need a
+// stable host port: web, temporal grpc, temporal-ui, worker. Each consumer
+// picks its own base + this offset, so within a worktree restarts are
+// stable and across worktrees ports are deterministically distinct. Also
+// mirrored in scripts/aspire.mjs for the AppHost dashboard listeners,
+// which are bound by ASP.NET before C# code runs.
+var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+
 // Stamp every container with com.docker.compose.project so Docker Desktop
 // groups all of this AppHost's containers under one collapsible row.
 // Per-worktree value keeps parallel AppHosts in separate groups, mirroring
@@ -88,9 +96,9 @@ Directory.CreateDirectory(appSecrets);
 // port and bootstrap registered the proxy port — mismatch. Web only has
 // one caller (the browser), so the proxy hop adds no value here. The
 // trade-off is that isProxied: false requires an explicit port (Aspire
-// won't auto-allocate one for unproxied endpoints), so we derive a
-// stable per-worktree port the same way temporal does below.
-var webPort = 19000 + (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+// won't auto-allocate one for unproxied endpoints), so we use the shared
+// portOffset computed at the top.
+var webPort = 19000 + portOffset;
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
     .WithExternalHttpEndpoints();
@@ -177,17 +185,15 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     // Aspire this WaitFor is now the load-bearing gate.
     .WaitFor(zitadel);
 
-// Deterministic per-worktree ports for temporal (grpc) and temporal-ui.
-// Aspire's WithEndpoint with scheme:"tcp" doesn't reliably publish to a
-// random host port the way WithHttpEndpoint does — we have to pin one.
-// Pinning to the canonical 7233/8233 would collide between parallel
-// worktrees, so derive an offset from worktreeId: same worktree gets the
-// same ports across restarts, different worktrees get different ports.
-// Range deliberately above 16000 to avoid ranges where dev tooling tends
-// to squat (and well clear of compose's pinned 7233/8233).
-var temporalPortOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
-var temporalGrpcPort = 17000 + temporalPortOffset;
-var temporalUiPort = 18000 + temporalPortOffset;
+// Deterministic per-worktree ports for temporal (grpc) and temporal-ui,
+// using the shared portOffset computed at the top. Aspire's WithEndpoint
+// with scheme:"tcp" doesn't reliably publish to a random host port the
+// way WithHttpEndpoint does — we have to pin one. Pinning to the canonical
+// 7233/8233 would collide between parallel worktrees; the 17000/18000
+// bases are deliberately above 16000 to avoid ranges where dev tooling
+// tends to squat (and well clear of compose's pinned 7233/8233).
+var temporalGrpcPort = 17000 + portOffset;
+var temporalUiPort = 18000 + portOffset;
 
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
     .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
@@ -241,14 +247,16 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// WithHttpEndpoint forces Aspire to allocate a random host port and inject
-// ASPNETCORE_URLS, otherwise ASP.NET falls back to localhost:5000 (worker's
-// launchSettings.json has no applicationUrl) and two parallel AppHosts both
-// try to bind it. Worker only uses ASP.NET for the /alive + /health
-// endpoints registered by service-defaults, so the allocated port is
-// internal — nothing else addresses the worker by URL.
+// Pinned per-worktree port (using the shared portOffset) so two parallel
+// AppHosts don't both try to bind ASP.NET's default 127.0.0.1:5000 — the
+// worker's launchSettings.json declares no applicationUrl, so without an
+// endpoint here Aspire wouldn't override ASPNETCORE_URLS and the second
+// worker would die with AddressInUseException. Worker only uses ASP.NET
+// for the /alive + /health endpoints registered by service-defaults, so
+// the chosen port is purely internal — nothing addresses the worker by URL.
+var workerPort = 20000 + portOffset;
 var workerService = builder.AddProject<Projects.worker>("worker")
-    .WithHttpEndpoint()
+    .WithHttpEndpoint(port: workerPort)
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
