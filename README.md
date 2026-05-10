@@ -37,8 +37,6 @@ npm --prefix web install
 
 ## Three ways to run
 
-> **Aspire and compose can run side-by-side, and parallel `npm run aspire` runs in different git worktrees just work.** Compose owns the fixed ports (8080 ZITADEL, 4000 web, 8081 api, etc.) and shares state across compose worktrees via project name `reviews`. Aspire goes the other way: every resource gets a random host port and per-worktree state under `~/.reviews-dev/aspire/<worktree-id>/`, so two worktrees running `npm run aspire` end up with fully isolated stacks. Find the actual URLs in the Aspire dashboard.
-
 ### 1. Aspire (richest dev experience)
 
 ```bash
@@ -46,6 +44,8 @@ npm run aspire
 ```
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, connection strings injected automatically.
+
+Multiple `npm run aspire` runs (one per git worktree) work in parallel — each AppHost derives a worktree id from its working directory and uses it for the postgres data volume + the secrets dir, and every resource gets a random host port. The result is fully isolated stacks across worktrees; find each one's URLs in its own dashboard.
 
 ### 2. `npm run dev` (no Aspire workload required)
 
