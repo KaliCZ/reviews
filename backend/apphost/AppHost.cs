@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,7 +7,41 @@ using Aspire.Hosting.ApplicationModel;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-var builder = DistributedApplication.CreateBuilder(args);
+// "<folder> (<branch>)" as the dashboard title so parallel AppHosts are
+// distinguishable in the browser tab. cwd when AppHost runs is
+// backend/apphost, so we walk two up to the repo root.
+var repoRoot = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "..", ".."));
+var folderName = Path.GetFileName(repoRoot);
+var branchName = GetGitBranch(repoRoot);
+var dashboardTitle = branchName is null ? folderName : $"{folderName} ({branchName})";
+var builder = DistributedApplication.CreateBuilder(new DistributedApplicationOptions
+{
+    Args = args,
+    DashboardApplicationName = dashboardTitle,
+});
+
+static string? GetGitBranch(string workingDirectory)
+{
+    try
+    {
+        var psi = new ProcessStartInfo("git", "rev-parse --abbrev-ref HEAD")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var p = Process.Start(psi);
+        if (p is null) return null;
+        var output = p.StandardOutput.ReadToEnd().Trim();
+        p.WaitForExit(2000);
+        return string.IsNullOrEmpty(output) ? null : output;
+    }
+    catch
+    {
+        return null;
+    }
+}
 
 var postgresPassword = builder.AddParameter("postgres-password", secret: true);
 var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
