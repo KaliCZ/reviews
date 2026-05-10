@@ -166,8 +166,14 @@ var temporalUiEndpoint = temporalUi.GetEndpoint("http");
 temporalUi.WithEnvironment("TEMPORAL_CORS_ORIGINS", ReferenceExpression.Create(
     $"http://localhost:{temporalUiEndpoint.Property(EndpointProperty.Port)}"));
 
+// api / worker run as projects (in-process on the host), so they reach
+// temporal via the published host port — which is now random because the
+// endpoint above is unpinned. EndpointProperty.Port is host-published;
+// TargetPort would give the container-internal 7233 and miss the actual
+// listener. temporal-ui above stays on TargetPort because it's a sibling
+// container talking over Docker DNS.
 var temporalConnString = ReferenceExpression.Create(
-    $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}");
+    $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
 // API owns migrations + seed; worker waits on API health before querying.
 var api = builder.AddProject<Projects.api>("api")
