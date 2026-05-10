@@ -239,15 +239,12 @@ services:
       dockerfile: Dockerfile
     environment:
       API_URL: http://api:8080
-      PORT: "4000"
       SESSION_SECRET: dev-only-session-secret-rotate-in-prod-please
       REDIS_URL: redis://redis:6379
-      # The BFF separates browser-facing OIDC URLs (where users redirect to
-      # sign in) from server-facing ones (where the BFF exchanges the code
-      # and fetches tokens). PUBLIC stays http://localhost:8080 so the
-      # browser can resolve it; INTERNAL is http://zitadel:8080 so the
-      # docker network handles the server-to-server traffic.
-      ZITADEL_PUBLIC_URL: http://localhost:8080
+      # The BFF separates browser-facing OIDC URLs from server-facing ones:
+      # PUBLIC defaults to http://localhost:8080 (BFF code default — what the
+      # browser resolves); INTERNAL is set here to http://zitadel:8080 so the
+      # BFF's server-to-server token exchange goes over the docker network.
       ZITADEL_INTERNAL_URL: http://zitadel:8080
       REVIEWS_APP_SECRETS_DIR: /run/secrets
     ports:

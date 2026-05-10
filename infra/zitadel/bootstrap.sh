@@ -7,48 +7,144 @@
 #   admin-pat.txt   — PAT for the bootstrap service account
 #
 # Outputs (written to /app-secrets):
-#   zitadel.env     — KEY=VALUE flat dotenv for the JS BFF
-#   Auth__IssuerUrl — KeyPerFile entries for the .NET API (one file per key,
-#   Auth__Audience    filename = config key with `__` standing in for `:`).
-#                     The api's KeyPerFileConfigurationProvider picks them up
-#                     automatically.
+#   zitadel.env    — KEY=VALUE flat dotenv for the JS BFF
+#   Auth__Audience — KeyPerFile entry for the .NET API (filename = config key
+#                    with `__` standing in for `:`, picked up automatically by
+#                    KeyPerFileConfigurationProvider). The issuer URL is a
+#                    deployment-topology fact, not a bootstrap-discovered
+#                    secret, so it's set as an env var by the orchestration
+#                    layer (Aspire AppHost / docker-compose) — not here.
 #
 # Both paths are bind-mounted volumes; reset by `docker compose down -v` or
 # by deleting the host directories (default `~/.reviews-dev/`).
 
 set -eu
 
-# Compose's zitadel healthcheck waits for ZITADEL's FirstInstance to finish
-# (which is when the PAT lands on disk). Aspire's WaitFor only blocks on the
-# container starting, so bootstrap can race ahead of FirstInstance — wait for
-# the file explicitly.
-for i in $(seq 1 60); do
+# Print wipe-and-restart instructions, then exit. Same recovery for both
+# failure modes (PAT file missing, PAT file rejected) — the underlying
+# problem is always that ZITADEL's DB and the on-disk PAT have drifted out
+# of sync, and ZITADEL won't rewrite the PAT on subsequent boots, so there's
+# no automatic recovery.
+fail_with_recovery() {
+  echo ""
+  echo "[bootstrap] ERROR: $1"
+  echo ""
+  echo "  ZITADEL's DB and /zitadel-secrets/admin-pat.txt are out of sync."
+  echo "  Wipe both halves and restart so FirstInstance runs against an empty"
+  echo "  DB and writes a fresh PAT."
+  echo ""
+  if [ -n "${WORKTREE_ID:-}" ]; then
+    WID=$WORKTREE_ID
+    echo "  Aspire — stop the AppHost (Ctrl+C), then:"
+    echo ""
+    echo "  PowerShell:"
+    echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | % { docker rm -f \$_ }"
+    echo "      docker volume rm reviews-aspire-postgres-${WID}"
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\aspire\\${WID}\""
+    echo ""
+    echo "  bash / zsh:"
+    echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | xargs -r docker rm -f"
+    echo "      docker volume rm reviews-aspire-postgres-${WID}"
+    echo "      rm -rf ~/.reviews-dev/aspire/${WID}/"
+  else
+    echo "  Compose:"
+    echo ""
+    echo "  PowerShell:"
+    echo "      docker compose down -v"
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\zitadel-secrets\""
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\app-secrets\""
+    echo "      docker compose up"
+    echo ""
+    echo "  bash / zsh:"
+    echo "      docker compose down -v"
+    echo "      rm -rf ~/.reviews-dev/zitadel-secrets ~/.reviews-dev/app-secrets"
+    echo "      docker compose up"
+  fi
+  echo ""
+  exit 1
+}
+
+# This wait loop is the readiness gate for both compose and Aspire:
+#   - Compose: depends_on with service_healthy gates on the zitadel
+#     healthcheck, but bootstrap can still race against FirstInstance
+#     finishing. The PAT file appears at the moment FirstInstance writes it.
+#   - Aspire: WaitFor in 13.3 needs Healthy state, and zitadel ships no
+#     health check that Aspire reliably probes — bootstrap waits on
+#     zitadelDb instead and arrives well before zitadel finishes booting.
+# Either way: wait for the PAT file, then ZITADEL is fully ready.
+for i in 1 2 3; do
   [ -s /zitadel-secrets/admin-pat.txt ] && break
   echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"
   sleep 2
 done
+
+if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
+  fail_with_recovery "/zitadel-secrets/admin-pat.txt never appeared."
+fi
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
+
+# OIDC redirect URIs the BFF will use, registered with the OIDC app below.
+# Comma-separated so each mode can pass however many it needs:
+#   - compose: 4000 (the web container) AND 4200 (npm run dev's local web)
+#   - Aspire: whatever random port AppHost assigned to web
+# Defaults preserve compose's two-URI list so compose passes nothing extra.
+BFF_REDIRECT_URIS=${BFF_REDIRECT_URIS:-http://localhost:4000/auth/callback,http://localhost:4200/auth/callback}
+BFF_POST_LOGOUT_URIS=${BFF_POST_LOGOUT_URIS:-http://localhost:4000/,http://localhost:4200/}
+
+# Convert a comma-separated list into a JSON string array. POSIX shell, no
+# bashisms — runs in curlimages/curl's busybox sh.
+to_json_array() {
+  saved_ifs=$IFS
+  IFS=','
+  result='['
+  sep=''
+  for item in $1; do
+    result="${result}${sep}\"${item}\""
+    sep=','
+  done
+  IFS=$saved_ifs
+  echo "${result}]"
+}
+
+# ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN +
+# ZITADEL_EXTERNALPORT), so requests sent to the internal docker DNS name
+# need their Host header rewritten to the public authority. Derive it from
+# ZITADEL_PUBLIC_URL so this script works for compose (localhost:8080) and
+# for Aspire (random per-AppHost port) without extra config.
+VHOST=${ISSUER#http://}
+VHOST=${VHOST#https://}
+VHOST=${VHOST%%/*}
+
+# Sanity-check the PAT before doing real work. ZITADEL only writes the PAT
+# during FirstInstance (once per DB lifetime) — if the on-disk PAT no longer
+# matches what's in the DB, every subsequent management call would 401. Catch
+# that up front instead of retrying through 5 cryptic 401s in api() below.
+AUTH_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+  "$Z/management/v1/projects/_search" \
+  -H "Host: $VHOST" \
+  -H "Authorization: Bearer $PAT" \
+  -H "Content-Type: application/json" \
+  -d '{}')
+if [ "$AUTH_HTTP" = "401" ] || [ "$AUTH_HTTP" = "403" ]; then
+  fail_with_recovery "ZITADEL rejected the PAT (HTTP $AUTH_HTTP)."
+fi
 
 # `zitadel ready` flips green well before the projection layer has caught up,
 # so the first management calls can 404. A tiny retry loop covers the gap.
 api() {
   url=$1; method=${2:-GET}; data=${3:-}
   for i in 1 2 3 4 5; do
-    # ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN), so
-    # we explicitly send Host:localhost:8080 even though we connect via the
-    # internal docker DNS name. Without this it returns 404 from inside the
-    # network because the request appears to come from a different vhost.
     if [ -n "$data" ]; then
       out=$(curl -fsS -X "$method" "$Z$url" \
-        -H "Host: localhost:8080" \
+        -H "Host: $VHOST" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
         -d "$data") && { echo "$out"; return 0; }
     else
       out=$(curl -fsS -X "$method" "$Z$url" \
-        -H "Host: localhost:8080" \
+        -H "Host: $VHOST" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json") && { echo "$out"; return 0; }
     fi
@@ -57,6 +153,11 @@ api() {
   done
   return 1
 }
+
+# Clean up Auth__IssuerUrl from older bootstrap runs — the URL now comes from
+# orchestration env vars, and a leftover file would shadow them via KeyPerFile.
+# Done before the smart-skip so even fast-path runs scrub the leftover.
+rm -f /app-secrets/Auth__IssuerUrl
 
 # --- Smart skip ------------------------------------------------------------
 # If a previous run left zitadel.env on disk AND ZITADEL still has a matching
@@ -80,7 +181,7 @@ if [ -f /app-secrets/zitadel.env ]; then
     exit 0
   fi
   echo "[bootstrap] /app-secrets/zitadel.env stale (ZITADEL was reset?) — recreating"
-  rm -f /app-secrets/zitadel.env /app-secrets/Auth__IssuerUrl /app-secrets/Auth__Audience
+  rm -f /app-secrets/zitadel.env /app-secrets/Auth__Audience
 fi
 
 # --- Project ---------------------------------------------------------------
@@ -108,15 +209,18 @@ APP_ID=$(echo "$APP_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
 if [ -n "$APP_ID" ]; then
   echo "[bootstrap] Removing stale OIDC app $APP_ID"
   curl -fsS -X DELETE "$Z/management/v1/projects/$PID/apps/$APP_ID" \
-    -H "Host: localhost:8080" -H "Authorization: Bearer $PAT" > /dev/null
+    -H "Host: $VHOST" -H "Authorization: Bearer $PAT" > /dev/null
 fi
+
+REDIRECT_URIS_JSON=$(to_json_array "$BFF_REDIRECT_URIS")
+POST_LOGOUT_URIS_JSON=$(to_json_array "$BFF_POST_LOGOUT_URIS")
 
 # devMode=true is what lets ZITADEL accept the http:// redirect URI; without
 # it the call fails with "redirect uri is not https".
 APP_BODY="{
   \"name\":\"reviews-bff\",
-  \"redirectUris\":[\"http://localhost:4000/auth/callback\",\"http://localhost:4200/auth/callback\"],
-  \"postLogoutRedirectUris\":[\"http://localhost:4000/\",\"http://localhost:4200/\"],
+  \"redirectUris\":$REDIRECT_URIS_JSON,
+  \"postLogoutRedirectUris\":$POST_LOGOUT_URIS_JSON,
   \"responseTypes\":[\"OIDC_RESPONSE_TYPE_CODE\"],
   \"grantTypes\":[\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\",\"OIDC_GRANT_TYPE_REFRESH_TOKEN\"],
   \"appType\":\"OIDC_APP_TYPE_WEB\",
@@ -153,13 +257,12 @@ ZITADEL_CLIENT_ID=$CID
 ZITADEL_CLIENT_SECRET=$SEC
 EOF
 
-# Per-key files for the .NET API (KeyPerFileConfigurationProvider). Filenames
-# encode the IConfiguration key with `__` standing in for `:` — so
-# `Auth__IssuerUrl` surfaces as `Auth:IssuerUrl`. RequireHttps is left to the
-# api's appsettings (true in prod, overridden to false in compose); we don't
-# write it here so the framework's normal precedence stays predictable.
+# Per-key file for the .NET API (KeyPerFileConfigurationProvider). Filename
+# encodes the IConfiguration key with `__` standing in for `:` — so
+# `Auth__Audience` surfaces as `Auth:Audience`. Only the audience (= OIDC
+# client_id) is bootstrap-discovered; IssuerUrl and RequireHttps are set by
+# the orchestration layer.
 echo "[bootstrap] Writing per-key secret files for the API"
-printf "%s" "$ISSUER" > /app-secrets/Auth__IssuerUrl
-printf "%s" "$CID"    > /app-secrets/Auth__Audience
+printf "%s" "$CID" > /app-secrets/Auth__Audience
 
 echo "[bootstrap] Done. Test login: alice / Password1!"

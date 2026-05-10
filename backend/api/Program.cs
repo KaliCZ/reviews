@@ -99,7 +99,7 @@ public class Program
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy => policy
-                .WithOrigins(builder.Configuration["WEB_ORIGIN"] ?? "http://localhost:4200")
+                .WithOrigins(builder.Configuration.GetRequired<string>("WEB_ORIGIN"))
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials()); // BFF forwards Bearer tokens; cookies stay at the BFF
