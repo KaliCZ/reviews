@@ -11,7 +11,7 @@ namespace Reviews.Api.Auth;
 // we fall back to that header when the JWT itself doesn't carry the claim.
 public static class RecentAuth
 {
-    public static readonly TimeSpan DeleteFreshness = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan DeleteFreshness = TimeSpan.FromSeconds(10);
 
     // BFF-forwarded freshness header. Trusted because the API only accepts
     // traffic from the BFF, which strips/overrides this header on every
