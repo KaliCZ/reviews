@@ -25,6 +25,39 @@ public class ReviewsController(
     ITurnstileVerifier turnstile,
     IReviewCacheInvalidator cacheInvalidator) : ControllerBase
 {
+    // Author-scoped read so the edit page can load Pending reviews — the
+    // public listing under /api/products/{slug}/reviews only surfaces Approved,
+    // so without this the user can't edit a review until it's approved.
+    [HttpGet("{id:guid}")]
+    [DisableRateLimiting]
+    public async Task<ActionResult<ReviewItem>> Get(Guid id, CancellationToken ct)
+    {
+        var user = currentUser.User!;
+
+        var item = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Id == id && r.AuthorId == user.Id && r.Status != ReviewStatus.Deleted)
+            .Select(r => new ReviewItem
+            {
+                Id = r.Id,
+                ProductId = r.ProductId,
+                AuthorId = r.AuthorId,
+                AuthorName = r.AuthorName,
+                Rating = r.Rating,
+                Title = r.Title,
+                Body = r.Body,
+                ImageUrls = r.ImageUrls,
+                Score = r.Score,
+                CreatedAtUtc = r.CreatedAtUtc,
+                UpdatedAtUtc = r.UpdatedAtUtc,
+                MyVote = null,
+                Mine = true,
+            })
+            .SingleOrDefaultAsync(ct);
+
+        return item is null ? NotFound() : Ok(item);
+    }
+
     [HttpPost]
     public async Task<ActionResult<AcceptedResponse>> Submit(
         [FromBody] SubmitReviewRequest req, CancellationToken ct)

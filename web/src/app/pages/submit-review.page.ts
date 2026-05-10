@@ -39,10 +39,15 @@ import { I18nService } from '../services/i18n.service';
       }
 
       <form (submit)="submit($event)">
-        <label
-          >{{ 'submit.rating' | t }}
-          <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
-        </label>
+        <div class="rating-block">
+          <div class="rating-label">{{ 'submit.rating' | t }}</div>
+          <app-star-rating
+            [value]="rating"
+            [interactive]="true"
+            size="large"
+            (valueChange)="rating = $event"
+          />
+        </div>
 
         <label class="field">
           {{ 'submit.title' | t }}
@@ -126,9 +131,7 @@ import { I18nService } from '../services/i18n.service';
             {{ 'submit.button' | t }}
           }
         </button>
-        @if (rating === 1 || rating === 2 || rating === 5) {
-          <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
-        }
+        <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
       </form>
     } @else if (notFound()) {
       <p>{{ 'products.notFound' | t }}</p>
@@ -139,6 +142,22 @@ import { I18nService } from '../services/i18n.service';
       label {
         display: block;
         margin: 0.75rem 0;
+      }
+      .rating-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 1.5rem 0 2rem;
+        padding: 1.25rem;
+        background: var(--color-amber-bg);
+        border: 1px solid var(--color-outline-variant);
+        border-radius: 8px;
+      }
+      .rating-label {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--color-on-surface);
       }
       .counter {
         display: block;
@@ -270,7 +289,7 @@ export class SubmitReviewPage {
   // Submit stays disabled while > 0 so we don't post before URLs are known.
   protected readonly uploadsInFlight = signal(0);
 
-  protected rating = 5;
+  protected rating = 0;
   protected title = '';
   protected body = '';
   protected uploadedUrls: string[] = [];

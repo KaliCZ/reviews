@@ -63,7 +63,7 @@
     "body": "Review",
     "photos": "Photos (optional, up to {n})",
     "photosLimit": "Each image must be {mb} MB or less.",
-    "moderationNotice": "Reviews at this rating go through moderation before they appear. You can track approval in the Temporal UI.",
+    "moderationNotice": "Your review might be subject to an approval process and will appear later.",
     "button": "Submit review",
     "uploadFailed": "Upload failed",
     "submitFailed": "Submit failed",

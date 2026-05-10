@@ -63,7 +63,7 @@
     "body": "Recenze",
     "photos": "Fotky (volitelné, max {n})",
     "photosLimit": "Každá fotka může mít maximálně {mb} MB.",
-    "moderationNotice": "Recenze s tímto hodnocením procházejí moderací, než se zveřejní. Schválení můžete sledovat v Temporal UI.",
+    "moderationNotice": "Vaše recenze může projít schvalovacím procesem a zobrazí se později.",
     "button": "Odeslat recenzi",
     "uploadFailed": "Nahrání selhalo",
     "submitFailed": "Odeslání selhalo",
