@@ -16,20 +16,12 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Per-worktree offset for the few services pinned below. Mirrored in
-// scripts/aspire.mjs for the dashboard listeners.
+// Per-worktree offset for web, the only service that needs a pinned port
+// (its OIDC redirect URI is registered with zitadel by bootstrap and has
+// to match what the browser sees). Mirrored in scripts/aspire.mjs for the
+// dashboard listeners.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
-
-// Pinned services: OIDC redirect target, gRPC (no auto-allocate), and
-// browser-facing UIs where stable bookmarks help. Everything else gets a
-// random Aspire-allocated port. Bases spaced 1000 apart; 24000-27999 is
-// reserved for the AppHost's own listeners (scripts/aspire.mjs).
-var temporalGrpcPort  = 17000 + portOffset;
-var temporalUiPort    = 18000 + portOffset;
-var webPort           = 19000 + portOffset;
-var pgAdminPort       = 22000 + portOffset;
-var redisInsightPort  = 23000 + portOffset;
-var zitadelPort       = 31000 + portOffset;
+var webPort = 19000 + portOffset;
 
 // Stamps every container with com.docker.compose.project so Docker Desktop
 // shows them as one collapsible group per AppHost.
@@ -41,7 +33,7 @@ var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume($"reviews-aspire-postgres-{worktreeId}")
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
     .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
-    .WithPgAdmin(pgAdmin => pgAdmin.WithHostPort(pgAdminPort).WithDockerGroup(dockerGroup))
+    .WithPgAdmin(pgAdmin => pgAdmin.WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
 var reviewsDb = postgres.AddDatabase("reviews");
@@ -51,7 +43,6 @@ var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databa
 
 var cache = builder.AddRedis("cache")
     .WithRedisInsight(insight => insight
-        .WithHostPort(redisInsightPort)
         .WithHttpHealthCheck("/api/health")
         .WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
@@ -115,7 +106,7 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME", "postgres")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
-    .WithHttpEndpoint(name: "console", port: zitadelPort, targetPort: 8080)
+    .WithHttpEndpoint(name: "console", targetPort: 8080)
     // Gate for WaitFor(zitadel) below: flips Healthy once FirstInstance
     // completes and the management API is reachable.
     .WithHttpHealthCheck("/debug/ready", endpointName: "console")
@@ -147,27 +138,8 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadel);
 
-// Temporal is gRPC-only, so we probe the port directly. Auto-setup opens
-// it last, so port-open ≈ ready in practice.
-builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =>
-{
-    try
-    {
-        using var client = new TcpClient();
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        await client.ConnectAsync("localhost", temporalGrpcPort, cts.Token);
-        return HealthCheckResult.Healthy();
-    }
-    catch (Exception ex)
-    {
-        return HealthCheckResult.Unhealthy(ex.Message);
-    }
-});
-
-// scheme:"tcp" doesn't auto-allocate, and the canonical 7233 would collide
-// across worktrees and with compose.
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
-    .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
+    .WithEndpoint(name: "grpc", targetPort: 7233, scheme: "tcp")
     .WithEnvironment("DB", "postgres12")
     .WithEnvironment("DB_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("POSTGRES_USER", "postgres")
@@ -176,13 +148,31 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
     .WithEnvironment("DBNAME", "temporal")
     .WithEnvironment("VISIBILITY_DBNAME", "temporal_visibility")
     .WithEnvironment("ENABLE_ES", "false")
-    .WithHealthCheck("temporal-grpc-tcp")
     .WithDockerGroup(dockerGroup)
     .WaitFor(temporalDb)
     .WaitFor(temporalVisibilityDb);
 
+// gRPC has no HTTP probe path; auto-setup opens the port last, so
+// port-open ≈ ready in practice.
+var temporalGrpc = temporal.GetEndpoint("grpc");
+builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =>
+{
+    try
+    {
+        using var client = new TcpClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await client.ConnectAsync("localhost", temporalGrpc.Port, cts.Token);
+        return HealthCheckResult.Healthy();
+    }
+    catch (Exception ex)
+    {
+        return HealthCheckResult.Unhealthy(ex.Message);
+    }
+});
+temporal.WithHealthCheck("temporal-grpc-tcp");
+
 var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
-    .WithHttpEndpoint(port: temporalUiPort, targetPort: 8080)
+    .WithHttpEndpoint(targetPort: 8080)
     .WithHttpHealthCheck("/")
     .WithEnvironment("TEMPORAL_ADDRESS", ReferenceExpression.Create(
         $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}"))
