@@ -8,27 +8,22 @@ var builder = DistributedApplication.CreateBuilder(args);
 var postgresPassword = builder.AddParameter("postgres-password", secret: true);
 var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 
-// Per-worktree namespace key derived from the AppHost's working directory
-// (each git worktree has a unique repo path). Used to scope per-worktree
-// state — secrets folders and the postgres data volume — so two parallel
-// `npm run aspire` runs in different worktrees don't fight over the same
-// host paths or named volumes. Within a worktree, the same id keeps state
-// stable across AppHost restarts; across worktrees, state is fully isolated.
+// Per-worktree namespace key, used to scope shared state (secrets dirs,
+// postgres volume, container groups) so parallel AppHosts don't collide.
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Stamp every container with com.docker.compose.project so Docker Desktop
-// groups all of this AppHost's containers under one collapsible row.
-// Per-worktree value keeps parallel AppHosts in separate groups, mirroring
-// how compose's `name: reviews` groups its own stack.
+// Per-worktree offset added to the host-port bases below so parallel
+// AppHosts in different worktrees don't collide. Mirrored in
+// scripts/aspire.mjs for the dashboard listeners.
+var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+
+// Stamps every container with com.docker.compose.project so Docker Desktop
+// shows them as one collapsible group per AppHost.
 var dockerGroup = $"reviews-aspire-{worktreeId}";
 
-// Single per-AppHost postgres serves the app, ZITADEL, and Temporal — no
-// dedicated singleton for ZITADEL because we'd then need to coordinate two
-// stateful singletons across parallel AppHosts (and worry about the bootstrap
-// container being on a different docker network than the singleton). Aspire
-// plays best with everything per-session; isolation comes from the
-// worktree-scoped data volume.
+// One per-AppHost postgres hosts all four logical DBs; isolation between
+// parallel AppHosts comes from the worktree-scoped data volume.
 var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume($"reviews-aspire-postgres-{worktreeId}")
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
@@ -45,11 +40,8 @@ var cache = builder.AddRedis("cache")
     .WithRedisInsight(insight => insight.WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
-// Aspire 13.3 generates a Redis password and exposes the primary endpoint over
-// TLS with a self-signed dev cert. The .NET integrations consume the resource's
-// connection string directly; the JS BFF needs a redis-URL-shaped env var, so
-// build one here. REDIS_TLS_INSECURE tells the BFF to skip cert validation —
-// prod uses CA-signed certs and leaves it unset.
+// rediss:// URL for the JS BFF (the .NET integrations get the connection
+// string directly via WithReference, but the BFF needs an env var).
 var redisUrl = ReferenceExpression.Create(
     $"rediss://default:{cache.Resource.PasswordParameter!}@{cache.GetEndpoint("tcp").Property(EndpointProperty.Host)}:{cache.GetEndpoint("tcp").Property(EndpointProperty.Port)}");
 
@@ -57,12 +49,8 @@ var storage = builder.AddAzureStorage("storage")
     .RunAsEmulator(emulator => emulator.WithDockerGroup(dockerGroup));
 var images = storage.AddBlobs("images");
 
-// Per-worktree secrets dirs under ~/.reviews-dev/aspire/<worktree-id>/. The
-// bootstrap PAT and OIDC client secret persist across AppHost restarts within
-// a worktree (so the smart-skip in bootstrap.sh can short-circuit), but each
-// worktree is fully isolated from every other worktree and from compose's
-// `~/.reviews-dev/`. Override with REVIEWS_*_SECRETS_DIR if you need a custom
-// location.
+// Per-worktree secrets dirs (overridable via REVIEWS_*_SECRETS_DIR).
+// Survive AppHost restarts so bootstrap.sh's smart-skip can short-circuit.
 var sharedRoot = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
     ".reviews-dev",
@@ -75,42 +63,23 @@ var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
 Directory.CreateDirectory(zitadelSecrets);
 Directory.CreateDirectory(appSecrets);
 
-// Web is declared up front (just the endpoint) so zitadel-bootstrap below can
-// inject the OIDC redirect URI for whatever host port Aspire ends up
-// assigning. Aspire's PORT env var is forwarded into `ng serve --port`
-// by web/scripts/serve.mjs (Angular's dev server otherwise ignores PORT
-// and binds to its 4200 default), so pinning here actually moves ng's
-// listener too — parallel worktrees end up on different ports.
-//
-// isProxied: false collapses Aspire's normal two-port setup (proxy port +
-// inner port) into one. Without it, the BFF reads PORT (the inner port)
-// and tells ZITADEL to redirect there, while the browser is on the proxy
-// port and bootstrap registered the proxy port — mismatch. Web only has
-// one caller (the browser), so the proxy hop adds no value here. The
-// trade-off is that isProxied: false requires an explicit port (Aspire
-// won't auto-allocate one for unproxied endpoints), so we derive a
-// stable per-worktree port the same way temporal does below.
-var webPort = 19000 + (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+// Web is declared early so zitadel-bootstrap can register its OIDC redirect
+// URI; full config is chained at the bottom once api exists.
+// isProxied:false avoids Aspire's two-port proxy/inner split — the BFF and
+// the browser would otherwise see different ports and the OIDC redirect
+// would mismatch. The trade-off is that an unproxied endpoint requires a
+// pinned port. PORT is forwarded into ng serve by web/scripts/serve.mjs.
+var webPort = 19000 + portOffset;
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
     .WithExternalHttpEndpoints();
-// Plain-string URLs — NOT ReferenceExpression — because using
-// webEndpoint.Property(...) here would make bootstrap implicitly wait for
-// web's endpoint, while web already does WaitForCompletion(zitadelBootstrap)
-// → deadlock. Since webPort is a known int at C# evaluation time we can
-// interpolate it directly and skip the implicit dependency.
+// Plain strings, not ReferenceExpression: a Property() reference would add
+// an implicit bootstrap→web dependency and deadlock with web→bootstrap.
 var bffRedirectUri = $"http://localhost:{webPort}/auth/callback";
 var bffPostLogoutUri = $"http://localhost:{webPort}/";
 
-// Per-AppHost ZITADEL: each AppHost gets its own container + its own DB
-// (under the per-AppHost postgres above). Random host port lets parallel
-// AppHosts coexist; ZITADEL_PUBLIC_URL is computed from the assigned port
-// and pumped into bootstrap + web so the OIDC issuer URL stays consistent
-// with what the browser sees.
-//
-// Pinned image: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate
-// Next.js app not bundled in this image). v2.71.2 is the last v2 release
-// shipping the embedded /ui/login as the default redirect target.
+// Pinned to v2.71.2: v4 defaults to LoginV2, a separate Next.js app not
+// bundled in the image, so the embedded /ui/login redirect breaks.
 var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.2")
     .WithArgs("start-from-init", "--masterkeyFromEnv", "--steps", "/steps.yaml")
     .WithBindMount("../../infra/zitadel/steps.yaml", "/steps.yaml", isReadOnly: true)
@@ -130,24 +99,22 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", targetPort: 8080)
+    // Gate for WaitFor(zitadel) below: flips Healthy once FirstInstance
+    // completes and the management API is reachable.
+    .WithHttpHealthCheck("/debug/ready", endpointName: "console")
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadelDb);
 
-// EXTERNALPORT has to match the published host port so the issuer URL ZITADEL
-// stamps into JWTs (and the redirect URLs it builds) line up with what the
-// browser actually sees. Done as a second pass because the endpoint reference
-// only exists after WithHttpEndpoint above.
+// EXTERNALPORT must match the published host port so the issuer URL in
+// JWTs and the OIDC redirects line up with what the browser sees.
 var zitadelEndpoint = zitadel.GetEndpoint("console");
 zitadel.WithEnvironment("ZITADEL_EXTERNALPORT", zitadelEndpoint.Property(EndpointProperty.Port));
 var zitadelPublicUrl = ReferenceExpression.Create(
     $"http://localhost:{zitadelEndpoint.Property(EndpointProperty.Port)}");
 
-// Provisions the OIDC app + test user, writes per-key client secret files
-// into appSecrets where api and web pick them up. INTERNAL_URL points at the
-// docker-network sibling (container-internal port 8080); PUBLIC_URL drives
-// the issuer claim and browser redirects, so it matches the host port. The
-// redirect / post-logout URIs are passed in so bootstrap.sh can register
-// whatever port Aspire assigned to web.
+// One-shot: provisions the OIDC app + test user, writes client secrets to
+// appSecrets for api and web. INTERNAL_URL is the docker-network sibling;
+// PUBLIC_URL is what the browser sees (used for issuer + redirects).
 var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/curl", "8.10.1")
     .WithEntrypoint("/bin/sh")
     .WithArgs("-c", "/bootstrap.sh")
@@ -158,31 +125,16 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
     .WithEnvironment("BFF_REDIRECT_URIS", bffRedirectUri)
     .WithEnvironment("BFF_POST_LOGOUT_URIS", bffPostLogoutUri)
-    // Surfaced in bootstrap.sh's recovery error message so the user sees
-    // the actual paths/volume names to wipe, not <worktree-id> placeholders.
+    // Used by bootstrap.sh to print real paths in its recovery message.
     .WithEnvironment("WORKTREE_ID", worktreeId)
     .WithDockerGroup(dockerGroup)
-    // Wait on postgres (via zitadelDb), not zitadel itself: in Aspire 13.3,
-    // WaitFor needs the target's health checks to flip Healthy, and a
-    // container with no health checks stays at Unknown forever. Postgres
-    // ships with a working health check; zitadel doesn't (and our attempt
-    // at WithHttpHealthCheck wasn't actually probed). Bootstrap.sh has its
-    // own PAT-file wait loop that handles the "zitadel container started
-    // but FirstInstance not finished" race, so we don't actually need
-    // Aspire to gate on zitadel readiness here.
-    .WaitFor(zitadelDb);
+    .WaitFor(zitadel);
 
-// Deterministic per-worktree ports for temporal (grpc) and temporal-ui.
-// Aspire's WithEndpoint with scheme:"tcp" doesn't reliably publish to a
-// random host port the way WithHttpEndpoint does — we have to pin one.
-// Pinning to the canonical 7233/8233 would collide between parallel
-// worktrees, so derive an offset from worktreeId: same worktree gets the
-// same ports across restarts, different worktrees get different ports.
-// Range deliberately above 16000 to avoid ranges where dev tooling tends
-// to squat (and well clear of compose's pinned 7233/8233).
-var temporalPortOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
-var temporalGrpcPort = 17000 + temporalPortOffset;
-var temporalUiPort = 18000 + temporalPortOffset;
+// Pinned per-worktree ports for temporal: scheme:"tcp" endpoints don't
+// auto-allocate, and the canonical 7233/8233 would collide across
+// worktrees and with compose.
+var temporalGrpcPort = 17000 + portOffset;
+var temporalUiPort = 18000 + portOffset;
 
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
     .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
@@ -205,19 +157,14 @@ var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
     .WithDockerGroup(dockerGroup)
     .WaitFor(temporal);
 
-// CORS origin set after WithHttpEndpoint so the endpoint reference exists.
-// temporal-ui's dashboard JS makes XHRs back to its own origin; with a random
-// host port we have to point CORS at the assigned URL.
+// temporal-ui's dashboard JS XHRs back to its own origin, so CORS has to
+// match the assigned host port.
 var temporalUiEndpoint = temporalUi.GetEndpoint("http");
 temporalUi.WithEnvironment("TEMPORAL_CORS_ORIGINS", ReferenceExpression.Create(
     $"http://localhost:{temporalUiEndpoint.Property(EndpointProperty.Port)}"));
 
-// api / worker run as projects (in-process on the host), so they reach
-// temporal via the published host port — which is now random because the
-// endpoint above is unpinned. EndpointProperty.Port is host-published;
-// TargetPort would give the container-internal 7233 and miss the actual
-// listener. temporal-ui above stays on TargetPort because it's a sibling
-// container talking over Docker DNS.
+// api / worker run on the host, so they need the published host port
+// (Port, not TargetPort which is the container-internal 7233).
 var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
@@ -228,15 +175,17 @@ var api = builder.AddProject<Projects.api>("api")
     .WithReference(images).WaitFor(storage)
     .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
-    // Override the appsettings.Development.json fallback (http://localhost:8080).
-    // Under Aspire zitadel publishes on a random host port, and without this
-    // the JwtBearer handler retries OIDC discovery against an unreachable
-    // 8080 on every authorized request — listing endpoints crawl as a result.
+    // Overrides the appsettings :8080 fallback; under Aspire zitadel is on
+    // a random host port and JwtBearer would otherwise hammer 8080.
     .WithEnvironment("Auth__IssuerUrl", zitadelPublicUrl)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
+// Pinned per-worktree port; without an endpoint here ASP.NET defaults to
+// :5000 and parallel AppHosts collide.
+var workerPort = 20000 + portOffset;
 var workerService = builder.AddProject<Projects.worker>("worker")
+    .WithHttpEndpoint(port: workerPort)
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
@@ -244,16 +193,13 @@ var workerService = builder.AddProject<Projects.worker>("worker")
     .WaitFor(temporal)
     .WaitFor(api);
 
-// Web's full config — endpoint was declared up top so bootstrap could
-// reference the assigned port; everything else (api ref, env, OTLP) is
-// chained on now that those resources exist.
+// Web's full config (endpoint was declared at the top for bootstrap's sake).
 web
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
     .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
-    // In Aspire both URLs collapse to localhost (web runs in-process, so it
-    // reaches ZITADEL via the published host port); compose differs because
-    // that route crosses container boundaries.
+    // Both collapse to the same URL in Aspire (web runs on the host); compose
+    // differs because that route crosses container boundaries.
     .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
     .WithEnvironment("ZITADEL_INTERNAL_URL", zitadelPublicUrl)
     .WithEnvironment("REDIS_URL", redisUrl)

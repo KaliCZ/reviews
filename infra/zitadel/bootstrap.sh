@@ -20,11 +20,11 @@
 
 set -eu
 
-# Print wipe-and-restart instructions, then exit. Same recovery for both
-# failure modes (PAT file missing, PAT file rejected) — the underlying
-# problem is always that ZITADEL's DB and the on-disk PAT have drifted out
-# of sync, and ZITADEL won't rewrite the PAT on subsequent boots, so there's
-# no automatic recovery.
+# Timestamped output so the dashboard log shows phase progress and timing.
+log() { echo "[bootstrap $(date +%H:%M:%S)] $*"; }
+
+# Print wipe-and-restart instructions and exit. Used for any unrecoverable
+# state where ZITADEL's DB and the on-disk PAT have drifted out of sync.
 fail_with_recovery() {
   echo ""
   echo "[bootstrap] ERROR: $1"
@@ -64,37 +64,55 @@ fail_with_recovery() {
   exit 1
 }
 
-# This wait loop is the readiness gate for both compose and Aspire:
-#   - Compose: depends_on with service_healthy gates on the zitadel
-#     healthcheck, but bootstrap can still race against FirstInstance
-#     finishing. The PAT file appears at the moment FirstInstance writes it.
-#   - Aspire: WaitFor in 13.3 needs Healthy state, and zitadel ships no
-#     health check that Aspire reliably probes — bootstrap waits on
-#     zitadelDb instead and arrives well before zitadel finishes booting.
-# Either way: wait for the PAT file, then ZITADEL is fully ready.
-for i in 1 2 3; do
-  [ -s /zitadel-secrets/admin-pat.txt ] && break
-  echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"
-  sleep 2
-done
+log "Starting"
+log "  ZITADEL_INTERNAL_URL = ${ZITADEL_INTERNAL_URL:-http://zitadel:8080}"
+log "  ZITADEL_PUBLIC_URL   = ${ZITADEL_PUBLIC_URL:-http://localhost:8080}"
+log "  WORKTREE_ID          = ${WORKTREE_ID:-<unset, compose mode>}"
 
-if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
-  fail_with_recovery "/zitadel-secrets/admin-pat.txt never appeared."
-fi
-PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
 
-# OIDC redirect URIs the BFF will use, registered with the OIDC app below.
-# Comma-separated so each mode can pass however many it needs:
-#   - compose: 4000 (the web container) AND 4200 (npm run dev's local web)
-#   - Aspire: whatever random port AppHost assigned to web
-# Defaults preserve compose's two-URI list so compose passes nothing extra.
+# Two-phase readiness gate: ZITADEL writes the PAT during FirstInstance
+# and starts the HTTP listener afterwards, so the bootstrap needs to wait
+# for both before it can call the management API.
+
+log "Phase 1: waiting for /zitadel-secrets/admin-pat.txt"
+phase1_attempt=0
+while [ ! -s /zitadel-secrets/admin-pat.txt ]; do
+  phase1_attempt=$((phase1_attempt + 1))
+  if [ "$phase1_attempt" -gt 30 ]; then
+    fail_with_recovery "/zitadel-secrets/admin-pat.txt never appeared (waited 60s)."
+  fi
+  log "  attempt $phase1_attempt/30: PAT file not yet present, sleeping 2s"
+  sleep 2
+done
+log "Phase 1: PAT file ready (after ${phase1_attempt} retries)"
+PAT=$(cat /zitadel-secrets/admin-pat.txt)
+
+# Any HTTP response (even 4xx/5xx) means the listener is bound; auth
+# correctness is validated in phase 3.
+log "Phase 2: waiting for ZITADEL HTTP listener at $Z/debug/ready"
+phase2_attempt=0
+while true; do
+  phase2_attempt=$((phase2_attempt + 1))
+  probe_code=$(curl -sS -o /dev/null -m 5 -w "%{http_code}" "$Z/debug/ready" 2>/dev/null || echo "000")
+  if [ "$probe_code" != "000" ]; then
+    log "Phase 2: HTTP listener responded $probe_code (after ${phase2_attempt} retries)"
+    break
+  fi
+  if [ "$phase2_attempt" -ge 30 ]; then
+    fail_with_recovery "ZITADEL HTTP listener at $Z never responded (waited 60s)."
+  fi
+  log "  attempt $phase2_attempt/30: connection refused, sleeping 2s"
+  sleep 2
+done
+
+# Comma-separated OIDC redirect / logout URIs to register with the app.
+# Defaults cover compose; Aspire passes its assigned web port via env.
 BFF_REDIRECT_URIS=${BFF_REDIRECT_URIS:-http://localhost:4000/auth/callback,http://localhost:4200/auth/callback}
 BFF_POST_LOGOUT_URIS=${BFF_POST_LOGOUT_URIS:-http://localhost:4000/,http://localhost:4200/}
 
-# Convert a comma-separated list into a JSON string array. POSIX shell, no
-# bashisms — runs in curlimages/curl's busybox sh.
+# POSIX-only — runs in curlimages/curl's busybox sh.
 to_json_array() {
   saved_ifs=$IFS
   IFS=','
@@ -108,31 +126,45 @@ to_json_array() {
   echo "${result}]"
 }
 
-# ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN +
-# ZITADEL_EXTERNALPORT), so requests sent to the internal docker DNS name
-# need their Host header rewritten to the public authority. Derive it from
-# ZITADEL_PUBLIC_URL so this script works for compose (localhost:8080) and
-# for Aspire (random per-AppHost port) without extra config.
+# ZITADEL routes by Host header (matches EXTERNALDOMAIN + EXTERNALPORT),
+# so calls via the internal DNS name still need the public Host set.
 VHOST=${ISSUER#http://}
 VHOST=${VHOST#https://}
 VHOST=${VHOST%%/*}
 
-# Sanity-check the PAT before doing real work. ZITADEL only writes the PAT
-# during FirstInstance (once per DB lifetime) — if the on-disk PAT no longer
-# matches what's in the DB, every subsequent management call would 401. Catch
-# that up front instead of retrying through 5 cryptic 401s in api() below.
-AUTH_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-  "$Z/management/v1/projects/_search" \
-  -H "Host: $VHOST" \
-  -H "Authorization: Bearer $PAT" \
-  -H "Content-Type: application/json" \
-  -d '{}')
-if [ "$AUTH_HTTP" = "401" ] || [ "$AUTH_HTTP" = "403" ]; then
-  fail_with_recovery "ZITADEL rejected the PAT (HTTP $AUTH_HTTP)."
-fi
+# Phase 3: PAT acceptance. 401/403 means the on-disk PAT and ZITADEL's
+# DB are out of sync (only recoverable by wipe + re-init); fast-fail with
+# recovery instructions instead of grinding through cryptic 401s in api().
+log "Phase 3: validating PAT against ZITADEL management API"
+auth_attempt=0
+while true; do
+  auth_attempt=$((auth_attempt + 1))
+  AUTH_HTTP=$(curl -s -o /dev/null -m 5 -w "%{http_code}" -X POST \
+    "$Z/management/v1/projects/_search" \
+    -H "Host: $VHOST" \
+    -H "Authorization: Bearer $PAT" \
+    -H "Content-Type: application/json" \
+    -d '{}' || echo "000")
+  case "$AUTH_HTTP" in
+    401|403)
+      fail_with_recovery "ZITADEL rejected the PAT (HTTP $AUTH_HTTP)."
+      ;;
+    2*)
+      log "Phase 3: PAT accepted (HTTP $AUTH_HTTP, after ${auth_attempt} attempts)"
+      break
+      ;;
+    *)
+      if [ "$auth_attempt" -ge 5 ]; then
+        fail_with_recovery "Unexpected HTTP $AUTH_HTTP from ZITADEL after 5 attempts."
+      fi
+      log "  attempt $auth_attempt/5: HTTP $AUTH_HTTP, retrying in 2s"
+      sleep 2
+      ;;
+  esac
+done
 
-# `zitadel ready` flips green well before the projection layer has caught up,
-# so the first management calls can 404. A tiny retry loop covers the gap.
+# Retry wrapper: ZITADEL's projection layer can lag readiness, so the first
+# calls sometimes 404. 5 attempts × 2s covers the gap.
 api() {
   url=$1; method=${2:-GET}; data=${3:-}
   for i in 1 2 3 4 5; do
@@ -148,23 +180,20 @@ api() {
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json") && { echo "$out"; return 0; }
     fi
-    echo "[bootstrap] $method $url failed (attempt $i), retrying" >&2
+    log "$method $url failed (attempt $i), retrying" >&2
     sleep 2
   done
   return 1
 }
 
-# Clean up Auth__IssuerUrl from older bootstrap runs — the URL now comes from
-# orchestration env vars, and a leftover file would shadow them via KeyPerFile.
-# Done before the smart-skip so even fast-path runs scrub the leftover.
+# Issuer URL now comes from orchestration env; scrub any leftover file
+# that would otherwise shadow it via KeyPerFile.
 rm -f /app-secrets/Auth__IssuerUrl
 
 # --- Smart skip ------------------------------------------------------------
-# If a previous run left zitadel.env on disk AND ZITADEL still has a matching
-# OIDC app, nothing to do. The cross-check guards against the case where the
-# host's .app-secrets directory survived a postgres-volume wipe (e.g.
-# switching between Aspire and compose, or between two compose stacks) — we
-# would otherwise hand the BFF a client_id that ZITADEL never created.
+# Skip if zitadel.env on disk still matches ZITADEL's live OIDC app. The
+# cross-check catches state drift after a postgres wipe that left the
+# host secrets dir intact.
 if [ -f /app-secrets/zitadel.env ]; then
   STORED_CID=$(sed -n 's/^ZITADEL_CLIENT_ID=//p' /app-secrets/zitadel.env)
   PROJECT_LIST=$(api /management/v1/projects/_search POST \
@@ -177,15 +206,15 @@ if [ -f /app-secrets/zitadel.env ]; then
     LIVE_CID=$(echo "$APP_LIST" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
   fi
   if [ -n "$STORED_CID" ] && [ "$STORED_CID" = "$LIVE_CID" ]; then
-    echo "[bootstrap] /app-secrets/zitadel.env matches ZITADEL state — skipping"
+    log "/app-secrets/zitadel.env matches ZITADEL state — skipping"
     exit 0
   fi
-  echo "[bootstrap] /app-secrets/zitadel.env stale (ZITADEL was reset?) — recreating"
+  log "/app-secrets/zitadel.env stale (ZITADEL was reset?) — recreating"
   rm -f /app-secrets/zitadel.env /app-secrets/Auth__Audience
 fi
 
 # --- Project ---------------------------------------------------------------
-echo "[bootstrap] Looking up or creating project 'reviews'"
+log "Phase 4: looking up or creating project 'reviews'"
 PROJECT_LIST=$(api /management/v1/projects/_search POST \
   '{"queries":[{"nameQuery":{"name":"reviews","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 PID=$(echo "$PROJECT_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
@@ -193,21 +222,19 @@ PID=$(echo "$PROJECT_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
 if [ -z "$PID" ]; then
   CREATE=$(api /management/v1/projects POST '{"name":"reviews"}')
   PID=$(echo "$CREATE" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
-  echo "[bootstrap] Created project $PID"
+  log "Created project $PID"
 else
-  echo "[bootstrap] Project $PID already exists"
+  log "Project $PID already exists"
 fi
 
 # --- OIDC app --------------------------------------------------------------
-# Reaching here means the smart-skip above didn't match, so any pre-existing
-# app belongs to a stale ZITADEL state. ZITADEL only exposes client_secret at
-# create time (no working rotation endpoint in v2.71), so the only way to
-# land in a known-good state is to remove and recreate.
+# Stale app from a prior run gets deleted and recreated — ZITADEL v2.71
+# only exposes client_secret at create time, with no working rotation API.
 APP_LIST=$(api "/management/v1/projects/$PID/apps/_search" POST \
   '{"queries":[{"nameQuery":{"name":"reviews-bff","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 APP_ID=$(echo "$APP_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
 if [ -n "$APP_ID" ]; then
-  echo "[bootstrap] Removing stale OIDC app $APP_ID"
+  log "Removing stale OIDC app $APP_ID"
   curl -fsS -X DELETE "$Z/management/v1/projects/$PID/apps/$APP_ID" \
     -H "Host: $VHOST" -H "Authorization: Bearer $PAT" > /dev/null
 fi
@@ -215,8 +242,7 @@ fi
 REDIRECT_URIS_JSON=$(to_json_array "$BFF_REDIRECT_URIS")
 POST_LOGOUT_URIS_JSON=$(to_json_array "$BFF_POST_LOGOUT_URIS")
 
-# devMode=true is what lets ZITADEL accept the http:// redirect URI; without
-# it the call fails with "redirect uri is not https".
+# devMode=true lets ZITADEL accept http:// redirect URIs (dev only).
 APP_BODY="{
   \"name\":\"reviews-bff\",
   \"redirectUris\":$REDIRECT_URIS_JSON,
@@ -232,24 +258,24 @@ APP_BODY="{
   \"idTokenUserinfoAssertion\":true
 }"
 
-echo "[bootstrap] Creating OIDC app 'reviews-bff'"
+log "Phase 5: creating OIDC app 'reviews-bff'"
 APP_CREATE=$(api "/management/v1/projects/$PID/apps/oidc" POST "$APP_BODY")
 CID=$(echo "$APP_CREATE" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
 SEC=$(echo "$APP_CREATE" | sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' | head -n 1)
-echo "[bootstrap] Created OIDC app — client_id=$CID"
+log "Created OIDC app — client_id=$CID"
 
 # --- Test user -------------------------------------------------------------
-echo "[bootstrap] Importing test user 'alice' (idempotent)"
+log "Phase 6: importing test user 'alice' (idempotent)"
 api /management/v1/users/human/_import POST '{
   "userName":"alice",
   "profile":{"firstName":"Alice","lastName":"Tester"},
   "email":{"email":"alice@localhost","isEmailVerified":true},
   "password":"Password1!",
   "passwordChangeRequired":false
-}' > /dev/null 2>&1 || echo "[bootstrap] alice already exists"
+}' > /dev/null 2>&1 || log "alice already exists"
 
 # --- Output ----------------------------------------------------------------
-echo "[bootstrap] Writing /app-secrets/zitadel.env"
+log "Phase 7: writing /app-secrets/zitadel.env"
 mkdir -p /app-secrets
 cat > /app-secrets/zitadel.env <<EOF
 ZITADEL_ISSUER=$ISSUER
@@ -257,12 +283,9 @@ ZITADEL_CLIENT_ID=$CID
 ZITADEL_CLIENT_SECRET=$SEC
 EOF
 
-# Per-key file for the .NET API (KeyPerFileConfigurationProvider). Filename
-# encodes the IConfiguration key with `__` standing in for `:` — so
-# `Auth__Audience` surfaces as `Auth:Audience`. Only the audience (= OIDC
-# client_id) is bootstrap-discovered; IssuerUrl and RequireHttps are set by
-# the orchestration layer.
-echo "[bootstrap] Writing per-key secret files for the API"
+# KeyPerFileConfigurationProvider: filename `Auth__Audience` becomes the
+# IConfiguration key `Auth:Audience` for the .NET API.
+log "Writing per-key secret files for the API"
 printf "%s" "$CID" > /app-secrets/Auth__Audience
 
-echo "[bootstrap] Done. Test login: alice / Password1!"
+log "Done. Test login: alice / Password1!"
