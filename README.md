@@ -173,7 +173,7 @@ Mutating actions with a moderation gate or multi-step coordination go through Te
 | `EditReviewWorkflow` | Edits >1h after submission wait for `Approve`/`Reject` |
 | `DeleteReviewWorkflow` | Same 1h cutoff |
 
-Voting is a single transactional UPSERT + cache `DEL` and runs synchronously in the API request — see [docs/flows.md §8](docs/flows.md#8-voting-on-a-review). Cache invalidation is shared between the vote handler and the workflow activities via `IReviewCacheInvalidator`, which retries a handful of times before logging and falling back to the 24h TTL.
+Voting is a single transactional vote-row write (UPSERT to cast/flip, DELETE to clear) + cache `DEL`, and runs synchronously in the API request — see [docs/flows.md §8](docs/flows.md#8-voting-on-a-review). Cache invalidation is shared between the vote handler and the workflow activities via `IReviewCacheInvalidator`, which retries a handful of times before logging and falling back to the 24h TTL.
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 
