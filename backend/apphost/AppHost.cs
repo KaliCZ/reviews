@@ -9,13 +9,26 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume()
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
-    .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
+    .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,temporal,temporal_visibility")
     .WithPgAdmin();
 
 var reviewsDb = postgres.AddDatabase("reviews");
-var zitadelDb = postgres.AddDatabase("zitadel-db", databaseName: "zitadel");
 var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
+
+// Dedicated singleton Postgres for the Zitadel singleton below. Persistent +
+// fixed container name so two parallel AppHosts adopt the same instance
+// instead of each spawning a new one (the rest of the stack stays per-
+// AppHost so each worktree has its own reviews/temporal state). POSTGRES_DB
+// makes the postgres entrypoint create the `zitadel` database on first init —
+// no MULTIPLE_DATABASES script needed since this server only hosts one DB.
+var zitadelPostgres = builder.AddPostgres("zitadel-postgres", password: postgresPassword)
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithContainerName("reviews-aspire-zitadel-pg")
+    .WithDataVolume("reviews-aspire-zitadel-pg-data")
+    .WithEnvironment("POSTGRES_DB", "zitadel");
+
+var zitadelDb = zitadelPostgres.AddDatabase("zitadel-db", databaseName: "zitadel");
 
 var cache = builder.AddRedis("cache")
     .WithRedisInsight();
@@ -31,12 +44,16 @@ var redisUrl = ReferenceExpression.Create(
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var images = storage.AddBlobs("images");
 
-// Per-user shared dir under the home folder, so multiple worktrees attach
-// to the same bootstrap output without any env-var setup. Override with
-// REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR.
+// Aspire-specific defaults under ~/.reviews-dev/aspire/ so the singleton
+// Zitadel below doesn't fight compose's Zitadel over the same secrets dir
+// (each has its own DB; sharing /zitadel-secrets means whichever ran most
+// recently overwrites admin-pat.txt and breaks bootstrap when you switch
+// modes). Override via REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR
+// to opt back into a shared location.
 var sharedRoot = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-    ".reviews-dev");
+    ".reviews-dev",
+    "aspire");
 var zitadelSecrets = Environment.GetEnvironmentVariable("REVIEWS_ZITADEL_SECRETS_DIR")
     ?? Path.Combine(sharedRoot, "zitadel-secrets");
 var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
@@ -44,10 +61,20 @@ var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
 Directory.CreateDirectory(zitadelSecrets);
 Directory.CreateDirectory(appSecrets);
 
-// Pinned: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate Next.js app
-// not bundled in this image). v2.71.2 is the last v2 release shipping the
-// embedded /ui/login as the default redirect target.
+// Singleton Zitadel: Persistent + fixed container name so parallel AppHosts
+// (e.g. two git worktrees both running `npm run aspire`) attach to the same
+// running container instead of each trying to bind host port 8080 and write
+// to the same /zitadel-secrets bind mount. Compose's Zitadel uses a
+// different container name (project=`reviews` → `reviews-zitadel-1`) and a
+// different DB, so the two paths stay independent. They can't run at the
+// same time because both publish 8080, but that was already true.
+//
+// Pinned image: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate
+// Next.js app not bundled in this image). v2.71.2 is the last v2 release
+// shipping the embedded /ui/login as the default redirect target.
 var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.2")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithContainerName("reviews-aspire-zitadel")
     .WithArgs("start-from-init", "--masterkeyFromEnv", "--steps", "/steps.yaml")
     .WithBindMount("../../infra/zitadel/steps.yaml", "/steps.yaml", isReadOnly: true)
     .WithBindMount(zitadelSecrets, "/zitadel-secrets")
@@ -57,8 +84,8 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_EXTERNALPORT", "8080")
     .WithEnvironment("ZITADEL_TLS_ENABLED", "false")
     .WithEnvironment("ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED", "false")
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
-    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
+    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", zitadelPostgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
+    .WithEnvironment("ZITADEL_DATABASE_POSTGRES_PORT", zitadelPostgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_DATABASE", "zitadel")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_USER_USERNAME", "postgres")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_USER_PASSWORD", postgresPassword)
