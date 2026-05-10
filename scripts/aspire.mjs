@@ -25,7 +25,6 @@ const child = spawn(
   ['run', '--project', 'backend/apphost', '--no-launch-profile'],
   {
     stdio: 'inherit',
-    shell: process.platform === 'win32',
     env: {
       ...process.env,
       ASPNETCORE_URLS: `https://localhost:${dashboardPort}`,
