@@ -12,16 +12,22 @@ export interface BffConfig {
 }
 
 /**
- * Three sources, in priority order:
+ * Four sources, in priority order:
  *   1. ZITADEL_ENV_FILE — Aspire writes a per-resource path here.
- *   2. /run/secrets/zitadel.env — docker compose bind-mount.
- *   3. ../infra/zitadel/.app-secrets/zitadel.env — host path for `npm run dev`,
+ *   2. ${REVIEWS_APP_SECRETS_DIR}/zitadel.env — multi-worktree shared
+ *      override (see README, "Sharing infra across worktrees").
+ *   3. /run/secrets/zitadel.env — docker compose bind-mount.
+ *   4. ../infra/zitadel/.app-secrets/zitadel.env — host path for `npm run dev`,
  *      resolved from web/ (cwd of `npm --prefix web start`).
  *
- * Missing files are silently ignored by dotenv.
+ * Missing files are silently ignored by dotenv. dotenv.config keeps already-set
+ * vars, so earlier sources win.
  */
 export function loadConfig(): BffConfig {
   dotenv.config({ path: process.env['ZITADEL_ENV_FILE'] });
+  if (process.env['REVIEWS_APP_SECRETS_DIR']) {
+    dotenv.config({ path: `${process.env['REVIEWS_APP_SECRETS_DIR']}/zitadel.env` });
+  }
   dotenv.config({ path: '/run/secrets/zitadel.env' });
   dotenv.config({ path: '../infra/zitadel/.app-secrets/zitadel.env' });
 

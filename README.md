@@ -133,6 +133,30 @@ ZITADEL doesn't yet support project/app provisioning via its declarative YAML. S
 
 To reset auth state: `docker compose down -v && rm -rf infra/zitadel/.secrets infra/zitadel/.app-secrets`.
 
+#### Sharing infra across worktrees
+
+`docker compose` uses the directory name as the project name by default, so each git worktree gets its own isolated stack — and they all bind the same host ports (5432, 6379, 8080, 7233, 8233, 10000-10002). To run `npm run dev` from a second worktree without port collisions, the compose file pins `name: reviews` so every worktree attaches to the same containers, network, and volumes.
+
+The OIDC client_id/secret minted by `zitadel-bootstrap` are written to `infra/zitadel/.app-secrets/`, which is per-worktree. If two worktrees both run bootstrap against shared ZITADEL state, the second one rotates the credentials and breaks the first. To share the secrets too, point both worktrees at the same host directory:
+
+```bash
+# macOS / Linux — add to ~/.zshrc or ~/.bashrc
+export REVIEWS_APP_SECRETS_DIR="$HOME/.reviews-dev/app-secrets"
+export REVIEWS_ZITADEL_SECRETS_DIR="$HOME/.reviews-dev/zitadel-secrets"
+mkdir -p "$REVIEWS_APP_SECRETS_DIR" "$REVIEWS_ZITADEL_SECRETS_DIR"
+```
+
+```powershell
+# Windows — add to $PROFILE
+$env:REVIEWS_APP_SECRETS_DIR  = "$env:USERPROFILE\.reviews-dev\app-secrets"
+$env:REVIEWS_ZITADEL_SECRETS_DIR = "$env:USERPROFILE\.reviews-dev\zitadel-secrets"
+New-Item -ItemType Directory -Force -Path $env:REVIEWS_APP_SECRETS_DIR, $env:REVIEWS_ZITADEL_SECRETS_DIR | Out-Null
+```
+
+Compose substitutes these into the bind mounts, the BFF and API read from the same shared dir, and the second worktree's bootstrap sees the stored client_id matches the live ZITADEL app and skips re-creating it. CI and anyone who hasn't set the env vars keep the per-worktree path — single-worktree behaviour is unchanged.
+
+> **TODO** — this only covers the `npm run dev` path. Running `Aspire` in parallel across worktrees still collides because `backend/apphost/AppHost.cs` hardcodes host ports (8080 zitadel, 7233 temporal, 8233 temporal-ui, 4200 web) and Aspire spins up fresh containers per dashboard run rather than attaching to the shared compose stack. Fixing that needs either dynamic ports + service discovery (non-trivial because ZITADEL's external URL is baked into JWT issuer claims) or making AppHost attach to the compose-managed infra. Out of scope for now — only one Aspire at a time.
+
 ### Public vs internal URLs
 
 Inside docker, `localhost:8080` (the browser-visible ZITADEL URL) doesn't resolve to ZITADEL — that's the api/web container's own perspective. So we run with two URLs: `http://localhost:8080` is what ends up in the JWT `iss` claim and what the browser redirects to; `http://zitadel:8080` is what the API and BFF actually talk to for JWKS / token / userinfo. The token issuer the API validates against is the public one; metadata fetches go to the internal one.

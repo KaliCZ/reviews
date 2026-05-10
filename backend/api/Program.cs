@@ -20,11 +20,21 @@ public class Program
 
         // Per-key files (filename `Section__Sub` → IConfiguration `Section:Sub`).
         // The zitadel-bootstrap container writes its OIDC outputs here at runtime.
-        // docker-compose binds /run/secrets/; Aspire passes API_SECRETS_DIR.
-        // Path.GetFullPath resolves a relative API_SECRETS_DIR (e.g. set in
-        // launchSettings for the npm-run-dev path) against the API project's
-        // cwd; absolute paths from Aspire/compose pass through unchanged.
-        var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
+        // Lookup chain:
+        //   1. API_SECRETS_DIR — Aspire injects this explicitly.
+        //   2. REVIEWS_APP_SECRETS_DIR — multi-worktree shared override
+        //      (see README, "Sharing infra across worktrees").
+        //   3. /run/secrets — docker-compose bind-mount inside the API container.
+        //   4. ../../infra/zitadel/.app-secrets — host path for `dotnet watch`
+        //      from this project's cwd, single-worktree default.
+        // Path.GetFullPath resolves relatives against cwd; absolute paths pass
+        // through unchanged.
+        var secretsDir =
+            Environment.GetEnvironmentVariable("API_SECRETS_DIR")
+            ?? Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
+            ?? (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
+                ? "/run/secrets"
+                : "../../infra/zitadel/.app-secrets");
         builder.Configuration.AddKeyPerFile(
             directoryPath: Path.GetFullPath(secretsDir),
             optional: true);

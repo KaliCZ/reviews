@@ -1,3 +1,9 @@
+# Pinned name so multiple git worktrees all attach to the same containers /
+# network / volumes instead of each spinning up an isolated stack and
+# colliding on host ports. Combine with REVIEWS_APP_SECRETS_DIR (see README,
+# "Sharing infra across worktrees") to also share the bootstrap output.
+name: reviews
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -75,7 +81,9 @@ services:
       # Bind-mount instead of named volume so the bootstrap output is visible
       # on the host (and shared with the Aspire run path). Resets via
       # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
-      - ./infra/zitadel/.secrets:/zitadel-secrets
+      # REVIEWS_ZITADEL_SECRETS_DIR overrides the path for multi-worktree
+      # setups; default keeps single-worktree behaviour.
+      - ${REVIEWS_ZITADEL_SECRETS_DIR:-./infra/zitadel/.secrets}:/zitadel-secrets
     healthcheck:
       test: ["CMD", "/app/zitadel", "ready"]
       interval: 5s
@@ -107,8 +115,8 @@ services:
       # Bind-mount instead of named volume so the bootstrap output is visible
       # on the host (and shared with the Aspire run path). Resets via
       # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
-      - ./infra/zitadel/.secrets:/zitadel-secrets:ro
-      - ./infra/zitadel/.app-secrets:/app-secrets
+      - ${REVIEWS_ZITADEL_SECRETS_DIR:-./infra/zitadel/.secrets}:/zitadel-secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-./infra/zitadel/.app-secrets}:/app-secrets
     depends_on:
       zitadel:
         condition: service_healthy
@@ -203,7 +211,7 @@ services:
       # matches).
       Auth__IssuerReachableUrl: http://zitadel:8080
     volumes:
-      - ./infra/zitadel/.app-secrets:/run/secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-./infra/zitadel/.app-secrets}:/run/secrets:ro
     ports:
       - "8081:8080"
     healthcheck:
@@ -247,7 +255,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - ./infra/zitadel/.app-secrets:/run/secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-./infra/zitadel/.app-secrets}:/run/secrets:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/"]
       interval: 5s
