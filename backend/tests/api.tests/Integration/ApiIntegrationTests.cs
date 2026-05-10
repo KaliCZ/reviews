@@ -347,7 +347,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         }
 
         var up = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
-            JsonContent("""{"isUpvote": true}"""));
+            JsonContent("""{"isUpvote": true, "turnstileToken": "stub-token"}"""));
         Assert.Equal(HttpStatusCode.OK, up.StatusCode);
 
         var remove = await fx.ApiClient.DeleteAsync($"/api/reviews/{reviewId}/vote");

@@ -92,6 +92,10 @@ test("clicking your active vote removes it", async ({ page }) => {
   const downBtn = otherReview.locator("button.vote").last();
   const score = otherReview.locator(".score");
 
+  // Cast/flip is Turnstile-gated; without a token onVote() short-circuits.
+  // Removal (DELETE) is ungated, but the first click here may go either way.
+  await waitForTurnstile(page);
+
   // Normalise to "upvote active" regardless of any prior test's state. One
   // click on ▲ goes down→up or none→up (both POST) or up→none (DELETE);
   // a follow-up click recovers the up state from the none case.
@@ -101,6 +105,8 @@ test("clicking your active vote removes it", async ({ page }) => {
   await upBtn.click();
   await firstClick;
   if (!(await upBtn.evaluate((el) => el.classList.contains("active")))) {
+    // Widget was reset after the previous POST — wait for a fresh token.
+    await waitForTurnstile(page);
     const recast = page.waitForResponse(
       (r) =>
         /\/api\/reviews\/[^/]+\/vote$/.test(r.url()) &&
