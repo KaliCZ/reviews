@@ -105,7 +105,8 @@
     "downvote": "Hlasovat proti této recenzi",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
     "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu.",
-    "turnstileRequired": "Před hlasováním nebo smazáním dokončete prosím ověření."
+    "turnstileRequired": "Před hlasováním nebo smazáním dokončete prosím ověření.",
+    "reauthPrompt": "Z bezpečnostních důvodů se před smazáním vaší recenze musíte znovu přihlásit. Pokračovat?"
   },
   "reviewCard": {
     "imageAlt": "fotka recenze"

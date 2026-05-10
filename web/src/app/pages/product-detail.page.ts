@@ -274,7 +274,8 @@ export class ProductDetailPage {
         this.busy.set(null);
       },
       error: (err) => {
-        if (handleReauthRequired(err, `/products/${this.slug()}`)) return;
+        if (handleReauthRequired(err, `/products/${this.slug()}`, this.i18n.t('vote.reauthPrompt')))
+          return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
         this.turnstileWidget?.reset();
         this.busy.set(null);

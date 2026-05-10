@@ -105,7 +105,8 @@
     "downvote": "Downvote this review",
     "voteFailed": "Vote failed. Please try again.",
     "deleteFailed": "Delete failed. Please try again.",
-    "turnstileRequired": "Please complete the verification check before voting or deleting."
+    "turnstileRequired": "Please complete the verification check before voting or deleting.",
+    "reauthPrompt": "For your security, you'll be asked to sign in again before we can delete your review. Continue?"
   },
   "reviewCard": {
     "imageAlt": "review photo"
