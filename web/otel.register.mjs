@@ -37,8 +37,21 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     instrumentations: getNodeAutoInstrumentations({
       // fs spans drown out everything else and aren't actionable here.
       '@opentelemetry/instrumentation-fs': { enabled: false },
-      // Pino bridges its records into the OTel log pipeline + injects trace ids.
-      '@opentelemetry/instrumentation-pino': { enabled: true },
+      // SPA bundles fetch dozens of JS chunks / CSS / favicons per page
+      // load; those create per-asset traces that bury the /api and /auth
+      // calls we care about. Drop the HTTP server span for asset routes —
+      // express middleware spans nested under them get orphaned and the
+      // exporter discards orphans.
+      '@opentelemetry/instrumentation-http': {
+        ignoreIncomingRequestHook: (req) => {
+          const url = req.url ?? '';
+          return !url.startsWith('/api') && !url.startsWith('/auth');
+        },
+      },
+      // We emit logs through @opentelemetry/api-logs ourselves (see
+      // src/bff/logger.ts) because Angular's bundler eats pino, so the
+      // instrumentation patch never applies.
+      '@opentelemetry/instrumentation-pino': { enabled: false },
     }),
   });
   sdk.start();
