@@ -29,11 +29,20 @@ test("5-star review waits for moderation, appears after Approve signal", async (
   });
   expect(workflowId).toMatch(/^submit-review-/);
 
-  // Moderation gate runs before persist — verify the row is NOT visible yet.
+  // The author sees their own Pending review in the dedicated overlay
+  // section, but it must NOT leak into the public reviews list before the
+  // moderator approves it.
   await page.waitForTimeout(2_000);
   await page.goto(`/products/${productSlug}`);
   await expect(
-    page.locator("article.review .body", { hasText: body }),
+    page.locator("section.my-review article.review .body", { hasText: body }),
+  ).toHaveCount(1);
+  await expect(page.locator("section.my-review .status.pending")).toBeVisible();
+  await expect(
+    page.locator(
+      "article.review:not(section.my-review article.review) .body",
+      { hasText: body },
+    ),
   ).toHaveCount(0);
 
   const conn = await Connection.connect({ address: "localhost:7233" });

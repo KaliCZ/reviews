@@ -19,6 +19,25 @@ import { I18nService } from '../services/i18n.service';
       </p>
       <h1>{{ 'submit.heading' | t: { product: p.name } }}</h1>
 
+      @if (showSuccess()) {
+        <div class="modal-backdrop" role="presentation" (click)="goBack()">
+          <div
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            [attr.aria-labelledby]="'submit-success-title'"
+            (click)="$event.stopPropagation()"
+          >
+            <h2 id="submit-success-title">{{ 'submit.successTitle' | t }}</h2>
+            <p>{{ 'submit.successBody' | t }}</p>
+            <p class="muted">{{ 'submit.successModeration' | t }}</p>
+            <button type="button" (click)="goBack()">
+              {{ 'submit.successBack' | t: { name: p.name } }}
+            </button>
+          </div>
+        </div>
+      }
+
       <form (submit)="submit($event)">
         <div class="rating-block">
           <div class="rating-label">{{ 'submit.rating' | t }}</div>
@@ -112,6 +131,9 @@ import { I18nService } from '../services/i18n.service';
             {{ 'submit.button' | t }}
           }
         </button>
+        @if (!submitting() && disabledReason(); as reason) {
+          <p class="hint" role="status">{{ reason }}</p>
+        }
         <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
       </form>
     } @else if (notFound()) {
@@ -152,6 +174,11 @@ import { I18nService } from '../services/i18n.service';
       }
       .counter.under {
         color: #b45309;
+      }
+      .hint {
+        margin: 0.5rem 0 0;
+        color: #b45309;
+        font-size: 0.9rem;
       }
       fieldset {
         margin: 0.75rem 0;
@@ -220,6 +247,35 @@ import { I18nService } from '../services/i18n.service';
         color: #2563eb;
         text-decoration: none;
       }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        z-index: 100;
+      }
+      .modal {
+        background: var(--color-surface, #fff);
+        color: var(--color-on-surface, inherit);
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 28rem;
+        width: 100%;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+      }
+      .modal h2 {
+        margin: 0 0 0.75rem;
+      }
+      .modal p {
+        margin: 0 0 0.75rem;
+        line-height: 1.5;
+      }
+      .modal button {
+        margin-top: 0.5rem;
+      }
     `,
   ],
 })
@@ -237,6 +293,7 @@ export class SubmitReviewPage {
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
+  protected readonly showSuccess = signal(false);
   // Submit stays disabled while > 0 so we don't post before URLs are known.
   protected readonly uploadsInFlight = signal(0);
 
@@ -271,6 +328,35 @@ export class SubmitReviewPage {
       this.turnstileToken.length > 0 &&
       this.uploadsInFlight() === 0
     );
+  }
+
+  disabledReason(): string | null {
+    if (this.rating < 1 || this.rating > 5) {
+      return this.i18n.t('submit.disabledHint.rating');
+    }
+    if (this.title.trim().length === 0) {
+      return this.i18n.t('submit.disabledHint.title');
+    }
+    if (this.title.length > Limits.titleMax) {
+      return this.i18n.t('submit.disabledHint.titleLong');
+    }
+    const bodyLen = this.body.trim().length;
+    if (bodyLen < Limits.bodyMin) {
+      return this.i18n.t('submit.disabledHint.body', {
+        min: Limits.bodyMin,
+        n: Limits.bodyMin - bodyLen,
+      });
+    }
+    if (this.body.length > Limits.bodyMax) {
+      return this.i18n.t('submit.disabledHint.bodyLong');
+    }
+    if (this.uploadsInFlight() > 0) {
+      return this.i18n.t('submit.disabledHint.uploads', { n: this.uploadsInFlight() });
+    }
+    if (this.turnstileToken.length === 0) {
+      return this.i18n.t('submit.disabledHint.turnstile');
+    }
+    return null;
   }
 
   onFiles(e: Event) {
@@ -344,12 +430,24 @@ export class SubmitReviewPage {
       })
       .subscribe({
         next: () => {
-          this.router.navigate(['/products', p.slug]);
+          // Don't auto-navigate — the product page reads from a cache that
+          // may not be invalidated yet, and Pending reviews aren't in the
+          // shared listing at all. Show a confirmation so the user knows
+          // it landed and clicks through deliberately; the product page
+          // overlays their own review (any status) regardless of cache.
+          this.showSuccess.set(true);
+          this.submitting.set(false);
         },
         error: (err) => {
           this.error.set(err.error ?? err.message ?? this.i18n.t('submit.submitFailed'));
           this.submitting.set(false);
         },
       });
+  }
+
+  goBack(): void {
+    const p = this.product();
+    if (!p) return;
+    this.router.navigate(['/products', p.slug]);
   }
 }

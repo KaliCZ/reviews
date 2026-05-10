@@ -52,6 +52,13 @@ export async function submitReview(
     workflowId: string;
     status: string;
   };
+
+  // Success modal blocks auto-redirect; click through so callers land on the
+  // product page (same destination as the old auto-navigate).
+  const backButton = page.getByRole("button", { name: /Back to /i });
+  await expect(backButton).toBeVisible({ timeout: 5_000 });
+  await backButton.click();
+
   return { workflowId: accepted.workflowId };
 }
 

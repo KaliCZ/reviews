@@ -40,6 +40,10 @@ public record ReviewItem
     public DateTime UpdatedAtUtc { get; init; }
     public bool? MyVote { get; init; }
     public bool Mine { get; init; }
+    // Approved for everything in the shared listing; only the per-viewer
+    // MyReview overlay carries Pending or Rejected.
+    [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+    public ReviewStatus Status { get; init; } = ReviewStatus.Approved;
 }
 
 public record ReviewsPage
@@ -48,6 +52,11 @@ public record ReviewsPage
     public int Page { get; init; }
     public int PageSize { get; init; }
     public int TotalCount { get; init; }
+    // The viewer's own review for the product (any non-Deleted status), so
+    // they see it immediately after submitting even while it's Pending or
+    // before the cached page is invalidated. Filtered out of `Items` to
+    // avoid duplication. Null for anonymous viewers or no own review.
+    public ReviewItem? MyReview { get; init; }
 }
 
 // Type-level converter (not global) — a global JsonStringEnumConverter would

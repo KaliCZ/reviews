@@ -3,6 +3,7 @@ import { Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
 import { AuthService } from '../services/auth.service';
+import { I18nService } from '../services/i18n.service';
 import { ReviewItem } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 
@@ -34,8 +35,8 @@ import { TPipe } from '../pipes/t.pipe';
             type="button"
             class="vote"
             [class.active]="review().myVote === true"
-            [disabled]="!auth.authenticated() || busy()"
-            [title]="!auth.authenticated() ? ('vote.signInToVote' | t) : null"
+            [disabled]="!auth.authenticated() || isMine() || busy()"
+            [title]="voteDisabledReason()"
             (click)="cast(true)"
           >
             ▲
@@ -45,8 +46,8 @@ import { TPipe } from '../pipes/t.pipe';
             type="button"
             class="vote"
             [class.active]="review().myVote === false"
-            [disabled]="!auth.authenticated() || busy()"
-            [title]="!auth.authenticated() ? ('vote.signInToVote' | t) : null"
+            [disabled]="!auth.authenticated() || isMine() || busy()"
+            [title]="voteDisabledReason()"
             (click)="cast(false)"
           >
             ▼
@@ -167,6 +168,7 @@ import { TPipe } from '../pipes/t.pipe';
 })
 export class ReviewCard {
   protected readonly auth = inject(AuthService);
+  private readonly i18n = inject(I18nService);
 
   readonly review = input.required<ReviewItem>();
   readonly productSlug = input.required<string>();
@@ -178,8 +180,14 @@ export class ReviewCard {
   // UI affordance only — destructive actions are gated server-side.
   readonly isMine = computed(() => this.review().mine);
 
+  voteDisabledReason(): string | null {
+    if (!this.auth.authenticated()) return this.i18n.t('vote.signInToVote');
+    if (this.isMine()) return this.i18n.t('vote.cantVoteOwn');
+    return null;
+  }
+
   cast(isUpvote: boolean) {
-    if (!this.auth.authenticated()) return;
+    if (!this.auth.authenticated() || this.isMine()) return;
     this.vote.emit({ id: this.review().id, isUpvote });
   }
 }
