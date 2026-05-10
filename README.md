@@ -68,7 +68,8 @@ Builds and runs everything containerized. Reviewer needs only Docker.
 ### After it boots
 
 - **Aspire** — every URL is in the dashboard (printed on startup). Frontend, API, ZITADEL Console, Temporal UI all on random ports per AppHost run.
-- **Compose** — fixed ports: frontend <http://localhost:4000>, API <http://localhost:8081>, ZITADEL Console <http://localhost:8080>, Temporal UI <http://localhost:8233>.
+- **`npm run dev`** — frontend <http://localhost:4200>, API <http://localhost:5146>, ZITADEL Console <http://localhost:8080>, Temporal UI <http://localhost:8233>.
+- **Compose** — frontend <http://localhost:4000>, API <http://localhost:8081>, ZITADEL Console <http://localhost:8080>, Temporal UI <http://localhost:8233>.
 - ZITADEL admin login (both modes): `zitadel-admin@reviews.localhost` / `Password1!`.
 - Test user for the app: `alice@localhost` / `Password1!` — pre-verified, log straight in.
 
