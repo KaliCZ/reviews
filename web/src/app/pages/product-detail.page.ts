@@ -9,7 +9,6 @@ import { ProductDetail, ReviewsPage } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
 import { handleReauthRequired } from '../services/reauth';
-import { ConfirmDialogService } from '../components/confirm-dialog';
 
 @Component({
   imports: [RouterLink, StarRating, ReviewCard, TurnstileComponent, TPipe],
@@ -188,7 +187,6 @@ export class ProductDetailPage {
   private readonly api = inject(ApiService);
   protected readonly auth = inject(AuthService);
   private readonly i18n = inject(I18nService);
-  private readonly confirmDialog = inject(ConfirmDialogService);
 
   readonly slug = input.required<string>();
 
@@ -266,13 +264,7 @@ export class ProductDetailPage {
   }
 
   async onDelete(id: string) {
-    const ok = await this.confirmDialog.show({
-      message: this.i18n.t('vote.deleteConfirm'),
-      confirmLabel: this.i18n.t('common.delete'),
-      cancelLabel: this.i18n.t('common.cancel'),
-      destructive: true,
-    });
-    if (!ok) return;
+    if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.busy.set(id);
     this.actionError.set(null);
     const token = await this.waitForTurnstileToken();
@@ -288,14 +280,7 @@ export class ProductDetailPage {
         this.busy.set(null);
       },
       error: (err) => {
-        if (
-          handleReauthRequired(err, `/products/${this.slug()}`, {
-            message: this.i18n.t('vote.reauthPrompt'),
-            confirm: this.confirmDialog,
-            confirmLabel: this.i18n.t('common.continue'),
-            cancelLabel: this.i18n.t('common.cancel'),
-          })
-        )
+        if (handleReauthRequired(err, `/products/${this.slug()}`, this.i18n.t('vote.reauthPrompt')))
           return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
         this.turnstileWidget?.reset();

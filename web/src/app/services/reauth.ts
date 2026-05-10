@@ -1,20 +1,12 @@
 // Step-up auth: when the API responds 401 with `error: "reauth_required"`,
 // the user must re-prompt at ZITADEL with `max_age` so a fresh `auth_time`
-// claim lands on the next access token. Returns whether the response was
-// a reauth_required (caller skips its own error handling either way); the
-// async redirect runs through a confirm dialog so the user understands
-// why they're being bounced back to the IdP.
-import type { ConfirmDialogService } from '../components/confirm-dialog';
-
+// claim lands on the next access token. Returns true if a redirect was
+// initiated. The `promptMessage`, when supplied, is shown via confirm()
+// so the user understands why they're being bounced back to the IdP.
 export function handleReauthRequired(
   err: { status?: number; error?: unknown },
   returnTo: string,
-  prompt?: {
-    message: string;
-    confirm: ConfirmDialogService;
-    confirmLabel: string;
-    cancelLabel: string;
-  },
+  promptMessage?: string,
   maxAgeSeconds = 20,
 ): boolean {
   if (err.status !== 401) return false;
@@ -25,20 +17,8 @@ export function handleReauthRequired(
       : null;
   if (code !== 'reauth_required') return false;
   if (typeof window === 'undefined') return false;
+  if (promptMessage && !window.confirm(promptMessage)) return true;
   const ret = encodeURIComponent(returnTo);
-  const target = `/auth/login?maxAge=${maxAgeSeconds}&returnTo=${ret}`;
-  if (prompt) {
-    prompt.confirm
-      .show({
-        message: prompt.message,
-        confirmLabel: prompt.confirmLabel,
-        cancelLabel: prompt.cancelLabel,
-      })
-      .then((ok) => {
-        if (ok) window.location.href = target;
-      });
-  } else {
-    window.location.href = target;
-  }
+  window.location.href = `/auth/login?maxAge=${maxAgeSeconds}&returnTo=${ret}`;
   return true;
 }
