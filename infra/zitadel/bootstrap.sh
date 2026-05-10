@@ -20,11 +20,7 @@
 
 set -eu
 
-# Timestamped log helper. Each line is prefixed with [bootstrap HH:MM:SS]
-# so we can tell from the dashboard exactly where in the script we are and
-# how long each phase took. Critical when the script silently exits 7 from
-# a `curl -s` deep inside a $(...) expansion — without timestamps the only
-# evidence is "no output, exit 7."
+# Timestamped output so the dashboard log shows phase progress and timing.
 log() { echo "[bootstrap $(date +%H:%M:%S)] $*"; }
 
 # Print wipe-and-restart instructions, then exit. Same recovery for both
@@ -79,26 +75,9 @@ log "  WORKTREE_ID          = ${WORKTREE_ID:-<unset, compose mode>}"
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
 
-# Two-phase readiness gate. Each phase has its own ~60s budget because
-# parallel ZITADELs on one Docker engine slow each other's FirstInstance
-# materially (CPU/IO contention) — the original 6s combined budget was
-# enough for a single instance on an idle box and not much else.
-#
-#   Phase 1: PAT file appears. Written by ZITADEL's FirstInstance via
-#            steps.yaml — signals that the setup steps ran, but NOT that
-#            the HTTP listener is up.
-#   Phase 2: HTTP listener accepting requests. ZITADEL boots its HTTP
-#            server after FirstInstance, so PAT-on-disk and "port 8080
-#            listening" are sequential, not simultaneous. Skipping this
-#            phase is what produced the silent exit-7 we used to see —
-#            $(curl -s) below would hit a closed socket and `set -e`
-#            would tear the script down with no diagnostic.
-#
-# Both phases apply to compose and Aspire equally. Compose's
-# depends_on:service_healthy gates on the zitadel container healthcheck,
-# but bootstrap can still race FirstInstance write-then-bind. Aspire's
-# WaitFor on bootstrap intentionally targets zitadelDb (not zitadel) —
-# see backend/apphost/AppHost.cs for why.
+# Two-phase readiness gate: ZITADEL writes the PAT during FirstInstance
+# and starts the HTTP listener afterwards, so the bootstrap needs to wait
+# for both before it can call the management API.
 
 log "Phase 1: waiting for /zitadel-secrets/admin-pat.txt"
 phase1_attempt=0
@@ -113,11 +92,8 @@ done
 log "Phase 1: PAT file ready (after ${phase1_attempt} retries)"
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 
-# `until` plus `|| true` keeps `set -e` from killing the script on a curl
-# connection failure — we want to retry on exit 7 (couldn't connect) until
-# the listener appears. -m 5 caps each probe at 5s so a wedged ZITADEL
-# can't stall us. Any HTTP response body (even a 4xx or 5xx) means the
-# listener is up; auth correctness is checked separately in phase 3.
+# Any HTTP response (even 4xx/5xx) means the listener is bound; auth
+# correctness is validated in phase 3.
 log "Phase 2: waiting for ZITADEL HTTP listener at $Z/debug/ready"
 phase2_attempt=0
 while true; do
@@ -166,17 +142,9 @@ VHOST=${ISSUER#http://}
 VHOST=${VHOST#https://}
 VHOST=${VHOST%%/*}
 
-# Phase 3: PAT acceptance.
-# Sanity-check the PAT before doing real work. ZITADEL only writes the PAT
-# during FirstInstance (once per DB lifetime) — if the on-disk PAT no longer
-# matches what's in the DB, every subsequent management call would 401. Catch
-# that up front instead of retrying through 5 cryptic 401s in api() below.
-#
-# Trailing `|| echo "000"` keeps `set -e` from killing the script on a
-# transient curl failure (exit 7 in particular) — phase 2 already proved the
-# listener is up, but a connection can still flake under heavy parallel
-# load. We retry a couple of times on 000 / 5xx; the 401/403 fast-fail still
-# fires on the first response that actually came from ZITADEL.
+# Phase 3: PAT acceptance. 401/403 means the on-disk PAT and ZITADEL's
+# DB are out of sync (only recoverable by wipe + re-init); fast-fail with
+# recovery instructions instead of grinding through cryptic 401s in api().
 log "Phase 3: validating PAT against ZITADEL management API"
 auth_attempt=0
 while true; do

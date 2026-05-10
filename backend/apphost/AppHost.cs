@@ -17,12 +17,9 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Single per-worktree port offset (0..999), reused everywhere we need a
-// stable host port: web, temporal grpc, temporal-ui, worker. Each consumer
-// picks its own base + this offset, so within a worktree restarts are
-// stable and across worktrees ports are deterministically distinct. Also
-// mirrored in scripts/aspire.mjs for the AppHost dashboard listeners,
-// which are bound by ASP.NET before C# code runs.
+// Per-worktree offset added to the host-port bases below so parallel
+// AppHosts in different worktrees don't collide. Mirrored in
+// scripts/aspire.mjs for the dashboard listeners.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
 
 // Stamp every container with com.docker.compose.project so Docker Desktop
@@ -138,12 +135,8 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", targetPort: 8080)
-    // Gates downstream WaitFor(zitadel) on FirstInstance completing — that's
-    // when /debug/ready starts returning 200. Mirrors compose's
-    // `/app/zitadel ready` healthcheck. A previous attempt (commit 38595e9)
-    // found probes weren't firing in an earlier Aspire build and was
-    // reverted; verified working again in 13.3 — observe in the dashboard
-    // it briefly shows Unhealthy then flips to Healthy a few seconds in.
+    // Gate for WaitFor(zitadel) below: flips Healthy once FirstInstance
+    // completes and the management API is reachable.
     .WithHttpHealthCheck("/debug/ready", endpointName: "console")
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadelDb);
@@ -177,21 +170,11 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     // the actual paths/volume names to wipe, not <worktree-id> placeholders.
     .WithEnvironment("WORKTREE_ID", worktreeId)
     .WithDockerGroup(dockerGroup)
-    // Gate on zitadel's HTTP healthcheck (defined above): bootstrap can't
-    // reach the management API until /debug/ready returns 200, so waiting
-    // here removes the race that previously surfaced as a silent exit 7
-    // under parallel-AppHost contention. bootstrap.sh's phase 2 HTTP wait
-    // remains as a backstop and still carries the compose path, but in
-    // Aspire this WaitFor is now the load-bearing gate.
     .WaitFor(zitadel);
 
-// Deterministic per-worktree ports for temporal (grpc) and temporal-ui,
-// using the shared portOffset computed at the top. Aspire's WithEndpoint
-// with scheme:"tcp" doesn't reliably publish to a random host port the
-// way WithHttpEndpoint does — we have to pin one. Pinning to the canonical
-// 7233/8233 would collide between parallel worktrees; the 17000/18000
-// bases are deliberately above 16000 to avoid ranges where dev tooling
-// tends to squat (and well clear of compose's pinned 7233/8233).
+// Pinned per-worktree ports for temporal: scheme:"tcp" endpoints don't
+// auto-allocate, and the canonical 7233/8233 would collide across
+// worktrees and with compose.
 var temporalGrpcPort = 17000 + portOffset;
 var temporalUiPort = 18000 + portOffset;
 
@@ -247,13 +230,8 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// Pinned per-worktree port (using the shared portOffset) so two parallel
-// AppHosts don't both try to bind ASP.NET's default 127.0.0.1:5000 — the
-// worker's launchSettings.json declares no applicationUrl, so without an
-// endpoint here Aspire wouldn't override ASPNETCORE_URLS and the second
-// worker would die with AddressInUseException. Worker only uses ASP.NET
-// for the /alive + /health endpoints registered by service-defaults, so
-// the chosen port is purely internal — nothing addresses the worker by URL.
+// Pinned per-worktree port; without an endpoint here ASP.NET defaults to
+// :5000 and parallel AppHosts collide.
 var workerPort = 20000 + portOffset;
 var workerService = builder.AddProject<Projects.worker>("worker")
     .WithHttpEndpoint(port: workerPort)
