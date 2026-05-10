@@ -86,13 +86,13 @@ sequenceDiagram
 
     B->>S: GET /
     S->>A: GET /api/products
-    A->>R: lookup catalog
+    A->>R: GET products:list
 
     alt cache hit
         R-->>A: cached payload
     else cache miss
         A->>P: load products + aggregates
-        A->>R: cache (24h)
+        A->>R: SET products:list (TTL: 24h)
     end
 
     A-->>S: ProductSummary[]
@@ -120,22 +120,22 @@ sequenceDiagram
     B->>S: GET /products/:slug
     par
         S->>A: GET /api/products/:slug
-        A->>R: lookup product detail
+        A->>R: GET products:slug:{slug}
         alt hit
             R-->>A: detail
         else miss
             A->>P: load product
-            A->>R: cache (24h)
+            A->>R: SET products:slug:{slug} (TTL: 24h)
         end
         A-->>S: ProductDetail
     and
         S->>A: GET /api/products/:slug/reviews<br/>(default: sort=helpful, page=1)
-        A->>R: lookup first page
+        A->>R: GET reviews:slug:{slug}:page:1
         alt hit
             R-->>A: cached page (no per-viewer fields)
         else miss
             A->>P: load first page
-            A->>R: cache (24h)
+            A->>R: SET reviews:slug:{slug}:page:1 (TTL: 24h)
         end
         A->>P: enrich with viewer's MyVote / Mine
         A-->>S: ReviewsPage
@@ -204,7 +204,7 @@ sequenceDiagram
         W->>P: auto-approve
     end
 
-    W->>R: invalidate product caches
+    W->>R: invalidate products:list, products:slug:{slug},<br/>reviews:slug:{slug}:page:1
     W-->>T: complete
 ```
 
