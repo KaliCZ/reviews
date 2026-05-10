@@ -35,7 +35,8 @@
   "productList": {
     "heading": "Produkty",
     "subtitle": "Procházejte katalog. Kliknutím na produkt zobrazíte recenze.",
-    "empty": "Zatím žádné produkty."
+    "empty": "Zatím žádné produkty.",
+    "loadFailed": "Produkty se nepodařilo načíst. Zkuste to prosím znovu."
   },
   "reviewList": {
     "heading": "Všechny recenze",
