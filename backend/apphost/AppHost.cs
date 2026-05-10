@@ -1,7 +1,10 @@
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -13,10 +16,12 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Per-worktree offset added to the host-port bases below so parallel
-// AppHosts in different worktrees don't collide. Mirrored in
-// scripts/aspire.mjs for the dashboard listeners.
+// Per-worktree offset for web, the only service that needs a pinned port
+// (its OIDC redirect URI is registered with zitadel by bootstrap and has
+// to match what the browser sees). Mirrored in scripts/aspire.mjs for the
+// dashboard listeners.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+var webPort = 19000 + portOffset;
 
 // Stamps every container with com.docker.compose.project so Docker Desktop
 // shows them as one collapsible group per AppHost.
@@ -37,7 +42,9 @@ var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
 
 var cache = builder.AddRedis("cache")
-    .WithRedisInsight(insight => insight.WithDockerGroup(dockerGroup))
+    .WithRedisInsight(insight => insight
+        .WithHttpHealthCheck("/api/health")
+        .WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
 // rediss:// URL for the JS BFF (the .NET integrations get the connection
@@ -69,10 +76,11 @@ Directory.CreateDirectory(appSecrets);
 // the browser would otherwise see different ports and the OIDC redirect
 // would mismatch. The trade-off is that an unproxied endpoint requires a
 // pinned port. PORT is forwarded into ng serve by web/scripts/serve.mjs.
-var webPort = 19000 + portOffset;
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    // Probes SSR, not the node process — Healthy should mean the page renders.
+    .WithHttpHealthCheck("/");
 // Plain strings, not ReferenceExpression: a Property() reference would add
 // an implicit bootstrap→web dependency and deadlock with web→bootstrap.
 var bffRedirectUri = $"http://localhost:{webPort}/auth/callback";
@@ -130,14 +138,8 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadel);
 
-// Pinned per-worktree ports for temporal: scheme:"tcp" endpoints don't
-// auto-allocate, and the canonical 7233/8233 would collide across
-// worktrees and with compose.
-var temporalGrpcPort = 17000 + portOffset;
-var temporalUiPort = 18000 + portOffset;
-
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
-    .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
+    .WithEndpoint(name: "grpc", targetPort: 7233, scheme: "tcp")
     .WithEnvironment("DB", "postgres12")
     .WithEnvironment("DB_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("POSTGRES_USER", "postgres")
@@ -150,8 +152,28 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
     .WaitFor(temporalDb)
     .WaitFor(temporalVisibilityDb);
 
+// gRPC has no HTTP probe path; auto-setup opens the port last, so
+// port-open ≈ ready in practice.
+var temporalGrpc = temporal.GetEndpoint("grpc");
+builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =>
+{
+    try
+    {
+        using var client = new TcpClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await client.ConnectAsync("localhost", temporalGrpc.Port, cts.Token);
+        return HealthCheckResult.Healthy();
+    }
+    catch (Exception ex)
+    {
+        return HealthCheckResult.Unhealthy(ex.Message);
+    }
+});
+temporal.WithHealthCheck("temporal-grpc-tcp");
+
 var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
-    .WithHttpEndpoint(port: temporalUiPort, targetPort: 8080)
+    .WithHttpEndpoint(targetPort: 8080)
+    .WithHttpHealthCheck("/")
     .WithEnvironment("TEMPORAL_ADDRESS", ReferenceExpression.Create(
         $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}"))
     .WithDockerGroup(dockerGroup)
@@ -168,8 +190,15 @@ temporalUi.WithEnvironment("TEMPORAL_CORS_ORIGINS", ReferenceExpression.Create(
 var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
-// API owns migrations + seed; worker waits on API health before querying.
-var api = builder.AddProject<Projects.api>("api")
+// launchProfileName:null so AppHost doesn't grab launchSettings' :5146 —
+// that port belongs to `npm run dev`'s `dotnet watch`. Skipping the
+// profile also drops its ASPNETCORE_ENVIRONMENT=Development, so we set
+// it back manually — appsettings.Development.json holds Turnstile dev
+// keys among other things. API owns migrations + seed; worker waits on
+// API health before querying.
+var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
+    .WithHttpEndpoint()
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
@@ -181,11 +210,10 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// Pinned per-worktree port; without an endpoint here ASP.NET defaults to
-// :5000 and parallel AppHosts collide.
-var workerPort = 20000 + portOffset;
+// WithHttpEndpoint() pulls the port off ASP.NET's default :5000, which
+// parallel AppHosts would otherwise fight over.
 var workerService = builder.AddProject<Projects.worker>("worker")
-    .WithHttpEndpoint(port: workerPort)
+    .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
