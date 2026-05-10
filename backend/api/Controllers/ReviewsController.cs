@@ -164,7 +164,9 @@ public class ReviewsController(
                     .SetProperty(r => r.Status, ReviewStatus.Deleted)
                     .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
 
-            await db.Products.RecomputeAggregatesAsync(lookup.ProductId, ct);
+            await db.Products
+                .Where(p => p.Id == lookup.ProductId)
+                .RecomputeAggregatesAsync(ct);
 
             await tx.CommitAsync(ct);
         });

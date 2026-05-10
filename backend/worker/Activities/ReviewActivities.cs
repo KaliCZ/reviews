@@ -107,14 +107,7 @@ public class ReviewActivities(
     [Activity(ReviewActivityNames.RecomputeProductRating)]
     public async Task RecomputeProductRatingAsync(long productId)
     {
-        await db.Products
-            .Where(p => p.Id == productId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(p => p.ReviewCount, p => p.Reviews
-                    .Count(r => r.Status == ReviewStatus.Approved))
-                .SetProperty(p => p.AverageRating, p => p.Reviews
-                    .Where(r => r.Status == ReviewStatus.Approved)
-                    .Average(r => (double?)(short)r.Rating) ?? 0));
+        await db.Products.Where(p => p.Id == productId).RecomputeAggregatesAsync();
         logger.LogInformation("Recomputed denormalized rating for product {ProductId}", productId);
     }
 

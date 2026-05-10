@@ -21,13 +21,11 @@ public static class ReviewDbSetExtensions
     }
 
     public static Task RecomputeAggregatesAsync(
-        this DbSet<Product> products, long productId, CancellationToken ct = default) =>
-        products
-            .Where(p => p.Id == productId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(p => p.ReviewCount, p => p.Reviews
-                    .Count(r => r.Status == ReviewStatus.Approved))
-                .SetProperty(p => p.AverageRating, p => p.Reviews
-                    .Where(r => r.Status == ReviewStatus.Approved)
-                    .Average(r => (double?)(short)r.Rating) ?? 0), ct);
+        this IQueryable<Product> products, CancellationToken ct = default) =>
+        products.ExecuteUpdateAsync(s => s
+            .SetProperty(p => p.ReviewCount, p => p.Reviews
+                .Count(r => r.Status == ReviewStatus.Approved))
+            .SetProperty(p => p.AverageRating, p => p.Reviews
+                .Where(r => r.Status == ReviewStatus.Approved)
+                .Average(r => (double?)(short)r.Rating) ?? 0), ct);
 }
