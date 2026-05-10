@@ -131,6 +131,9 @@ import { I18nService } from '../services/i18n.service';
             {{ 'submit.button' | t }}
           }
         </button>
+        @if (!submitting() && disabledReason(); as reason) {
+          <p class="hint" role="status">{{ reason }}</p>
+        }
         <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
       </form>
     } @else if (notFound()) {
@@ -171,6 +174,11 @@ import { I18nService } from '../services/i18n.service';
       }
       .counter.under {
         color: #b45309;
+      }
+      .hint {
+        margin: 0.5rem 0 0;
+        color: #b45309;
+        font-size: 0.9rem;
       }
       fieldset {
         margin: 0.75rem 0;
@@ -320,6 +328,35 @@ export class SubmitReviewPage {
       this.turnstileToken.length > 0 &&
       this.uploadsInFlight() === 0
     );
+  }
+
+  disabledReason(): string | null {
+    if (this.rating < 1 || this.rating > 5) {
+      return this.i18n.t('submit.disabledHint.rating');
+    }
+    if (this.title.trim().length === 0) {
+      return this.i18n.t('submit.disabledHint.title');
+    }
+    if (this.title.length > Limits.titleMax) {
+      return this.i18n.t('submit.disabledHint.titleLong');
+    }
+    const bodyLen = this.body.trim().length;
+    if (bodyLen < Limits.bodyMin) {
+      return this.i18n.t('submit.disabledHint.body', {
+        min: Limits.bodyMin,
+        n: Limits.bodyMin - bodyLen,
+      });
+    }
+    if (this.body.length > Limits.bodyMax) {
+      return this.i18n.t('submit.disabledHint.bodyLong');
+    }
+    if (this.uploadsInFlight() > 0) {
+      return this.i18n.t('submit.disabledHint.uploads', { n: this.uploadsInFlight() });
+    }
+    if (this.turnstileToken.length === 0) {
+      return this.i18n.t('submit.disabledHint.turnstile');
+    }
+    return null;
   }
 
   onFiles(e: Event) {

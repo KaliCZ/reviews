@@ -74,18 +74,32 @@
     "successTitle": "Děkujeme — vaše recenze byla odeslána!",
     "successBody": "Měla by se na stránce produktu objevit hned.",
     "successModeration": "Některé recenze před zveřejněním procházejí moderací. Pokud se vaše ještě neobjevila, zkuste to později — až bude zveřejněna, můžete dostat e-mail.",
-    "successBack": "Zpět na {name}"
+    "successBack": "Zpět na {name}",
+    "disabledHint": {
+      "rating": "Vyberte hodnocení hvězdičkami.",
+      "title": "Doplňte název.",
+      "titleLong": "Název je příliš dlouhý.",
+      "body": "Doplňte alespoň {min} znaků ({n} chybí).",
+      "bodyLong": "Recenze je příliš dlouhá.",
+      "turnstile": "Dokončete ověření.",
+      "uploads": "Čeká se na dokončení {n} nahrávání."
+    }
   },
   "edit": {
     "heading": "Upravit vaši recenzi",
     "photos": "Fotky (max {n})",
     "moderationNotice": "Úpravy recenzí starších než hodinu procházejí schválením moderátora. Schvalování probíhá v Temporal UI.",
     "saveFailed": "Uložení selhalo",
-    "notFound": "Recenze nenalezena."
+    "notFound": "Recenze nenalezena.",
+    "successTitle": "Děkujeme — vaše úprava byla odeslána!",
+    "successBody": "Na stránce produktu by se měla brzy objevit.",
+    "successModeration": "Úpravy mohou před zveřejněním projít schvalovacím procesem.",
+    "successBack": "Zpět na produkt"
   },
   "vote": {
     "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora.",
     "signInToVote": "Přihlaste se pro hlasování",
+    "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
     "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu."
   },
