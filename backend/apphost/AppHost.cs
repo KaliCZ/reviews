@@ -85,11 +85,13 @@ var webPort = 19000 + (int)(uint.Parse(worktreeId[..4], System.Globalization.Num
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
     .WithExternalHttpEndpoints();
-var webEndpoint = web.GetEndpoint("http");
-var bffRedirectUri = ReferenceExpression.Create(
-    $"http://localhost:{webEndpoint.Property(EndpointProperty.Port)}/auth/callback");
-var bffPostLogoutUri = ReferenceExpression.Create(
-    $"http://localhost:{webEndpoint.Property(EndpointProperty.Port)}/");
+// Plain-string URLs — NOT ReferenceExpression — because using
+// webEndpoint.Property(...) here would make bootstrap implicitly wait for
+// web's endpoint, while web already does WaitForCompletion(zitadelBootstrap)
+// → deadlock. Since webPort is a known int at C# evaluation time we can
+// interpolate it directly and skip the implicit dependency.
+var bffRedirectUri = $"http://localhost:{webPort}/auth/callback";
+var bffPostLogoutUri = $"http://localhost:{webPort}/";
 
 // Per-AppHost ZITADEL: each AppHost gets its own container + its own DB
 // (under the per-AppHost postgres above). Random host port lets parallel
