@@ -141,20 +141,20 @@ public class ReviewsController(
             await tx.CommitAsync(ct);
         });
 
-        // Read after commit so we surface the latest committed score (including
-        // any concurrent voter that raced us) and don't hold tx locks for the
-        // round-trip.
-        var newScore = await db.Reviews.AsNoTracking()
-            .Where(r => r.Id == id)
-            .Select(r => r.Score)
-            .SingleAsync(ct);
-
         // Best-effort: invalidator retries internally; a permanent miss is
         // backstopped by the 24h TTL and the next mutation re-DEL'ing the
         // same keys.
         await cacheInvalidator.InvalidateProductAsync(slug, ct);
 
-        return Ok(new VoteResponse(newScore, req.IsUpvote));
+        // Read after commit + invalidation so we surface the latest committed
+        // score (picking up any concurrent voter that raced us) and don't hold
+        // tx locks for the round-trip.
+        return Ok(new VoteResponse(
+            await db.Reviews.AsNoTracking()
+                .Where(r => r.Id == id)
+                .Select(r => r.Score)
+                .SingleAsync(ct),
+            req.IsUpvote));
     }
 
     // Mirrors the DB CHECK constraints so 400 fires before the workflow starts.
