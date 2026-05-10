@@ -119,9 +119,6 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", targetPort: 8080)
-    // Gates downstream WaitFor on FirstInstance completing — that's when the
-    // PAT lands on disk for zitadel-bootstrap. Mirrors compose's healthcheck.
-    .WithHttpHealthCheck("/debug/ready", endpointName: "console")
     .WaitFor(zitadelDb);
 
 // EXTERNALPORT has to match the published host port so the issuer URL ZITADEL
