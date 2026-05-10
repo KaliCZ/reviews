@@ -239,8 +239,19 @@ export class MoreReviewsPage {
     this.busy.set(e.id);
     this.actionError.set(null);
     this.api.voteReview(e.id, e.isUpvote).subscribe({
-      next: () => {
-        setTimeout(() => this.reload(), 400);
+      next: (res) => {
+        // Sync write — patch the affected row in place. Sort order on the
+        // current page may now be slightly stale until the user re-sorts /
+        // navigates, which is acceptable for a single click.
+        const pg = this.page();
+        if (pg) {
+          this.page.set({
+            ...pg,
+            items: pg.items.map((r) =>
+              r.id === e.id ? { ...r, score: res.score, myVote: res.myVote } : r,
+            ),
+          });
+        }
         this.busy.set(null);
       },
       error: (err) => {

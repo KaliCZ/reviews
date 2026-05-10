@@ -147,14 +147,15 @@ The submit-review form gates on a Turnstile token, verified server-side. Dev use
 
 ### Workflows
 
-Mutating actions all go through Temporal. Four workflows in `backend/shared/Workflows/`:
+Mutating actions with a moderation gate or multi-step coordination go through Temporal. Three workflows in `backend/shared/Workflows/`:
 
 | Workflow | Moderation gate |
 |---|---|
 | `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject`; 3 and 4 auto-approve |
 | `EditReviewWorkflow` | Edits >1h after submission wait for `Approve`/`Reject` |
 | `DeleteReviewWorkflow` | Same 1h cutoff |
-| `RateReviewWorkflow` | None |
+
+Voting is a single transactional UPSERT + cache `DEL` and runs synchronously in the API request — see [docs/flows.md §8](docs/flows.md#8-voting-on-a-review). Cache invalidation is shared between the vote handler and the workflow activities via `IReviewCacheInvalidator`, which retries a handful of times before logging and falling back to the 24h TTL.
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 
@@ -174,6 +175,7 @@ Sorts, filters, and pages past 1 go straight to Postgres — caching their cross
 
 ## Deferred for later milestones
 
+- **Smarter cache invalidation on vote.** Today every vote invalidates `reviews:slug:{slug}:page:1`. Most votes can't actually change the first page — e.g. a vote on a review that isn't on page 1, or a score change that doesn't cross a sort boundary under the default sort. Add heuristics (is the voted review on page 1? does the new score reorder the page?) so we only invalidate when the cached page could legitimately change.
 - **Moderator surface + roles.** Today moderators sign workflows in the Temporal UI. Either an admin SPA or an MCP server on the API so an agent can fan out moderation actions, gated by a `moderator` claim.
 - **Serve review images via a CDN**, bypassing the API.
 - **Postgres Row-Level Security** as a second authorization layer.

@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Reviews.Infrastructure;
+using Reviews.Infrastructure.Caching;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
-using StackExchange.Redis;
 using StrongTypes;
 using Temporalio.Activities;
 
@@ -10,7 +10,7 @@ namespace Reviews.Worker;
 
 public class ReviewActivities(
     ReviewsDbContext db,
-    IConnectionMultiplexer redis,
+    IReviewCacheInvalidator cacheInvalidator,
     ILogger<ReviewActivities> logger)
 {
     [Activity(ReviewActivityNames.PersistReview)]
@@ -112,54 +112,6 @@ public class ReviewActivities(
         logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
     }
 
-    [Activity(ReviewActivityNames.RecordVote)]
-    public async Task<VoteResult> RecordVoteAsync(VoteInput input)
-    {
-        // Pinning to Approved blocks votes on deleted/rejected/pending reviews
-        // even from a stale client.
-        var slug = await db.Reviews
-            .AsNoTracking()
-            .Where(r => r.Id == input.ReviewId && r.Status == ReviewStatus.Approved)
-            .Select(r => (string?)r.Product.Slug.Value)
-            .SingleOrDefaultAsync();
-        if (slug is null) return new VoteResult(false, string.Empty);
-
-        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext;
-        // that strategy refuses user-initiated transactions unless wrapped in
-        // ExecuteAsync, so vote write + score recompute live in one
-        // strategy-managed unit.
-        var strategy = db.Database.CreateExecutionStrategy();
-        await strategy.ExecuteAsync(async () =>
-        {
-            await using var tx = await db.Database.BeginTransactionAsync();
-
-            var updated = await db.ReviewVotes
-                .Where(v => v.ReviewId == input.ReviewId && v.VoterId == input.VoterId)
-                .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, input.IsUpvote));
-
-            if (updated == 0)
-            {
-                db.ReviewVotes.Add(new ReviewVote(input.ReviewId, input.VoterId, input.IsUpvote));
-                await db.SaveChangesAsync();
-            }
-
-            // Recompute Score from vote rows so it self-heals on every write.
-            await db.Reviews
-                .Where(r => r.Id == input.ReviewId)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Score, _ => db.ReviewVotes
-                        .Where(v => v.ReviewId == input.ReviewId)
-                        .Sum(v => v.IsUpvote ? 1 : -1))
-                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow));
-
-            await tx.CommitAsync();
-        });
-        logger.LogInformation(
-            "Recorded vote (upvote={IsUpvote}) by {Voter} on review {Review} (product {Slug})",
-            input.IsUpvote, input.VoterId, input.ReviewId, slug);
-        return new VoteResult(true, slug);
-    }
-
     // No advisory lock: concurrent recomputes converge because both writers
     // read the same committed source-of-truth rows.
     [Activity(ReviewActivityNames.RecomputeProductRating)]
@@ -177,14 +129,6 @@ public class ReviewActivities(
     }
 
     [Activity(ReviewActivityNames.InvalidateProductCaches)]
-    public async Task InvalidateProductCachesAsync(string productSlug)
-    {
-        var keys = ReviewsCacheKeys.AffectedBy(productSlug)
-            .Select(k => (RedisKey)k)
-            .ToArray();
-        var deleted = await redis.GetDatabase().KeyDeleteAsync(keys);
-        logger.LogInformation(
-            "Invalidated {Count}/{Total} cache keys for product {Slug}",
-            deleted, keys.Length, productSlug);
-    }
+    public Task InvalidateProductCachesAsync(string productSlug) =>
+        cacheInvalidator.InvalidateProductAsync(productSlug);
 }

@@ -13,7 +13,6 @@ public static class ReviewActivityNames
     public const string LookupReview = "LookupReview";
     public const string ApplyReviewEdit = "ApplyReviewEdit";
     public const string SoftDeleteReview = "SoftDeleteReview";
-    public const string RecordVote = "RecordVote";
     public const string RecomputeProductRating = "RecomputeProductRating";
     public const string InvalidateProductCaches = "InvalidateProductCaches";
 }
@@ -21,5 +20,3 @@ public static class ReviewActivityNames
 public record ModerationDecision(bool Approved, string? Reason);
 
 public record ReviewLookupResult(bool Found, bool OwnedByAuthor, long ProductId, string ProductSlug, DateTime CreatedAtUtc);
-
-public record VoteResult(bool ReviewFound, string ProductSlug);

@@ -92,6 +92,8 @@ public record VoteRequest
 
 public record AcceptedResponse(string WorkflowId, string Status);
 
+public record VoteResponse(int Score, bool MyVote);
+
 public record ConfigResponse(string TurnstileSiteKey);
 
 public record UploadedImage(string Url);

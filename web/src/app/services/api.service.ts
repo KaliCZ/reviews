@@ -12,6 +12,7 @@ import {
   SubmitReviewRequest,
   EditReviewRequest,
   UploadedImage,
+  VoteResponse,
 } from '../models';
 
 // Calls go through `/api/*` so the BFF proxy attaches the Bearer token.
@@ -60,8 +61,8 @@ export class ApiService {
     return this.http.delete<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}`);
   }
 
-  voteReview(id: string, isUpvote: boolean): Observable<AcceptedResponse> {
-    return this.http.post<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`, {
+  voteReview(id: string, isUpvote: boolean): Observable<VoteResponse> {
+    return this.http.post<VoteResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`, {
       isUpvote,
     });
   }
