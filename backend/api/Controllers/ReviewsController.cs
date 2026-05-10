@@ -116,7 +116,7 @@ public class ReviewsController(
         // user-initiated transactions must be wrapped in ExecuteAsync so the
         // upsert + score recompute live in one strategy-managed unit.
         var strategy = db.Database.CreateExecutionStrategy();
-        var newScore = await strategy.ExecuteAsync(async () =>
+        await strategy.ExecuteAsync(async () =>
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
 
@@ -138,14 +138,16 @@ public class ReviewsController(
                         .Sum(v => v.IsUpvote ? 1 : -1))
                     .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
 
-            var score = await db.Reviews.AsNoTracking()
-                .Where(r => r.Id == id)
-                .Select(r => r.Score)
-                .SingleAsync(ct);
-
             await tx.CommitAsync(ct);
-            return score;
         });
+
+        // Read after commit so we surface the latest committed score (including
+        // any concurrent voter that raced us) and don't hold tx locks for the
+        // round-trip.
+        var newScore = await db.Reviews.AsNoTracking()
+            .Where(r => r.Id == id)
+            .Select(r => r.Score)
+            .SingleAsync(ct);
 
         // Best-effort: invalidator retries internally; a permanent miss is
         // backstopped by the 24h TTL and the next mutation re-DEL'ing the
