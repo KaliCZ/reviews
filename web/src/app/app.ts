@@ -3,11 +3,12 @@ import { RouterLink, RouterOutlet, Router } from '@angular/router';
 import { AuthService } from './services/auth.service';
 import { ThemeToggle } from './components/theme-toggle';
 import { LanguageToggle } from './components/language-toggle';
+import { ConfirmDialog } from './components/confirm-dialog';
 import { TPipe } from './pipes/t.pipe';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, ThemeToggle, LanguageToggle, TPipe],
+  imports: [RouterOutlet, RouterLink, ThemeToggle, LanguageToggle, ConfirmDialog, TPipe],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })

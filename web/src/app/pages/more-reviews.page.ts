@@ -9,6 +9,7 @@ import { ReviewSort, SortDirection, ReviewsPage } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
 import { handleReauthRequired } from '../services/reauth';
+import { ConfirmDialogService } from '../components/confirm-dialog';
 
 const PAGE_SIZE = 20;
 const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
@@ -196,6 +197,7 @@ const SORT_OPTIONS: ReadonlyArray<{
 export class MoreReviewsPage {
   private readonly api = inject(ApiService);
   private readonly i18n = inject(I18nService);
+  private readonly confirmDialog = inject(ConfirmDialogService);
   protected readonly auth = inject(AuthService);
   readonly slug = input.required<string>();
 
@@ -296,7 +298,13 @@ export class MoreReviewsPage {
   }
 
   async onDelete(id: string) {
-    if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
+    const ok = await this.confirmDialog.show({
+      message: this.i18n.t('vote.deleteConfirm'),
+      confirmLabel: this.i18n.t('common.delete'),
+      cancelLabel: this.i18n.t('common.cancel'),
+      destructive: true,
+    });
+    if (!ok) return;
     this.busy.set(id);
     this.actionError.set(null);
     const token = await this.waitForTurnstileToken();
@@ -313,11 +321,12 @@ export class MoreReviewsPage {
       },
       error: (err) => {
         if (
-          handleReauthRequired(
-            err,
-            `/products/${this.slug()}/reviews`,
-            this.i18n.t('vote.reauthPrompt'),
-          )
+          handleReauthRequired(err, `/products/${this.slug()}/reviews`, {
+            message: this.i18n.t('vote.reauthPrompt'),
+            confirm: this.confirmDialog,
+            confirmLabel: this.i18n.t('common.continue'),
+            cancelLabel: this.i18n.t('common.cancel'),
+          })
         )
           return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));

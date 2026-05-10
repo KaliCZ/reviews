@@ -35,9 +35,6 @@ test("delete own review — synchronous, removes the row and frees the author sl
     ).toBeVisible();
   }
 
-  // Auto-confirm the JS dialog the SPA throws up before delete.
-  page.on("dialog", (d) => d.accept());
-
   // Single Turnstile widget at the bottom of the reviews list; wait for it
   // to populate before clicking delete or the button check disables it.
   await waitForTurnstile(page);
@@ -54,6 +51,14 @@ test("delete own review — synchronous, removes the row and frees the author sl
       r.request().method() === "DELETE",
   );
   await myCard.getByRole("button", { name: /^Delete$/ }).click();
+
+  // SPA confirm dialog — click its Delete (also accessible name "Delete",
+  // but scoped to the dialog so it doesn't collide with the row button).
+  await page
+    .locator("dialog.confirm")
+    .getByRole("button", { name: /^Delete$/ })
+    .click();
+
   const resp = await deleteResp;
   expect(resp.status()).toBe(204);
 
