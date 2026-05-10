@@ -36,10 +36,16 @@ import { I18nService } from '../services/i18n.service';
       }
 
       <form (submit)="save($event)">
-        <label
-          >{{ 'submit.rating' | t }}
-          <app-star-rating [value]="rating" [interactive]="true" (valueChange)="rating = $event" />
-        </label>
+        <div class="rating-block">
+          <div class="rating-label">{{ 'submit.rating' | t }}</div>
+          <app-star-rating
+            [value]="rating"
+            [interactive]="true"
+            size="large"
+            (valueChange)="rating = $event"
+          />
+        </div>
+
         <label class="field">
           {{ 'submit.title' | t }}
           <input
@@ -138,6 +144,22 @@ import { I18nService } from '../services/i18n.service';
       label {
         display: block;
         margin: 0.75rem 0;
+      }
+      .rating-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 1.5rem 0 2rem;
+        padding: 1.25rem;
+        background: var(--color-amber-bg);
+        border: 1px solid var(--color-outline-variant);
+        border-radius: 8px;
+      }
+      .rating-label {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--color-on-surface);
       }
       .counter {
         display: block;
