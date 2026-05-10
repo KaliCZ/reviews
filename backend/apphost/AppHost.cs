@@ -82,32 +82,28 @@ if (hasPat != hasVolume)
     Directory.Delete(appSecrets, recursive: true);
     Directory.CreateDirectory(zitadelSecrets);
     Directory.CreateDirectory(appSecrets);
-    if (hasVolume) RunDocker("volume", "rm", postgresVolumeName);
+    if (hasVolume)
+    {
+        // docker volume rm fails while any container (running OR stopped)
+        // still references the volume — usually leftover postgres containers
+        // from prior aspire sessions that didn't auto-remove on shutdown.
+        // Force-remove them first, then drop the volume.
+        var (ids, _) = RunDocker("ps", "-aq", "--filter", $"volume={postgresVolumeName}");
+        foreach (var id in ids.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            RunDocker("rm", "-f", id.Trim());
+        var (_, err) = RunDocker("volume", "rm", postgresVolumeName);
+        if (!string.IsNullOrWhiteSpace(err))
+            Console.WriteLine($"[apphost] docker volume rm failed: {err.Trim()}");
+    }
 }
 
 static bool DockerVolumeExists(string name)
 {
-    try
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = "docker",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add("volume");
-        psi.ArgumentList.Add("inspect");
-        psi.ArgumentList.Add(name);
-        using var p = System.Diagnostics.Process.Start(psi);
-        if (p is null) return false;
-        p.WaitForExit(5000);
-        return p.ExitCode == 0;
-    }
-    catch { return false; }
+    var (_, err) = RunDocker("volume", "inspect", name);
+    return string.IsNullOrEmpty(err);
 }
 
-static void RunDocker(params string[] args)
+static (string stdout, string stderr) RunDocker(params string[] args)
 {
     try
     {
@@ -120,9 +116,13 @@ static void RunDocker(params string[] args)
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = System.Diagnostics.Process.Start(psi);
-        p?.WaitForExit(10000);
+        if (p is null) return ("", "process start returned null");
+        var stdout = p.StandardOutput.ReadToEnd();
+        var stderr = p.StandardError.ReadToEnd();
+        p.WaitForExit(10000);
+        return (stdout, p.ExitCode == 0 ? "" : (string.IsNullOrWhiteSpace(stderr) ? $"exit code {p.ExitCode}" : stderr));
     }
-    catch { /* best-effort cleanup — Aspire will surface the real error if it matters */ }
+    catch (Exception ex) { return ("", ex.Message); }
 }
 
 // Web is declared up front (just the endpoint) so zitadel-bootstrap below can
