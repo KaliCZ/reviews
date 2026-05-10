@@ -17,16 +17,50 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { HostMetrics } from '@opentelemetry/host-metrics';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
-if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
+// Piscina spawns worker threads for Angular SSR; each runs --import again, so
+// without this guard we'd register a second SDK in the same process and
+// double-export every span.
+const SDK_STARTED = Symbol.for('reviews.otel.sdk-started');
+const alreadyStarted = globalThis[SDK_STARTED] === true;
+globalThis[SDK_STARTED] = true;
+
+// WIP — BFF OTLP exports currently fail with self-signed cert errors from
+// @grpc/grpc-js because the dashboard's dev cert chain isn't trusted by the
+// Node tls stack. This file-based log captures diag warnings/errors so the
+// next debugging pass can see them; Aspire only routes BFF stdout/stderr to
+// its dashboard panel, which is unhelpful when the panel itself is broken.
+// Drop both this file log and the related --import diagnostics once the cert
+// issue is resolved.
+const statusPath = join(tmpdir(), 'reviews-otel-status.log');
+const writeStatus = (level, msg) => {
+  try {
+    appendFileSync(statusPath, `${new Date().toISOString()} pid=${process.pid} ${level} ${msg}\n`);
+  } catch {}
+};
+writeStatus('INFO', `loader fired; alreadyStarted=${alreadyStarted} endpoint=${process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? '<unset>'} extraCa=${process.env.NODE_EXTRA_CA_CERTS ?? '<unset>'}`);
+
+class FileAndConsoleDiagLogger extends DiagConsoleLogger {
+  warn(message, ...args) { writeStatus('WARN', `${message} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}`); super.warn(message, ...args); }
+  error(message, ...args) { writeStatus('ERROR', `${message} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}`); super.error(message, ...args); }
+}
+diag.setLogger(new FileAndConsoleDiagLogger(), DiagLogLevel.WARN);
+
+if (!alreadyStarted && process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'web',
     }),
     traceExporter: new OTLPTraceExporter(),
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: new OTLPMetricExporter(),
-    }),
+    metricReaders: [
+      new PeriodicExportingMetricReader({
+        exporter: new OTLPMetricExporter(),
+      }),
+    ],
     logRecordProcessors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
     instrumentations: getNodeAutoInstrumentations({
       // fs spans drown out everything else and aren't actionable here.
@@ -60,4 +94,9 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   };
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
+  writeStatus('INFO', 'NodeSDK started');
+} else if (alreadyStarted) {
+  writeStatus('INFO', 'SDK already started in this process; skipping');
+} else {
+  writeStatus('INFO', 'OTLP endpoint not set; SDK skipped');
 }
