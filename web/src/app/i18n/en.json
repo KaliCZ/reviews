@@ -97,7 +97,7 @@
     "successBack": "Back to product"
   },
   "vote": {
-    "deleteConfirm": "Delete this review? Reviews older than an hour need moderator approval.",
+    "deleteConfirm": "Delete this review? It might go through an approval process before it's removed.",
     "signInToVote": "Sign in to vote",
     "cantVoteOwn": "You can't vote on your own review.",
     "voteFailed": "Vote failed. Please try again.",

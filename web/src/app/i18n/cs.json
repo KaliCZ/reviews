@@ -97,7 +97,7 @@
     "successBack": "Zpět na produkt"
   },
   "vote": {
-    "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora.",
+    "deleteConfirm": "Smazat tuto recenzi? Před odstraněním může projít schvalovacím procesem.",
     "signInToVote": "Přihlaste se pro hlasování",
     "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
