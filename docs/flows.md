@@ -227,6 +227,16 @@ stateDiagram-v2
 - **Why these rating buckets for moderation.** 1- and 2-star reviews are the most common targets of competitor abuse and venting; 5-star is where most fake or incentivised reviews land. 3 and 4 are the boring middle and rarely worth a moderator's time. Heuristics (account age, repeat-pattern detection) will replace or augment this later.
 - **Cloudflare Turnstile.** The submit form gates on a Turnstile token, verified server-side by the API before the workflow starts. Stops scripted abuse at the cheapest point.
 
+#### Moderating from the Temporal UI
+
+The `Approve` and `Reject` signal handlers each take one optional `string? reason`. In the Web UI's **Send Signal → Input** box, that means a single JSON value — not an object:
+
+- *empty* or `null` → no reason recorded.
+- `"competitor abuse"` (with the surrounding quotes — it's a JSON string literal) → reason recorded.
+- `{"reason": "…"}` → ❌ decode fails, worker logs `Failed decoding signal args for Approve, dropping the signal`, and the workflow stays in its wait. The `WorkflowExecutionSignaled` event still gets written, so the run looks like it received the signal but did nothing — check worker logs when a signal appears to be a no-op.
+
+Same shape applies to `EditReviewWorkflow`'s moderation gate below.
+
 ---
 
 ## 6. Editing your own review

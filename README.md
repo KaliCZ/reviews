@@ -176,6 +176,19 @@ Voting and deletion are synchronous in the API request. Voting is a single trans
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 
+#### Sending Approve / Reject from the Temporal UI
+
+The signal handlers take one optional `string? reason` argument, so the Web UI's **Input** field expects a single JSON value, not an object. Concretely:
+
+| Input box | Result |
+|---|---|
+| *(empty)* | `reason = null` |
+| `null` | `reason = null` |
+| `"competitor abuse"` (quotes required — it's a JSON string) | `reason = "competitor abuse"` |
+| `{"reason": "…"}` | ❌ can't decode object into `string?`. Worker logs `Failed decoding signal args for Approve, dropping the signal` and the workflow stays parked in its wait. |
+
+A dropped signal is silent from the workflow's perspective — `WorkflowExecutionSignaled` is recorded but `decision` never gets set, so the wait condition stays unmet and the run looks "stuck." Check worker logs if a signal seems to do nothing.
+
 ### Cache shape
 
 Three Redis surfaces, all invalidated by the workflow that mutates them:

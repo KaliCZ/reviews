@@ -26,14 +26,14 @@ public class SubmitReviewWorkflow
     private ModerationDecision? decision;
 
     [WorkflowSignal(ApproveSignal)]
-    public Task ApproveAsync(string? reason)
+    public Task ApproveAsync(string? reason = null)
     {
         decision = new ModerationDecision(true, reason);
         return Task.CompletedTask;
     }
 
     [WorkflowSignal(RejectSignal)]
-    public Task RejectAsync(string? reason)
+    public Task RejectAsync(string? reason = null)
     {
         decision = new ModerationDecision(false, reason);
         return Task.CompletedTask;
