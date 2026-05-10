@@ -278,44 +278,34 @@ sequenceDiagram
 
 ## 7. Deleting your own review
 
-Same 1-hour policy as edit, soft-delete only. Deleted rows stay in the table (`status = Deleted`) so vote rows remain reconcilable and so moderators can see what was removed.
+Synchronous, soft-delete only. The user owns the review and chose to delete it — no moderation gate. To make the action expensive for anyone replaying a stolen access token, the API requires a fresh `auth_time` claim (≤ 5 min); a stale token gets `401 reauth_required` and the SPA bounces through ZITADEL with `max_age=300` to force a password prompt. Turnstile is also required.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant B as Browser
     participant A as API
-    participant T as Temporal
-    participant W as Worker
+    participant Z as ZITADEL
     participant P as Postgres
     participant R as Redis
-    participant M as Moderator
 
-    B->>A: DELETE /api/reviews/:id
-    A->>T: StartWorkflow(DeleteReview)
-    A-->>B: 202 Accepted (workflowId)
+    B->>A: DELETE /api/reviews/:id (X-Turnstile-Token)
 
-    T->>W: dispatch
-    W->>P: SELECT review (verify ownership + not already deleted)
-
-    alt within 1h of CreatedAt AND author == caller
-        W->>P: UPDATE review.status = Deleted
-    else over 1h OR not owner
-        W->>W: WaitConditionAsync(approve / reject signal)
-        M-->>T: signal Approve / Reject
-        alt approved
-            W->>P: UPDATE review.status = Deleted
-        else rejected
-            Note over W: deletion dropped
-        end
+    alt auth_time stale (>5 min)
+        A-->>B: 401 reauth_required
+        B->>Z: /auth/login?max_age=300
+        Z-->>B: fresh session, returnTo
+        B->>A: DELETE /api/reviews/:id (retry)
     end
 
-    W->>R: invalidate product caches
-    W-->>T: complete
+    A->>P: BEGIN; UPDATE status = Deleted; recompute product aggregates; COMMIT
+    A->>R: invalidate product caches
+    A-->>B: 204 No Content
 ```
 
 - **Soft delete only.** Vote rows reference the review by id; hard-deleting would either orphan them or require cascade cleanup that fights the "votes are durable evidence" property.
 - **Listing endpoints filter `Status != Deleted`** so soft-deleted reviews disappear from the SPA but stay queryable for moderation tooling.
+- **`auth_time` is the OIDC claim that timestamps the IdP's user-authentication event** — token refresh doesn't bump it, so step-up checks read it to require a real password prompt.
 
 ---
 

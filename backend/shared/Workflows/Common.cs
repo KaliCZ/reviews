@@ -12,7 +12,6 @@ public static class ReviewActivityNames
     public const string RejectReview = "RejectReview";
     public const string LookupReview = "LookupReview";
     public const string ApplyReviewEdit = "ApplyReviewEdit";
-    public const string SoftDeleteReview = "SoftDeleteReview";
     public const string RecomputeProductRating = "RecomputeProductRating";
     public const string InvalidateProductCaches = "InvalidateProductCaches";
 }

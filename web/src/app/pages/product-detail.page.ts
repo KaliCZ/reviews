@@ -1,15 +1,17 @@
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, ViewChild, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
 import { StarRating } from '../components/star-rating';
+import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { ProductDetail, ReviewsPage } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
+import { handleReauthRequired } from '../services/reauth';
 
 @Component({
-  imports: [RouterLink, StarRating, ReviewCard, TPipe],
+  imports: [RouterLink, StarRating, ReviewCard, TurnstileComponent, TPipe],
   template: `
     @if (product(); as p) {
       <article class="product">
@@ -65,6 +67,11 @@ import { I18nService } from '../services/i18n.service';
               }}</a>
             </p>
           }
+        }
+        @if (auth.authenticated() && pg.items.length > 0 && siteKey(); as sk) {
+          <div class="turnstile-row">
+            <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
+          </div>
         }
       }
     } @else if (notFound()) {
@@ -122,6 +129,9 @@ import { I18nService } from '../services/i18n.service';
         border-radius: 4px;
         margin: 0.5rem 0;
       }
+      .turnstile-row {
+        margin-top: 1rem;
+      }
       @media (max-width: 700px) {
         .product {
           grid-template-columns: 1fr;
@@ -142,8 +152,13 @@ export class ProductDetailPage {
   protected readonly notFound = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
+  protected readonly siteKey = signal<string | null>(null);
+
+  protected turnstileToken = '';
+  @ViewChild(TurnstileComponent) private turnstileWidget?: TurnstileComponent;
 
   constructor() {
+    this.api.config().subscribe((c) => this.siteKey.set(c.turnstileSiteKey));
     effect(() => {
       const s = this.slug();
       if (s) this.fetchAll(s);
@@ -166,9 +181,14 @@ export class ProductDetailPage {
   }
 
   onVote(e: { id: string; isUpvote: boolean }) {
+    if (!this.turnstileToken) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      return;
+    }
+    const token = this.turnstileToken;
     this.busy.set(e.id);
     this.actionError.set(null);
-    this.api.voteReview(e.id, e.isUpvote).subscribe({
+    this.api.voteReview(e.id, e.isUpvote, token).subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. No refetch needed.
         const pg = this.page();
@@ -180,10 +200,12 @@ export class ProductDetailPage {
             ),
           });
         }
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
         this.actionError.set(this.errorMessage(err, 'vote.voteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });
@@ -191,15 +213,23 @@ export class ProductDetailPage {
 
   onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
+    if (!this.turnstileToken) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      return;
+    }
+    const token = this.turnstileToken;
     this.busy.set(id);
     this.actionError.set(null);
-    this.api.deleteReview(id).subscribe({
+    this.api.deleteReview(id, token).subscribe({
       next: () => {
         setTimeout(() => this.fetchAll(this.slug()), 400);
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
+        if (handleReauthRequired(err, `/products/${this.slug()}`)) return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });

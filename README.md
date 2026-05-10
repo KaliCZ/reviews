@@ -147,15 +147,14 @@ The submit-review form gates on a Turnstile token, verified server-side. Dev use
 
 ### Workflows
 
-Mutating actions with a moderation gate or multi-step coordination go through Temporal. Three workflows in `backend/shared/Workflows/`:
+Mutating actions with a moderation gate go through Temporal. Two workflows in `backend/shared/Workflows/`:
 
 | Workflow | Moderation gate |
 |---|---|
 | `SubmitReviewWorkflow` | Ratings 1, 2, 5 wait for `Approve`/`Reject`; 3 and 4 auto-approve |
 | `EditReviewWorkflow` | Edits >1h after submission wait for `Approve`/`Reject` |
-| `DeleteReviewWorkflow` | Same 1h cutoff |
 
-Voting is a single transactional UPSERT + cache `DEL` and runs synchronously in the API request — see [docs/flows.md §8](docs/flows.md#8-voting-on-a-review). Cache invalidation is shared between the vote handler and the workflow activities via `IReviewCacheInvalidator`, which retries a handful of times before logging and falling back to the 24h TTL.
+Voting and deletion are synchronous in the API request — single transactional update + cache `DEL`. Delete is gated by a fresh `auth_time` claim (≤ 5 min) so a stolen access token can't quietly remove a review; a stale token returns `401 reauth_required` and the SPA bounces through `/auth/login?maxAge=300` to re-prompt the user. All four write paths (submit / edit / delete / vote) require a Turnstile token. Cache invalidation is shared between sync handlers and workflow activities via `IReviewCacheInvalidator`.
 
 The moderation surface today is "open the workflow in Temporal UI, send the signal." A real admin app or MCP-backed agent can swap in without changing the durable contract.
 

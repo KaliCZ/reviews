@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
@@ -62,13 +62,17 @@ export class ApiService {
     return this.http.put<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}`, body);
   }
 
-  deleteReview(id: string): Observable<AcceptedResponse> {
-    return this.http.delete<AcceptedResponse>(`/api/reviews/${encodeURIComponent(id)}`);
+  // DELETE has no body; turnstile rides as a header. 204 on success.
+  deleteReview(id: string, turnstileToken: string): Observable<void> {
+    return this.http.delete<void>(`/api/reviews/${encodeURIComponent(id)}`, {
+      headers: new HttpHeaders({ 'X-Turnstile-Token': turnstileToken }),
+    });
   }
 
-  voteReview(id: string, isUpvote: boolean): Observable<VoteResponse> {
+  voteReview(id: string, isUpvote: boolean, turnstileToken: string): Observable<VoteResponse> {
     return this.http.post<VoteResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`, {
       isUpvote,
+      turnstileToken,
     });
   }
 

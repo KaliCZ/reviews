@@ -3,7 +3,6 @@ import {
   AfterViewInit,
   Component,
   ElementRef,
-  Inject,
   OnDestroy,
   PLATFORM_ID,
   ViewChild,
@@ -25,6 +24,7 @@ declare global {
         },
       ) => string;
       remove: (id: string) => void;
+      reset: (id: string) => void;
     };
   }
 }
@@ -51,6 +51,15 @@ export class TurnstileComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.widgetId && window.turnstile) window.turnstile.remove(this.widgetId);
+  }
+
+  // Tokens are single-use; callers (vote/delete) reset after each consumption
+  // to issue a fresh token for the next click.
+  reset(): void {
+    if (this.widgetId && window.turnstile) {
+      window.turnstile.reset(this.widgetId);
+      this.tokenChange.emit('');
+    }
   }
 
   private tryRender(attempt: number): void {

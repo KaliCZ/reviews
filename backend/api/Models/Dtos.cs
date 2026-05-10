@@ -83,11 +83,13 @@ public record EditReviewRequest
     public NonEmptyString Title { get; init; } = default!;
     public NonEmptyString Body { get; init; } = default!;
     public IReadOnlyList<NonEmptyString>? ImageUrls { get; init; }
+    public NonEmptyString TurnstileToken { get; init; } = default!;
 }
 
 public record VoteRequest
 {
     public bool IsUpvote { get; init; }
+    public NonEmptyString TurnstileToken { get; init; } = default!;
 }
 
 public record AcceptedResponse(string WorkflowId, string Status);

@@ -23,7 +23,6 @@ public class SmokeTests
             ReviewActivityNames.RejectReview,
             ReviewActivityNames.LookupReview,
             ReviewActivityNames.ApplyReviewEdit,
-            ReviewActivityNames.SoftDeleteReview,
             ReviewActivityNames.RecomputeProductRating,
             ReviewActivityNames.InvalidateProductCaches,
         };

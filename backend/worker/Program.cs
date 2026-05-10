@@ -34,7 +34,6 @@ public class Program
             .AddHostedTemporalWorker(taskQueue: ReviewQueues.TaskQueue)
             .AddWorkflow<SubmitReviewWorkflow>()
             .AddWorkflow<EditReviewWorkflow>()
-            .AddWorkflow<DeleteReviewWorkflow>()
             .AddScopedActivities<ReviewActivities>();
 
         builder.Services.AddHealthChecks().AddInfraHealthChecks();

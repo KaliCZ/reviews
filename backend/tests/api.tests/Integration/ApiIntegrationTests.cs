@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Reviews.Api.Services;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
 using StrongTypes;
@@ -197,7 +198,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
 
         // Upvote — sync; response carries the new score.
         var up = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
-            JsonContent("""{"isUpvote": true}"""));
+            JsonContent("""{"isUpvote": true, "turnstileToken": "stub-token"}"""));
         Assert.Equal(HttpStatusCode.OK, up.StatusCode);
         using (var d = JsonDocument.Parse(await up.Content.ReadAsStringAsync()))
         {
@@ -215,7 +216,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
 
         // Flip to downvote — same row gets UPSERT'd in place.
         var down = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
-            JsonContent("""{"isUpvote": false}"""));
+            JsonContent("""{"isUpvote": false, "turnstileToken": "stub-token"}"""));
         Assert.Equal(HttpStatusCode.OK, down.StatusCode);
         using (var d = JsonDocument.Parse(await down.Content.ReadAsStringAsync()))
         {
@@ -237,7 +238,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     {
         var bogus = Guid.NewGuid();
         var resp = await fx.ApiClient.PostAsync($"/api/reviews/{bogus}/vote",
-            JsonContent("""{"isUpvote": true}"""));
+            JsonContent("""{"isUpvote": true, "turnstileToken": "stub-token"}"""));
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
@@ -273,7 +274,8 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             {
               "rating": 2,
               "title": {{JsonSerializer.Serialize(newTitle)}},
-              "body": {{JsonSerializer.Serialize(newBody)}}
+              "body": {{JsonSerializer.Serialize(newBody)}},
+              "turnstileToken": "stub-token"
             }
             """;
         var edit = await fx.ApiClient.PutAsync($"/api/reviews/{reviewId}", JsonContent(editPayload));
@@ -293,6 +295,100 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(Rating.Two, edited.Rating);
         Assert.True(edited.UpdatedAtUtc >= originalCreatedAt,
             $"UpdatedAtUtc ({edited.UpdatedAtUtc:O}) should be at or after CreatedAtUtc ({originalCreatedAt:O})");
+    }
+
+    // -- DELETE /api/reviews/{id} — synchronous + reauth gate ------------
+
+    [Fact]
+    public async Task Delete_synchronously_soft_deletes_and_recomputes_aggregates()
+    {
+        const long productId = 2;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+        var workflowId = JsonDocument.Parse(await submit.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        long beforeCount;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews.AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+            beforeCount = await db.Products.AsNoTracking()
+                .Where(p => p.Id == productId)
+                .Select(p => p.ReviewCount)
+                .SingleAsync();
+        }
+
+        var del = new HttpRequestMessage(HttpMethod.Delete, $"/api/reviews/{reviewId}");
+        del.Headers.Add("X-Turnstile-Token", "stub-token");
+        var resp = await fx.ApiClient.SendAsync(del);
+        Assert.Equal(HttpStatusCode.NoContent, resp.StatusCode);
+
+        await using var dbCheck = fx.CreateDbContext();
+        var review = await dbCheck.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+        Assert.Equal(ReviewStatus.Deleted, review.Status);
+
+        var afterCount = await dbCheck.Products.AsNoTracking()
+            .Where(p => p.Id == productId).Select(p => p.ReviewCount).SingleAsync();
+        Assert.Equal(beforeCount - 1, afterCount);
+    }
+
+    [Fact]
+    public async Task Delete_with_stale_auth_time_returns_401_reauth_required()
+    {
+        // Submit + locate (use sibling client that doesn't override auth_time).
+        const long productId = 3;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+        var workflowId = JsonDocument.Parse(await submit.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(workflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews.AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+        }
+
+        var staleSeconds = DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds();
+        var del = new HttpRequestMessage(HttpMethod.Delete, $"/api/reviews/{reviewId}");
+        del.Headers.Add("X-Turnstile-Token", "stub-token");
+        del.Headers.Add(TestAuthHandler.AuthTimeHeader, staleSeconds.ToString());
+        var resp = await fx.ApiClient.SendAsync(del);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+        Assert.Contains("reauth_required", resp.Headers.WwwAuthenticate.ToString());
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal("reauth_required", doc.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Delete_without_turnstile_header_returns_400()
+    {
+        // Use any existing seeded review id — auth_time is fresh, but token is missing.
+        Guid anyReviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            anyReviewId = await db.Reviews.AsNoTracking()
+                .Where(r => r.AuthorId == CurrentUserAccessor.SubToGuid("00000000-0000-0000-0000-000000000001"))
+                .Select(r => r.Id).FirstOrDefaultAsync();
+        }
+        // If the test user doesn't own a row, fall back to a bogus id — the
+        // turnstile check runs before lookup so we'll still see a 400.
+        if (anyReviewId == Guid.Empty) anyReviewId = Guid.NewGuid();
+
+        var del = new HttpRequestMessage(HttpMethod.Delete, $"/api/reviews/{anyReviewId}");
+        var resp = await fx.ApiClient.SendAsync(del);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     // -- Denormalized Product.ReviewCount / AverageRating (issue #5) ----

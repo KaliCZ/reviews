@@ -102,16 +102,6 @@ public class ReviewActivities(
         logger.LogInformation("Applied edit to review {ReviewId}", input.ReviewId);
     }
 
-    [Activity(ReviewActivityNames.SoftDeleteReview)]
-    public async Task SoftDeleteAsync(Guid reviewId)
-    {
-        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
-        if (review is null) return;
-        review.SoftDelete();
-        await db.SaveChangesAsync();
-        logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
-    }
-
     // No advisory lock: concurrent recomputes converge because both writers
     // read the same committed source-of-truth rows.
     [Activity(ReviewActivityNames.RecomputeProductRating)]

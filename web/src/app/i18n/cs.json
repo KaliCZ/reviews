@@ -77,10 +77,11 @@
     "notFound": "Recenze nenalezena."
   },
   "vote": {
-    "deleteConfirm": "Smazat tuto recenzi? Recenze starší než hodinu vyžadují schválení moderátora.",
+    "deleteConfirm": "Smazat tuto recenzi? Tuto akci nelze vrátit zpět.",
     "signInToVote": "Přihlaste se pro hlasování",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
-    "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu."
+    "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu.",
+    "turnstileRequired": "Před hlasováním nebo smazáním dokončete prosím ověření."
   },
   "reviewCard": {
     "imageAlt": "fotka recenze"

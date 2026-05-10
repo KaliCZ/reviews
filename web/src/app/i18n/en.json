@@ -77,10 +77,11 @@
     "notFound": "Review not found."
   },
   "vote": {
-    "deleteConfirm": "Delete this review? Reviews older than an hour need moderator approval.",
+    "deleteConfirm": "Delete this review? This can't be undone.",
     "signInToVote": "Sign in to vote",
     "voteFailed": "Vote failed. Please try again.",
-    "deleteFailed": "Delete failed. Please try again."
+    "deleteFailed": "Delete failed. Please try again.",
+    "turnstileRequired": "Please complete the verification check before voting or deleting."
   },
   "reviewCard": {
     "imageAlt": "review photo"

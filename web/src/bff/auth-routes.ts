@@ -16,11 +16,20 @@ export function registerAuthRoutes(
     const codeVerifier = generators.codeVerifier();
     req.session.codeVerifier = codeVerifier;
     req.session.returnTo = typeof req.query['returnTo'] === 'string' ? req.query['returnTo'] : '/';
-    const url = oidcClient.authorizationUrl({
+
+    // OIDC `max_age` (seconds): the IdP must re-prompt the user when their
+    // session is older than this. Powers the API's reauth_required step-up
+    // for high-impact actions like delete.
+    const maxAgeRaw = typeof req.query['maxAge'] === 'string' ? Number(req.query['maxAge']) : NaN;
+    const maxAge = Number.isFinite(maxAgeRaw) && maxAgeRaw > 0 ? Math.floor(maxAgeRaw) : undefined;
+
+    const params: Record<string, string | number> = {
       scope: 'openid profile email offline_access',
       code_challenge: generators.codeChallenge(codeVerifier),
       code_challenge_method: 'S256',
-    });
+    };
+    if (maxAge !== undefined) params['max_age'] = maxAge;
+    const url = oidcClient.authorizationUrl(params);
     res.redirect(url);
   });
 
