@@ -208,10 +208,12 @@ export class ProductDetailPage {
     return `/auth/login?returnTo=${ret}`;
   }
 
-  onVote(e: { id: string; isUpvote: boolean }) {
+  onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
-    this.api.voteReview(e.id, e.isUpvote).subscribe({
+    const req$ =
+      e.isUpvote === null ? this.api.removeVote(e.id) : this.api.voteReview(e.id, e.isUpvote);
+    req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. No refetch needed.
         const pg = this.page();

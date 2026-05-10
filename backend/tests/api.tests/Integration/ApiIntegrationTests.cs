@@ -320,6 +320,87 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
+    // -- DELETE /api/reviews/{id}/vote -----------------------------------
+
+    [Fact]
+    public async Task Remove_vote_drops_row_and_zeroes_score()
+    {
+        // Product 10 is fixture-unique to avoid colliding with sibling tests.
+        const long productId = 10;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submitResponse.StatusCode);
+        var submitWorkflowId = JsonDocument.Parse(await submitResponse.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(submitWorkflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews
+                .AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+        }
+
+        var up = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
+            JsonContent("""{"isUpvote": true}"""));
+        Assert.Equal(HttpStatusCode.OK, up.StatusCode);
+
+        var remove = await fx.ApiClient.DeleteAsync($"/api/reviews/{reviewId}/vote");
+        Assert.Equal(HttpStatusCode.OK, remove.StatusCode);
+        using (var d = JsonDocument.Parse(await remove.Content.ReadAsStringAsync()))
+        {
+            Assert.Equal(0, d.RootElement.GetProperty("score").GetInt32());
+            Assert.Equal(JsonValueKind.Null, d.RootElement.GetProperty("myVote").ValueKind);
+        }
+
+        await using (var db = fx.CreateDbContext())
+        {
+            Assert.False(await db.ReviewVotes.AsNoTracking().AnyAsync(v => v.ReviewId == reviewId));
+            var review = await db.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
+            Assert.Equal(0, review.Score);
+        }
+    }
+
+    [Fact]
+    public async Task Remove_vote_when_none_exists_is_noop()
+    {
+        // Removing without a prior vote is idempotent: still 200 with score 0
+        // and no row appears in review_votes.
+        const long productId = 2;
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
+        var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submitResponse.StatusCode);
+        var submitWorkflowId = JsonDocument.Parse(await submitResponse.Content.ReadAsStringAsync())
+            .RootElement.GetProperty("workflowId").GetString()!;
+        await fx.TemporalClient.GetWorkflowHandle(submitWorkflowId).GetResultAsync<string>();
+
+        Guid reviewId;
+        await using (var db = fx.CreateDbContext())
+        {
+            reviewId = await db.Reviews
+                .AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .Select(r => r.Id)
+                .SingleAsync();
+        }
+
+        var remove = await fx.ApiClient.DeleteAsync($"/api/reviews/{reviewId}/vote");
+        Assert.Equal(HttpStatusCode.OK, remove.StatusCode);
+        using var d = JsonDocument.Parse(await remove.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Null, d.RootElement.GetProperty("myVote").ValueKind);
+    }
+
+    [Fact]
+    public async Task Remove_vote_on_unknown_review_returns_404()
+    {
+        var bogus = Guid.NewGuid();
+        var resp = await fx.ApiClient.DeleteAsync($"/api/reviews/{bogus}/vote");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
     // -- PUT /api/reviews/{id} -------------------------------------------
 
     [Fact]

@@ -91,9 +91,8 @@ sequenceDiagram
     alt cache hit
         R-->>A: cached payload
     else cache miss
-        A->>P: SELECT products + aggregates
-        P-->>A: rows
-        A->>R: SET (TTL: 24h) cached payload
+        A->>P: load products + aggregates
+        A->>R: SET products:list (TTL: 24h)
     end
 
     A-->>S: ProductSummary[]
@@ -125,8 +124,8 @@ sequenceDiagram
         alt hit
             R-->>A: detail
         else miss
-            A->>P: SELECT product
-            A->>R: SET (TTL: 24h)
+            A->>P: load product
+            A->>R: SET products:slug:{slug} (TTL: 24h)
         end
         A-->>S: ProductDetail
     and
@@ -135,8 +134,8 @@ sequenceDiagram
         alt hit
             R-->>A: cached page (no per-viewer fields)
         else miss
-            A->>P: SELECT first page
-            A->>R: SET (TTL: 24h)
+            A->>P: load first page
+            A->>R: SET reviews:slug:{slug}:page:1 (TTL: 24h)
         end
         A->>P: enrich with viewer's MyVote / Mine
         A-->>S: ReviewsPage
@@ -162,8 +161,7 @@ sequenceDiagram
     participant P as Postgres
 
     B->>A: GET /api/products/:slug/reviews<br/>?sort=helpful&rating=4&rating=5&hasPhotos=true&page=2
-    A->>P: SELECT page (ORDER BY score / created_at,<br/>WHERE rating IN ..., hasPhotos predicate)
-    P-->>A: rows + total count
+    A->>P: load page (sort, rating filter, hasPhotos)
     A->>P: enrich with viewer's MyVote / Mine
     A-->>B: ReviewsPage
 ```
@@ -195,15 +193,15 @@ sequenceDiagram
     A-->>B: 202 Accepted (workflowId)
 
     T->>W: dispatch
-    W->>P: INSERT review (status=Pending)
+    W->>P: persist review (Pending)
 
     alt rating ∈ {1, 2, 5}
-        W->>W: WaitConditionAsync(approve / reject signal)
+        W->>W: wait for moderator decision
         M-->>T: signal Approve / Reject
         T->>W: resume
-        W->>P: UPDATE review.status
+        W->>P: apply decision (Approved / Rejected)
     else rating ∈ {3, 4}
-        W->>P: UPDATE review.status = Approved
+        W->>P: auto-approve
     end
 
     W->>R: invalidate products:list, products:slug:{slug},<br/>reviews:slug:{slug}:page:1
@@ -214,14 +212,13 @@ The workflow as a state machine:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Persisted_Pending
-    Persisted_Pending --> AwaitingModeration: rating ∈ {1, 2, 5}
-    Persisted_Pending --> Approved: rating ∈ {3, 4}
-    AwaitingModeration --> Approved: signal Approve
-    AwaitingModeration --> Rejected: signal Reject
-    Approved --> CacheInvalidated
-    Rejected --> CacheInvalidated
-    CacheInvalidated --> [*]
+    [*] --> Pending
+    Pending --> Approved: rating ∈ {3, 4} (auto)
+    Pending --> AwaitingModeration: rating ∈ {1, 2, 5}
+    AwaitingModeration --> Approved: moderator approves
+    AwaitingModeration --> Rejected: moderator rejects
+    Approved --> [*]
+    Rejected --> [*]
 ```
 
 - **The row lands first, then waits.** Persisting Pending before the moderation wait means the moderator's tooling (Temporal UI today, an admin app later) can see what they're moderating without the workflow having to ship the payload. It also means the `(product, author, status != Deleted)` partial unique index is the real guard against duplicates — the API's pre-check is just a fast-path 409.
@@ -252,15 +249,15 @@ sequenceDiagram
     A-->>B: 202 Accepted (workflowId)
 
     T->>W: dispatch
-    W->>P: SELECT review (verify ownership + not deleted)
+    W->>P: load review, verify ownership
 
     alt within 1h of CreatedAt AND author == caller
-        W->>P: UPDATE review (apply edit)
+        W->>P: apply edit
     else over 1h OR not owner
-        W->>W: WaitConditionAsync(approve / reject signal)
+        W->>W: wait for moderator decision
         M-->>T: signal Approve / Reject
         alt approved
-            W->>P: UPDATE review (apply edit)
+            W->>P: apply edit
         else rejected
             Note over W: edit dropped
         end
@@ -296,15 +293,15 @@ sequenceDiagram
     A-->>B: 202 Accepted (workflowId)
 
     T->>W: dispatch
-    W->>P: SELECT review (verify ownership + not already deleted)
+    W->>P: load review, verify ownership
 
     alt within 1h of CreatedAt AND author == caller
-        W->>P: UPDATE review.status = Deleted
+        W->>P: soft-delete review
     else over 1h OR not owner
-        W->>W: WaitConditionAsync(approve / reject signal)
+        W->>W: wait for moderator decision
         M-->>T: signal Approve / Reject
         alt approved
-            W->>P: UPDATE review.status = Deleted
+            W->>P: soft-delete review
         else rejected
             Note over W: deletion dropped
         end
@@ -357,22 +354,28 @@ sequenceDiagram
     participant P as Postgres
     participant R as Redis
 
-    B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
-    A->>P: SELECT review where status = Approved
-    A->>P: BEGIN TX
-    A->>P: UPSERT review_vote (review_id, voter_id, is_upvote)
-    A->>P: UPDATE review.score = (SELECT sum from votes)
-    A->>P: COMMIT
-    A->>R: invalidate product caches (with retry; best-effort)
-    A-->>B: 200 OK<br/>{ score, myVote }
+    alt cast or flip
+        B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
+        A->>P: verify review is Approved
+        A->>P: record vote, recompute score
+        A->>R: invalidate product caches (best-effort)
+        A-->>B: 200 OK<br/>{ score, myVote: true | false }
+    else remove (click your active button)
+        B->>A: DELETE /api/reviews/:id/vote
+        A->>P: verify review is Approved
+        A->>P: remove vote, recompute score
+        A->>R: invalidate product caches (best-effort)
+        A-->>B: 200 OK<br/>{ score, myVote: null }
+    end
 ```
 
 - **Why synchronous, not Temporal.** Submit/edit/delete are durable workflows because they have moderation gates and multi-step coordination. A vote is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
 - **Single endpoint with `isUpvote: bool`.** Flipping from up to down is one UPSERT, not delete-then-insert.
+- **Removing your vote** — clicking the up/down button you've already cast issues `DELETE /api/reviews/:id/vote`, which drops the row, recomputes the score from the surviving rows, and returns `{ score, myVote: null }`. Idempotent: a delete with no prior vote is a no-op that still recomputes the score.
 - **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalised field ever drifts.
 - **The denormalised score is a cache, not a source of truth.** The vote rows are. Every vote recomputes the score from `SUM(is_upvote ? +1 : -1)` over the current rows, so a missed UPDATE doesn't leave the system permanently inconsistent.
 - **Vote permission gate.** Votes against a review whose `Status != Approved` return `404` — a stale client doesn't need to special-case the various non-approved states.
-- **Response shape.** The handler returns `{ score, myVote }` so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
+- **Response shape.** The handler returns `{ score, myVote }` (where `myVote` is `true`/`false` for cast/flip and `null` after removal) so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
 
 ---
 

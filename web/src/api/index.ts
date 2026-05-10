@@ -87,7 +87,7 @@ export interface VoteRequest {
 
 export interface VoteResponse {
   score: number;
-  myVote: boolean;
+  myVote: boolean | null;
 }
 
 export interface AcceptedResponse {

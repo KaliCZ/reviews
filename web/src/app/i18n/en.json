@@ -100,6 +100,9 @@
     "deleteConfirm": "Delete this review? It might go through an approval process before it's removed.",
     "signInToVote": "Sign in to vote",
     "cantVoteOwn": "You can't vote on your own review.",
+    "removeVote": "Click again to remove your vote",
+    "upvote": "Upvote this review",
+    "downvote": "Downvote this review",
     "voteFailed": "Vote failed. Please try again.",
     "deleteFailed": "Delete failed. Please try again."
   },

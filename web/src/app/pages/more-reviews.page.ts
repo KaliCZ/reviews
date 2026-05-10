@@ -235,10 +235,12 @@ export class MoreReviewsPage {
       .subscribe((pg) => this.page.set(pg));
   }
 
-  onVote(e: { id: string; isUpvote: boolean }) {
+  onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
-    this.api.voteReview(e.id, e.isUpvote).subscribe({
+    const req$ =
+      e.isUpvote === null ? this.api.removeVote(e.id) : this.api.voteReview(e.id, e.isUpvote);
+    req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. Sort order on the
         // current page may now be slightly stale until the user re-sorts /

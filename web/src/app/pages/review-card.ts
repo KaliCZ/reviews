@@ -36,7 +36,7 @@ import { TPipe } from '../pipes/t.pipe';
             class="vote"
             [class.active]="review().myVote === true"
             [disabled]="!auth.authenticated() || isMine() || busy()"
-            [title]="voteDisabledReason()"
+            [title]="voteButtonTitle(true)"
             (click)="cast(true)"
           >
             ▲
@@ -47,7 +47,7 @@ import { TPipe } from '../pipes/t.pipe';
             class="vote"
             [class.active]="review().myVote === false"
             [disabled]="!auth.authenticated() || isMine() || busy()"
-            [title]="voteDisabledReason()"
+            [title]="voteButtonTitle(false)"
             (click)="cast(false)"
           >
             ▼
@@ -174,20 +174,23 @@ export class ReviewCard {
   readonly productSlug = input.required<string>();
   readonly busy = input(false);
 
-  readonly vote = output<{ id: string; isUpvote: boolean }>();
+  // isUpvote: true = upvote, false = downvote, null = remove existing vote.
+  readonly vote = output<{ id: string; isUpvote: boolean | null }>();
   readonly del = output<string>();
 
   // UI affordance only — destructive actions are gated server-side.
   readonly isMine = computed(() => this.review().mine);
 
-  voteDisabledReason(): string | null {
+  voteButtonTitle(isUpvote: boolean): string {
     if (!this.auth.authenticated()) return this.i18n.t('vote.signInToVote');
     if (this.isMine()) return this.i18n.t('vote.cantVoteOwn');
-    return null;
+    if (this.review().myVote === isUpvote) return this.i18n.t('vote.removeVote');
+    return this.i18n.t(isUpvote ? 'vote.upvote' : 'vote.downvote');
   }
 
   cast(isUpvote: boolean) {
     if (!this.auth.authenticated() || this.isMine()) return;
-    this.vote.emit({ id: this.review().id, isUpvote });
+    const next = this.review().myVote === isUpvote ? null : isUpvote;
+    this.vote.emit({ id: this.review().id, isUpvote: next });
   }
 }
