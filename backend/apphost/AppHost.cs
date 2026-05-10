@@ -241,7 +241,14 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
+// WithHttpEndpoint forces Aspire to allocate a random host port and inject
+// ASPNETCORE_URLS, otherwise ASP.NET falls back to localhost:5000 (worker's
+// launchSettings.json has no applicationUrl) and two parallel AppHosts both
+// try to bind it. Worker only uses ASP.NET for the /alive + /health
+// endpoints registered by service-defaults, so the allocated port is
+// internal — nothing else addresses the worker by URL.
 var workerService = builder.AddProject<Projects.worker>("worker")
+    .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
