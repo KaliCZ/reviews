@@ -21,6 +21,10 @@
          in prod; Aspire wires the connection string either way. -->
     <PackageReference Include="Aspire.Azure.Storage.Blobs" Version="13.3.0" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.7" />
+    <!-- IReviewCacheInvalidator talks Redis directly. The hosting projects
+         (api, worker) layer Aspire.StackExchange.Redis on top for connection wiring. -->
+    <PackageReference Include="StackExchange.Redis" Version="2.11.0" />
     <!-- UUIDv7 for entity PKs — time-ordered Guids that append monotonically
          to PG's btree indexes (random Guid PKs cause page splits across the
          whole index). Same shape (System.Guid, 16 bytes) so wire/storage are

@@ -10,6 +10,7 @@ export type {
   SubmitReviewRequest,
   EditReviewRequest,
   VoteRequest,
+  VoteResponse,
   AcceptedResponse,
   ConfigResponse,
   UploadedImage,

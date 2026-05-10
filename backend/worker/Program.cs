@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Reviews.Infrastructure;
+using Reviews.Infrastructure.Caching;
 using Reviews.Shared;
 using StrongTypes.EfCore;
 using Temporalio.Extensions.Hosting;
@@ -22,6 +23,8 @@ public class Program
         var temporalAddress = builder.Configuration.GetConnectionString("temporal")
             ?? throw new InvalidOperationException("ConnectionStrings:temporal not configured");
 
+        builder.Services.AddSingleton<IReviewCacheInvalidator, ReviewCacheInvalidator>();
+
         builder.Services
             .AddTemporalClient(options =>
             {
@@ -32,7 +35,6 @@ public class Program
             .AddWorkflow<SubmitReviewWorkflow>()
             .AddWorkflow<EditReviewWorkflow>()
             .AddWorkflow<DeleteReviewWorkflow>()
-            .AddWorkflow<RateReviewWorkflow>()
             .AddScopedActivities<ReviewActivities>();
 
         builder.Services.AddHealthChecks().AddInfraHealthChecks();
