@@ -37,7 +37,7 @@ npm --prefix web install
 
 ## Three ways to run
 
-> **Pick one at a time.** Aspire and compose both want host port 8080 for ZITADEL and use separate postgres / secrets — running both in parallel breaks OIDC sign-in (browser hits whichever ZITADEL claimed 8080, but the BFF holds a `client_id` from the other). Switch with `docker compose down` (compose → aspire) or `docker stop reviews-aspire-zitadel reviews-aspire-zitadel-pg` (aspire → compose); Aspire's ZITADEL singletons are persistent, so `Ctrl+C` alone leaves them running. Tracking a real concurrency fix in [#21](https://github.com/KaliCZ/reviews/issues/21).
+> **Aspire and compose can run side-by-side.** Each ZITADEL has its own port, DB, and secrets dir: compose stays on `localhost:8080` (and `~/.reviews-dev/`), Aspire's singleton is on `localhost:8090` (and `~/.reviews-dev/aspire/`). The two stacks share the rest of the host — compose's web is on 4000, Aspire's on 4200, etc. Note: a few Aspire resources (`temporal`/`temporal-ui` on 7233/8233, postgres data volumes, dashboard ports) still pin host ports, so running compose's full stack alongside Aspire's full stack collides on those — see [#21](https://github.com/KaliCZ/reviews/issues/21). For just-ZITADEL-side-by-side, no conflict.
 
 ### 1. Aspire (richest dev experience)
 
@@ -65,10 +65,10 @@ docker compose up --build
 
 Builds and runs everything containerized. Reviewer needs only Docker.
 
-After it boots (all links available in aspire dashboard):
-- Frontend: <http://localhost:4000>
-- API: <http://localhost:8081>
-- ZITADEL Console: <http://localhost:8080> (admin login: `zitadel-admin@reviews.localhost` / `Password1!`)
+After it boots (Aspire prints the dashboard URL on startup; compose links are below):
+- Frontend: <http://localhost:4200> (Aspire) / <http://localhost:4000> (compose)
+- API: random in Aspire (see dashboard) / <http://localhost:8081> (compose)
+- ZITADEL Console: <http://localhost:8090> (Aspire) / <http://localhost:8080> (compose) — admin login: `zitadel-admin@reviews.localhost` / `Password1!`
 - Temporal UI: <http://localhost:8233>
 - Test user for the app: `alice@localhost` / `Password1!` — pre-verified, log straight in.
 
@@ -141,7 +141,7 @@ To reset auth state:
 
 `npm run dev:infra` (which is `docker compose up`) shares everything across worktrees: containers and volumes via `name: reviews` in the compose file, bootstrap secrets via `$HOME/.reviews-dev/`. So `npm run dev` from a second worktree just attaches to the running stack.
 
-`npm run aspire` shares **ZITADEL only** across parallel AppHosts. The `reviews-aspire-zitadel` container and its `reviews-aspire-zitadel-pg` backing DB are `Persistent` singletons with fixed names — a second worktree's AppHost detects them and attaches instead of trying to bind host port 8080 a second time. The bootstrap PAT and OIDC client secret live under `$HOME/.reviews-dev/aspire/`. Other Aspire resources (postgres for app state, redis, temporal, etc.) are still per-AppHost, so each worktree keeps its own reviews / temporal state.
+`npm run aspire` shares **ZITADEL only** across parallel AppHosts. The `reviews-aspire-zitadel` container and its `reviews-aspire-zitadel-pg` backing DB are `Persistent` singletons with fixed names — a second worktree's AppHost detects them and attaches instead of trying to bind host port 8090 a second time. The bootstrap PAT and OIDC client secret live under `$HOME/.reviews-dev/aspire/`. Other Aspire resources (postgres for app state, redis, temporal, etc.) are still per-AppHost, so each worktree keeps its own reviews / temporal state.
 
 Aspire's `~/.reviews-dev/aspire/` and compose's `~/.reviews-dev/` are deliberately separate dirs: the bootstrap PAT is tied to a specific ZITADEL database, so sharing the folder would mean whichever mode ran most recently clobbered the other's PAT and broke `bootstrap.sh` on mode switch. Override either with `REVIEWS_ZITADEL_SECRETS_DIR` / `REVIEWS_APP_SECRETS_DIR` if you want them merged.
 
@@ -149,7 +149,11 @@ Aspire's `~/.reviews-dev/aspire/` and compose's `~/.reviews-dev/` are deliberate
 
 ### Public vs internal URLs
 
-Inside docker, `localhost:8080` (the browser-visible ZITADEL URL) doesn't resolve to ZITADEL — that's the api/web container's own perspective. So we run with two URLs: `http://localhost:8080` is what ends up in the JWT `iss` claim and what the browser redirects to; `http://zitadel:8080` is what the API and BFF actually talk to for JWKS / token / userinfo. The token issuer the API validates against is the public one; metadata fetches go to the internal one.
+Inside docker, the browser-visible ZITADEL URL doesn't resolve to ZITADEL — that's the api/web container's own perspective. So we run with two URLs: the public one is what ends up in the JWT `iss` claim and what the browser redirects to; the internal one is what the API and BFF actually talk to for JWKS / token / userinfo. The token issuer the API validates against is the public one; metadata fetches go to the internal one.
+
+Concrete values per mode:
+- **Compose**: public `http://localhost:8080`, internal `http://zitadel:8080` (containerized api/BFF cross network boundaries).
+- **Aspire**: public `http://localhost:8090`, internal `http://localhost:8090` (api/BFF run in-process on the host, so they hit the published host port directly).
 
 ### Rate limiting
 

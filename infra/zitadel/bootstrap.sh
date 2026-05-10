@@ -31,24 +31,29 @@ PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
 
+# ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN +
+# ZITADEL_EXTERNALPORT), so requests sent to the internal docker DNS name
+# need their Host header rewritten to the public authority. Derive it from
+# ZITADEL_PUBLIC_URL so this script works for both compose (localhost:8080)
+# and Aspire (localhost:8090) without extra config.
+VHOST=${ISSUER#http://}
+VHOST=${VHOST#https://}
+VHOST=${VHOST%%/*}
+
 # `zitadel ready` flips green well before the projection layer has caught up,
 # so the first management calls can 404. A tiny retry loop covers the gap.
 api() {
   url=$1; method=${2:-GET}; data=${3:-}
   for i in 1 2 3 4 5; do
-    # ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN), so
-    # we explicitly send Host:localhost:8080 even though we connect via the
-    # internal docker DNS name. Without this it returns 404 from inside the
-    # network because the request appears to come from a different vhost.
     if [ -n "$data" ]; then
       out=$(curl -fsS -X "$method" "$Z$url" \
-        -H "Host: localhost:8080" \
+        -H "Host: $VHOST" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
         -d "$data") && { echo "$out"; return 0; }
     else
       out=$(curl -fsS -X "$method" "$Z$url" \
-        -H "Host: localhost:8080" \
+        -H "Host: $VHOST" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json") && { echo "$out"; return 0; }
     fi
@@ -108,7 +113,7 @@ APP_ID=$(echo "$APP_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
 if [ -n "$APP_ID" ]; then
   echo "[bootstrap] Removing stale OIDC app $APP_ID"
   curl -fsS -X DELETE "$Z/management/v1/projects/$PID/apps/$APP_ID" \
-    -H "Host: localhost:8080" -H "Authorization: Bearer $PAT" > /dev/null
+    -H "Host: $VHOST" -H "Authorization: Bearer $PAT" > /dev/null
 fi
 
 # devMode=true is what lets ZITADEL accept the http:// redirect URI; without

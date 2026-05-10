@@ -63,15 +63,21 @@ Directory.CreateDirectory(appSecrets);
 
 // Singleton Zitadel: Persistent + fixed container name so parallel AppHosts
 // (e.g. two git worktrees both running `npm run aspire`) attach to the same
-// running container instead of each trying to bind host port 8080 and write
-// to the same /zitadel-secrets bind mount. Compose's Zitadel uses a
-// different container name (project=`reviews` → `reviews-zitadel-1`) and a
-// different DB, so the two paths stay independent. They can't run at the
-// same time because both publish 8080, but that was already true.
+// running container instead of each trying to bind host port 8090 and write
+// to the same /zitadel-secrets bind mount.
+//
+// Host port deliberately differs from compose's 8080 so the two modes can
+// run simultaneously — each gets its own DB and its own secrets dir, so
+// they're fully independent. Pinned at 8090 (instead of letting Aspire
+// randomize) because the OIDC issuer URL stamped into JWTs has to match
+// what the browser sees, and the BFF redirect URI baked into the OIDC app
+// has to be stable across container restarts.
 //
 // Pinned image: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate
 // Next.js app not bundled in this image). v2.71.2 is the last v2 release
 // shipping the embedded /ui/login as the default redirect target.
+const int zitadelHostPort = 8090;
+var zitadelPublicUrl = $"http://localhost:{zitadelHostPort}";
 var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.2")
     .WithLifetime(ContainerLifetime.Persistent)
     .WithContainerName("reviews-aspire-zitadel")
@@ -81,7 +87,7 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_MASTERKEY", zitadelMasterkey)
     .WithEnvironment("ZITADEL_EXTERNALSECURE", "false")
     .WithEnvironment("ZITADEL_EXTERNALDOMAIN", "localhost")
-    .WithEnvironment("ZITADEL_EXTERNALPORT", "8080")
+    .WithEnvironment("ZITADEL_EXTERNALPORT", zitadelHostPort.ToString())
     .WithEnvironment("ZITADEL_TLS_ENABLED", "false")
     .WithEnvironment("ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED", "false")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_HOST", zitadelPostgres.Resource.PrimaryEndpoint.Property(EndpointProperty.Host))
@@ -93,14 +99,17 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME", "postgres")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
-    .WithHttpEndpoint(name: "console", port: 8080, targetPort: 8080)
+    .WithHttpEndpoint(name: "console", port: zitadelHostPort, targetPort: 8080)
     // Gates downstream WaitFor on FirstInstance completing — that's when the
     // PAT lands on disk for zitadel-bootstrap. Mirrors compose's healthcheck.
     .WithHttpHealthCheck("/debug/ready", endpointName: "console")
     .WaitFor(zitadelDb);
 
 // Provisions the OIDC app + test user, writes per-key client secret files
-// into appSecrets where api and web pick them up.
+// into appSecrets where api and web pick them up. INTERNAL_URL is the
+// docker-network address (sibling-container DNS, container-internal port
+// 8080); PUBLIC_URL is what gets stamped into the OIDC issuer claim and
+// drives the browser-facing redirects, so it points at the host port 8090.
 var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/curl", "8.10.1")
     .WithEntrypoint("/bin/sh")
     .WithArgs("-c", "/bootstrap.sh")
@@ -108,7 +117,7 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithBindMount(zitadelSecrets, "/zitadel-secrets", isReadOnly: true)
     .WithBindMount(appSecrets, "/app-secrets")
     .WithEnvironment("ZITADEL_INTERNAL_URL", "http://zitadel:8080")
-    .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
+    .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
     .WaitFor(zitadel);
 
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
@@ -156,10 +165,11 @@ var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
     .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
-    // In Aspire both URLs collapse to localhost; compose differs because that
-    // route crosses container boundaries.
-    .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
-    .WithEnvironment("ZITADEL_INTERNAL_URL", "http://localhost:8080")
+    // In Aspire both URLs collapse to localhost (web runs in-process, so it
+    // reaches ZITADEL via the published host port); compose differs because
+    // that route crosses container boundaries.
+    .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
+    .WithEnvironment("ZITADEL_INTERNAL_URL", zitadelPublicUrl)
     .WithEnvironment("REDIS_URL", redisUrl)
     .WithEnvironment("REDIS_TLS_INSECURE", "true")
     .WithEnvironment("SESSION_SECRET", "dev-only-session-secret-rotate-in-prod")
