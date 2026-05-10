@@ -37,6 +37,8 @@ npm --prefix web install
 
 ## Three ways to run
 
+> **Pick one at a time.** Aspire and compose both want host port 8080 for ZITADEL and use separate postgres volumes — running both in parallel breaks OIDC sign-in (browser hits whichever ZITADEL claimed 8080, but the BFF holds a `client_id` from the other). Stop one before starting the other (`docker compose down` / Ctrl+C in Aspire). Tracking a fix in [#21](https://github.com/KaliCZ/reviews/issues/21).
+
 ### 1. Aspire (richest dev experience)
 
 ```bash
@@ -137,7 +139,7 @@ To reset auth state: `docker compose down -v`.
 
 `npm run dev:infra` (which is `docker compose up`) shares everything across worktrees: containers and volumes via `name: reviews` in the compose file, bootstrap secrets via `$HOME/.reviews-dev/`. So `npm run dev` from a second worktree just attaches to the running stack.
 
-> **TODO** — `npm run aspire` doesn't share infra. AppHost spins up its own containers on hardcoded host ports, so only one Aspire run can be active at a time. Fixing it needs either dynamic ports + service discovery (non-trivial because ZITADEL's external URL is baked into JWT issuer claims) or making AppHost attach to the compose stack.
+> **TODO** — `npm run aspire` doesn't share infra with compose; AppHost spins up its own containers on hardcoded host ports. Tracked in [#21](https://github.com/KaliCZ/reviews/issues/21).
 
 ### Public vs internal URLs
 
