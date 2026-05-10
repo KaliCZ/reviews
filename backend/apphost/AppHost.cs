@@ -1,7 +1,10 @@
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -58,7 +61,10 @@ var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
 
 var cache = builder.AddRedis("cache")
-    .WithRedisInsight(insight => insight.WithHostPort(redisInsightPort).WithDockerGroup(dockerGroup))
+    .WithRedisInsight(insight => insight
+        .WithHostPort(redisInsightPort)
+        .WithHttpHealthCheck("/api/health")
+        .WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
 // rediss:// URL for the JS BFF (the .NET integrations get the connection
@@ -154,6 +160,28 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadel);
 
+// Temporal serves only gRPC, so WithHttpHealthCheck doesn't apply. A TCP
+// connect against the grpc port is a near-equivalent readiness signal
+// because auto-setup opens the port last, after schema + namespace
+// provisioning. compose probes `temporal operator namespace describe`,
+// which is strictly stronger but would need a custom IHealthCheck that
+// shells out via `docker exec` — flagged as a maybe-later if this proves
+// flaky in practice.
+builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =>
+{
+    try
+    {
+        using var client = new TcpClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        await client.ConnectAsync("localhost", temporalGrpcPort, cts.Token);
+        return HealthCheckResult.Healthy();
+    }
+    catch (Exception ex)
+    {
+        return HealthCheckResult.Unhealthy(ex.Message);
+    }
+});
+
 // scheme:"tcp" endpoints don't auto-allocate, and the canonical 7233/8233
 // would collide across worktrees and with compose — see the port-base
 // table at the top of this file.
@@ -167,6 +195,7 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
     .WithEnvironment("DBNAME", "temporal")
     .WithEnvironment("VISIBILITY_DBNAME", "temporal_visibility")
     .WithEnvironment("ENABLE_ES", "false")
+    .WithHealthCheck("temporal-grpc-tcp")
     .WithDockerGroup(dockerGroup)
     .WaitFor(temporalDb)
     .WaitFor(temporalVisibilityDb);
