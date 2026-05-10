@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 using Reviews.Api.Auth;
@@ -50,6 +51,17 @@ public class Program
         builder.Services.AddReviewsAuth(builder.Configuration);
         builder.Services.AddReviewsRateLimiting();
 
+        // Default fields include request/response headers — we omit them so the
+        // Authorization Bearer token never lands in logs.
+        builder.Services.AddHttpLogging(o =>
+        {
+            o.LoggingFields = HttpLoggingFields.RequestMethod
+                | HttpLoggingFields.RequestPath
+                | HttpLoggingFields.RequestQuery
+                | HttpLoggingFields.ResponseStatusCode
+                | HttpLoggingFields.Duration;
+        });
+
         builder.Services.AddHealthChecks().AddInfraHealthChecks();
 
         builder.Services.AddControllers();
@@ -98,6 +110,8 @@ public class Program
         }
 
         app.MapDefaultEndpoints();
+
+        app.UseHttpLogging();
 
         app.UseSwagger();
         app.UseSwaggerUI();

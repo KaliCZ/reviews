@@ -1,3 +1,4 @@
+using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -127,6 +128,7 @@ var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithEnvironment("SESSION_SECRET", "dev-only-session-secret-rotate-in-prod")
     .WithHttpEndpoint(env: "PORT", targetPort: 4200)
     .WithExternalHttpEndpoints()
+    .WithOtlpExporter()
     .WaitForCompletion(zitadelBootstrap);
 
 api.WithEnvironment("WEB_ORIGIN", web.GetEndpoint("http"));

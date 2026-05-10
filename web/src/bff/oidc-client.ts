@@ -1,4 +1,5 @@
 import { Issuer, custom, type Client } from 'openid-client';
+import { logger } from './logger';
 
 export interface OidcClientOptions {
   issuerPublic: string;
@@ -52,8 +53,8 @@ export async function createOidcClient(options: OidcClientOptions): Promise<Clie
   const { issuerPublic, issuerInternal, clientId, clientSecret, port } = options;
 
   if (!clientId || !clientSecret) {
-    console.warn(
-      '[bff] ZITADEL_CLIENT_ID/SECRET not set — auth routes return 503 until zitadel-bootstrap finishes',
+    logger.warn(
+      'ZITADEL_CLIENT_ID/SECRET not set — auth routes return 503 until zitadel-bootstrap finishes',
     );
     return null;
   }
@@ -84,7 +85,7 @@ export async function createOidcClient(options: OidcClientOptions): Promise<Clie
       response_types: ['code'],
     });
   } catch (err) {
-    console.error('[bff] OIDC discovery failed; auth disabled', err);
+    logger.error({ err }, 'OIDC discovery failed; auth disabled');
     return null;
   }
 }

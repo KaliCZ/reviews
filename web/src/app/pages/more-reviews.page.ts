@@ -71,11 +71,16 @@ const SORT_OPTIONS: ReadonlyArray<{
       </label>
     </div>
 
+    @if (actionError(); as msg) {
+      <p class="error" role="alert">{{ msg }}</p>
+    }
+
     @if (page(); as pg) {
       @for (r of pg.items; track r.id) {
         <app-review-card
           [review]="r"
           [productSlug]="slug()"
+          [busy]="busy() === r.id"
           (vote)="onVote($event)"
           (del)="onDelete($event)"
         />
@@ -166,6 +171,13 @@ const SORT_OPTIONS: ReadonlyArray<{
         color: #999;
         cursor: not-allowed;
       }
+      .error {
+        background: var(--color-error-container);
+        color: var(--color-on-error-container);
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        margin: 0.5rem 0;
+      }
     `,
   ],
 })
@@ -180,6 +192,8 @@ export class MoreReviewsPage {
   protected hasPhotos = false;
 
   protected readonly page = signal<ReviewsPage | null>(null);
+  protected readonly busy = signal<string | null>(null);
+  protected readonly actionError = signal<string | null>(null);
 
   constructor() {
     effect(() => {
@@ -222,11 +236,44 @@ export class MoreReviewsPage {
   }
 
   onVote(e: { id: string; isUpvote: boolean }) {
-    this.api.voteReview(e.id, e.isUpvote).subscribe(() => setTimeout(() => this.reload(), 400));
+    this.busy.set(e.id);
+    this.actionError.set(null);
+    this.api.voteReview(e.id, e.isUpvote).subscribe({
+      next: () => {
+        setTimeout(() => this.reload(), 400);
+        this.busy.set(null);
+      },
+      error: (err) => {
+        this.actionError.set(this.errorMessage(err, 'vote.voteFailed'));
+        this.busy.set(null);
+      },
+    });
   }
 
   onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
-    this.api.deleteReview(id).subscribe(() => setTimeout(() => this.reload(), 400));
+    this.busy.set(id);
+    this.actionError.set(null);
+    this.api.deleteReview(id).subscribe({
+      next: () => {
+        setTimeout(() => this.reload(), 400);
+        this.busy.set(null);
+      },
+      error: (err) => {
+        this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
+        this.busy.set(null);
+      },
+    });
+  }
+
+  private errorMessage(
+    err: { status?: number; error?: unknown; message?: string },
+    fallback: string,
+  ): string {
+    const body = typeof err.error === 'string' ? err.error : null;
+    const status = err.status ? `${err.status}` : '';
+    const detail = body || err.message || '';
+    const base = this.i18n.t(fallback);
+    return detail ? `${base} (${[status, detail].filter(Boolean).join(' ')})` : base;
   }
 }

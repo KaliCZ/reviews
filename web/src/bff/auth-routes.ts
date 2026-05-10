@@ -1,5 +1,6 @@
 import type { Application, Request, Response } from 'express';
 import { generators, type Client } from 'openid-client';
+import { logger } from './logger';
 
 // 503 when oidcClient is null so the SPA can boot with auth disabled.
 export function registerAuthRoutes(
@@ -50,7 +51,7 @@ export function registerAuthRoutes(
       delete req.session.returnTo;
       res.redirect(dest);
     } catch (err) {
-      console.error('[bff] callback failed', err);
+      logger.error({ err }, 'OIDC callback failed');
       res.status(401).send('Authentication failed');
     }
   });

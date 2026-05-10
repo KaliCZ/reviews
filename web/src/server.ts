@@ -4,11 +4,13 @@ import {
   isMainModule,
   writeResponseToNodeResponse,
 } from '@angular/ssr/node';
-import express, { type Application } from 'express';
+import { trace } from '@opentelemetry/api';
+import express, { type Application, type NextFunction, type Request, type Response } from 'express';
 import { join } from 'node:path';
 import { registerApiProxy } from './bff/api-proxy';
 import { registerAuthRoutes } from './bff/auth-routes';
 import { loadConfig } from './bff/config';
+import { logger } from './bff/logger';
 import { createOidcClient } from './bff/oidc-client';
 import { createSessionMiddleware } from './bff/session';
 
@@ -30,6 +32,38 @@ async function buildApp(): Promise<Application> {
   app.set('trust proxy', 1);
 
   app.use(await createSessionMiddleware(config.redisUrl, config.sessionSecret));
+
+  // Must run after the session middleware so req.session is populated; the
+  // attributes let the dashboard group BFF spans by user/session.
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    const span = trace.getActiveSpan();
+    if (span) {
+      if (req.session?.id) span.setAttribute('session.id', req.session.id);
+      const sub = req.session?.user?.sub;
+      if (sub) span.setAttribute('enduser.id', sub);
+    }
+    next();
+  });
+
+  // Skip assets / SSR HTML so the log feed mirrors the trace filter.
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (!req.url.startsWith('/api') && !req.url.startsWith('/auth')) return next();
+    const start = Date.now();
+    res.on('finish', () => {
+      logger.info(
+        {
+          method: req.method,
+          path: req.url.split('?')[0],
+          status: res.statusCode,
+          duration_ms: Date.now() - start,
+          session_id: req.session?.id,
+          enduser_id: req.session?.user?.sub,
+        },
+        `${req.method} ${req.url.split('?')[0]} ${res.statusCode}`,
+      );
+    });
+    next();
+  });
 
   const oidcClient = await createOidcClient(config);
   registerAuthRoutes(app, oidcClient, config.port);
@@ -57,7 +91,7 @@ if (isMainModule(import.meta.url) || process.env['pm_id']) {
   getApp().then((app) =>
     app.listen(config.port, (error) => {
       if (error) throw error;
-      console.log(`Reviews BFF listening on http://localhost:${config.port}`);
+      logger.info({ port: config.port }, 'Reviews BFF listening');
     }),
   );
 }
