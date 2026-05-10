@@ -112,9 +112,7 @@ import { I18nService } from '../services/i18n.service';
             {{ 'submit.button' | t }}
           }
         </button>
-        @if (rating === 1 || rating === 2 || rating === 5) {
-          <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
-        }
+        <p class="muted">{{ 'submit.moderationNotice' | t }}</p>
       </form>
     } @else if (notFound()) {
       <p>{{ 'products.notFound' | t }}</p>
@@ -133,14 +131,14 @@ import { I18nService } from '../services/i18n.service';
         gap: 0.5rem;
         margin: 1.5rem 0 2rem;
         padding: 1.25rem;
-        background: #fffaf0;
-        border: 1px solid #f5d99a;
+        background: var(--color-amber-bg);
+        border: 1px solid var(--color-outline-variant);
         border-radius: 8px;
       }
       .rating-label {
         font-size: 1.1rem;
         font-weight: 600;
-        color: #333;
+        color: var(--color-on-surface);
       }
       .counter {
         display: block;
