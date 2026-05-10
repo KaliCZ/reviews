@@ -223,14 +223,19 @@ export class ProductDetailPage {
     return `/auth/login?returnTo=${ret}`;
   }
 
-  onVote(e: { id: string; isUpvote: boolean | null }) {
-    if (e.isUpvote !== null && !this.turnstileToken) {
-      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
-      return;
-    }
-    const token = this.turnstileToken;
+  async onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
+    let token = '';
+    if (e.isUpvote !== null) {
+      const t = await this.waitForTurnstileToken();
+      if (!t) {
+        this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+        this.busy.set(null);
+        return;
+      }
+      token = t;
+    }
     const req$ =
       e.isUpvote === null
         ? this.api.removeVote(e.id)
@@ -258,15 +263,16 @@ export class ProductDetailPage {
     });
   }
 
-  onDelete(id: string) {
+  async onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
-    if (!this.turnstileToken) {
-      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
-      return;
-    }
-    const token = this.turnstileToken;
     this.busy.set(id);
     this.actionError.set(null);
+    const token = await this.waitForTurnstileToken();
+    if (!token) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      this.busy.set(null);
+      return;
+    }
     this.api.deleteReview(id, token).subscribe({
       next: () => {
         setTimeout(() => this.fetchAll(this.slug()), 400);
@@ -281,6 +287,17 @@ export class ProductDetailPage {
         this.busy.set(null);
       },
     });
+  }
+
+  // Turnstile renders async (api.js loads, widget mounts, Cloudflare issues
+  // a token); a click that races the token would otherwise hit the empty
+  // path and surface a confusing "complete the verification" error.
+  private async waitForTurnstileToken(timeoutMs = 8000): Promise<string> {
+    const start = Date.now();
+    while (!this.turnstileToken && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.turnstileToken;
   }
 
   private errorMessage(

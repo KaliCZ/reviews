@@ -253,14 +253,19 @@ export class MoreReviewsPage {
       .subscribe((pg) => this.page.set(pg));
   }
 
-  onVote(e: { id: string; isUpvote: boolean | null }) {
-    if (e.isUpvote !== null && !this.turnstileToken) {
-      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
-      return;
-    }
-    const token = this.turnstileToken;
+  async onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
+    let token = '';
+    if (e.isUpvote !== null) {
+      const t = await this.waitForTurnstileToken();
+      if (!t) {
+        this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+        this.busy.set(null);
+        return;
+      }
+      token = t;
+    }
     const req$ =
       e.isUpvote === null
         ? this.api.removeVote(e.id)
@@ -290,15 +295,16 @@ export class MoreReviewsPage {
     });
   }
 
-  onDelete(id: string) {
+  async onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
-    if (!this.turnstileToken) {
-      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
-      return;
-    }
-    const token = this.turnstileToken;
     this.busy.set(id);
     this.actionError.set(null);
+    const token = await this.waitForTurnstileToken();
+    if (!token) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      this.busy.set(null);
+      return;
+    }
     this.api.deleteReview(id, token).subscribe({
       next: () => {
         setTimeout(() => this.reload(), 400);
@@ -319,6 +325,16 @@ export class MoreReviewsPage {
         this.busy.set(null);
       },
     });
+  }
+
+  // Turnstile renders async; wait briefly for the token rather than failing
+  // a click that races widget mount + Cloudflare token issuance.
+  private async waitForTurnstileToken(timeoutMs = 8000): Promise<string> {
+    const start = Date.now();
+    while (!this.turnstileToken && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.turnstileToken;
   }
 
   private errorMessage(
