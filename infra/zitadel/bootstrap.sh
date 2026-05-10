@@ -31,11 +31,34 @@ PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
 
+# OIDC redirect URIs the BFF will use, registered with the OIDC app below.
+# Comma-separated so each mode can pass however many it needs:
+#   - compose: 4000 (the web container) AND 4200 (npm run dev's local web)
+#   - Aspire: whatever random port AppHost assigned to web
+# Defaults preserve compose's two-URI list so compose passes nothing extra.
+BFF_REDIRECT_URIS=${BFF_REDIRECT_URIS:-http://localhost:4000/auth/callback,http://localhost:4200/auth/callback}
+BFF_POST_LOGOUT_URIS=${BFF_POST_LOGOUT_URIS:-http://localhost:4000/,http://localhost:4200/}
+
+# Convert a comma-separated list into a JSON string array. POSIX shell, no
+# bashisms — runs in curlimages/curl's busybox sh.
+to_json_array() {
+  saved_ifs=$IFS
+  IFS=','
+  result='['
+  sep=''
+  for item in $1; do
+    result="${result}${sep}\"${item}\""
+    sep=','
+  done
+  IFS=$saved_ifs
+  echo "${result}]"
+}
+
 # ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN +
 # ZITADEL_EXTERNALPORT), so requests sent to the internal docker DNS name
 # need their Host header rewritten to the public authority. Derive it from
-# ZITADEL_PUBLIC_URL so this script works for both compose (localhost:8080)
-# and Aspire (localhost:8090) without extra config.
+# ZITADEL_PUBLIC_URL so this script works for compose (localhost:8080) and
+# for Aspire (random per-AppHost port) without extra config.
 VHOST=${ISSUER#http://}
 VHOST=${VHOST#https://}
 VHOST=${VHOST%%/*}
@@ -116,12 +139,15 @@ if [ -n "$APP_ID" ]; then
     -H "Host: $VHOST" -H "Authorization: Bearer $PAT" > /dev/null
 fi
 
+REDIRECT_URIS_JSON=$(to_json_array "$BFF_REDIRECT_URIS")
+POST_LOGOUT_URIS_JSON=$(to_json_array "$BFF_POST_LOGOUT_URIS")
+
 # devMode=true is what lets ZITADEL accept the http:// redirect URI; without
 # it the call fails with "redirect uri is not https".
 APP_BODY="{
   \"name\":\"reviews-bff\",
-  \"redirectUris\":[\"http://localhost:4000/auth/callback\",\"http://localhost:4200/auth/callback\"],
-  \"postLogoutRedirectUris\":[\"http://localhost:4000/\",\"http://localhost:4200/\"],
+  \"redirectUris\":$REDIRECT_URIS_JSON,
+  \"postLogoutRedirectUris\":$POST_LOGOUT_URIS_JSON,
   \"responseTypes\":[\"OIDC_RESPONSE_TYPE_CODE\"],
   \"grantTypes\":[\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\",\"OIDC_GRANT_TYPE_REFRESH_TOKEN\"],
   \"appType\":\"OIDC_APP_TYPE_WEB\",
