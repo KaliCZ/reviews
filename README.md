@@ -37,7 +37,7 @@ npm --prefix web install
 
 ## Three ways to run
 
-> **Pick one at a time.** Aspire and compose both want host port 8080 for ZITADEL and use separate postgres volumes — running both in parallel breaks OIDC sign-in (browser hits whichever ZITADEL claimed 8080, but the BFF holds a `client_id` from the other). Stop one before starting the other (`docker compose down` / Ctrl+C in Aspire). Tracking a fix in [#21](https://github.com/KaliCZ/reviews/issues/21).
+> **Pick one at a time.** Aspire and compose both want host port 8080 for ZITADEL and use separate postgres / secrets — running both in parallel breaks OIDC sign-in (browser hits whichever ZITADEL claimed 8080, but the BFF holds a `client_id` from the other). Switch with `docker compose down` (compose → aspire) or `docker stop reviews-aspire-zitadel reviews-aspire-zitadel-pg` (aspire → compose); Aspire's ZITADEL singletons are persistent, so `Ctrl+C` alone leaves them running. Tracking a real concurrency fix in [#21](https://github.com/KaliCZ/reviews/issues/21).
 
 ### 1. Aspire (richest dev experience)
 
@@ -133,13 +133,19 @@ The application's `AuthorId` is a Guid hashed from the ZITADEL `sub` claim, so t
 
 ZITADEL doesn't yet support project/app provisioning via its declarative YAML. So the bootstrap is two-phase: `infra/zitadel/steps.yaml` creates the org + admin + a service-account PAT on first start, then a one-shot `zitadel-bootstrap` container uses that PAT to create the OIDC app and writes the resulting client id/secret to a bind-mounted secrets dir the API and BFF read at startup.
 
-To reset auth state: `docker compose down -v`.
+To reset auth state:
+- Compose: `docker compose down -v && rm -rf ~/.reviews-dev/zitadel-secrets ~/.reviews-dev/app-secrets`.
+- Aspire: `docker rm -f reviews-aspire-zitadel reviews-aspire-zitadel-pg && rm -rf ~/.reviews-dev/aspire` (the ZITADEL singleton + its DB are persistent containers, so `Ctrl+C` doesn't touch them).
 
 #### Sharing infra across worktrees
 
 `npm run dev:infra` (which is `docker compose up`) shares everything across worktrees: containers and volumes via `name: reviews` in the compose file, bootstrap secrets via `$HOME/.reviews-dev/`. So `npm run dev` from a second worktree just attaches to the running stack.
 
-> **TODO** — `npm run aspire` doesn't share infra with compose; AppHost spins up its own containers on hardcoded host ports. Tracked in [#21](https://github.com/KaliCZ/reviews/issues/21).
+`npm run aspire` shares **ZITADEL only** across parallel AppHosts. The `reviews-aspire-zitadel` container and its `reviews-aspire-zitadel-pg` backing DB are `Persistent` singletons with fixed names — a second worktree's AppHost detects them and attaches instead of trying to bind host port 8080 a second time. The bootstrap PAT and OIDC client secret live under `$HOME/.reviews-dev/aspire/`. Other Aspire resources (postgres for app state, redis, temporal, etc.) are still per-AppHost, so each worktree keeps its own reviews / temporal state.
+
+Aspire's `~/.reviews-dev/aspire/` and compose's `~/.reviews-dev/` are deliberately separate dirs: the bootstrap PAT is tied to a specific ZITADEL database, so sharing the folder would mean whichever mode ran most recently clobbered the other's PAT and broke `bootstrap.sh` on mode switch. Override either with `REVIEWS_ZITADEL_SECRETS_DIR` / `REVIEWS_APP_SECRETS_DIR` if you want them merged.
+
+> **TODO** — full parallel `npm run aspire` still has rough edges: per-AppHost postgres calls `WithDataVolume()` without a name (so two AppHosts compute the same volume name and the second postgres can't start), and `temporal` / `temporal-ui` / the Aspire dashboard endpoints in `apphost/Properties/launchSettings.json` all pin host ports. Tracked in [#21](https://github.com/KaliCZ/reviews/issues/21).
 
 ### Public vs internal URLs
 
