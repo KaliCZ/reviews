@@ -65,7 +65,8 @@ docker compose up --build
 
 Builds and runs everything containerized. Reviewer needs only Docker.
 
-After it boots:
+### After it boots
+
 - **Aspire** — every URL is in the dashboard (printed on startup). Frontend, API, ZITADEL Console, Temporal UI all on random ports per AppHost run.
 - **Compose** — fixed ports: frontend <http://localhost:4000>, API <http://localhost:8081>, ZITADEL Console <http://localhost:8080>, Temporal UI <http://localhost:8233>.
 - ZITADEL admin login (both modes): `zitadel-admin@reviews.localhost` / `Password1!`.
