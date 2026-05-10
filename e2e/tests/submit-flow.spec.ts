@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { submitReview, waitForReviewVisible } from "./helpers/submit";
+import {
+  submitReview,
+  waitForReviewVisible,
+  waitForTurnstile,
+} from "./helpers/submit";
 
 test.use({ storageState: ".auth/storage-state.json" });
 
@@ -45,6 +49,11 @@ test("upvote a review and see the score change", async ({ page }) => {
     })
     .first();
   await expect(otherReview).toBeVisible();
+
+  // Vote is gated on a Turnstile token (same gate as submit/edit/delete);
+  // without it onVote() short-circuits and no network call fires. The product
+  // page hosts a single shared widget for vote + delete.
+  await waitForTurnstile(page);
 
   const scoreLocator = otherReview.locator(".score");
   const before = parseInt((await scoreLocator.textContent()) ?? "0", 10);

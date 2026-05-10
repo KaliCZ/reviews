@@ -247,7 +247,8 @@ sequenceDiagram
     participant R as Redis
     participant M as Moderator
 
-    B->>A: PUT /api/reviews/:id<br/>{ rating, title, body, imageUrls? }
+    B->>A: PUT /api/reviews/:id<br/>{ rating, title, body, imageUrls?, turnstileToken }
+    Note over A: Validate Turnstile
     A->>T: StartWorkflow(EditReview)
     A-->>B: 202 Accepted (workflowId)
 
@@ -273,6 +274,7 @@ sequenceDiagram
 - **Ownership and freshness checked inside the workflow**, not just in the API. The activity reads the row again before applying — even if the `Authorize` lands minutes later, the check is against the row at apply-time, not the API request time.
 - **One-hour cutoff is a starting heuristic.** It maps to the common "saw a typo, fixing it" pattern. Edits beyond the window are unusual and worth a moderator's attention.
 - **Why a separate workflow from Submit.** Submit creates rows; Edit mutates existing ones with a different ownership story and different cache implications (a star-rating edit changes the product average; a body edit doesn't). Coupling them would tangle the state machines.
+- **Turnstile is required.** Edits are a write surface and the same anti-abuse gate that protects submit applies here — the API verifies the token server-side before starting the workflow, so a stolen token alone can't drive a flood of edits.
 
 ---
 
@@ -347,7 +349,8 @@ sequenceDiagram
     participant P as Postgres
     participant R as Redis
 
-    B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
+    B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false, turnstileToken }
+    Note over A: Validate Turnstile
     A->>P: SELECT review where status = Approved
     A->>P: BEGIN TX
     A->>P: UPSERT review_vote (review_id, voter_id, is_upvote)
@@ -362,6 +365,7 @@ sequenceDiagram
 - **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalised field ever drifts.
 - **The denormalised score is a cache, not a source of truth.** The vote rows are. Every vote recomputes the score from `SUM(is_upvote ? +1 : -1)` over the current rows, so a missed UPDATE doesn't leave the system permanently inconsistent.
 - **Vote permission gate.** Votes against a review whose `Status != Approved` return `404` — a stale client doesn't need to special-case the various non-approved states.
+- **Turnstile is required.** Votes are write traffic and the cheapest abuse target on the site (vote brigades, sockpuppet rings); the same gate that protects submit/edit/delete applies here. The product page hosts a single Turnstile widget that vote and delete consume; tokens are single-use, so the widget auto-resets after each consumption.
 - **Response shape.** The handler returns `{ score, myVote }` so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
 
 ---
