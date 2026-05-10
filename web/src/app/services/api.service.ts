@@ -6,6 +6,7 @@ import {
   ConfigResponse,
   ProductDetail,
   ProductSummary,
+  ReviewItem,
   ReviewSort,
   SortDirection,
   ReviewsPage,
@@ -47,6 +48,10 @@ export class ApiService {
     return this.http.get<ReviewsPage>(
       `/api/products/${encodeURIComponent(slug)}/reviews${qs ? `?${qs}` : ''}`,
     );
+  }
+
+  getReview(id: string): Observable<ReviewItem> {
+    return this.http.get<ReviewItem>(`/api/reviews/${encodeURIComponent(id)}`);
   }
 
   submitReview(body: SubmitReviewRequest): Observable<AcceptedResponse> {
