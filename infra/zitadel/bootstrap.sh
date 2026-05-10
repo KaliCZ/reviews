@@ -26,11 +26,29 @@ set -eu
 #     health check that Aspire reliably probes — bootstrap waits on
 #     zitadelDb instead and arrives well before zitadel finishes booting.
 # Either way: wait for the PAT file, then ZITADEL is fully ready.
-for i in $(seq 1 5); do
+for i in 1 2 3; do
   [ -s /zitadel-secrets/admin-pat.txt ] && break
   echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"
   sleep 2
 done
+
+if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
+  echo ""
+  echo "[bootstrap] ERROR: /zitadel-secrets/admin-pat.txt never appeared."
+  echo ""
+  echo "  This usually means ZITADEL's DB has prior FirstInstance state but the"
+  echo "  PAT secret on disk is gone — the two halves drifted out of sync."
+  echo "  ZITADEL only writes the PAT once (during FirstInstance) and won't"
+  echo "  rewrite it on subsequent boots, so there's no automatic recovery."
+  echo ""
+  echo "  To fix: stop aspire, drop the postgres volume + zitadel-secrets dir,"
+  echo "  and start fresh. From the host:"
+  echo "      docker stop \$(docker ps -q --filter name=postgres- --filter name=zitadel-)"
+  echo "      docker volume rm reviews-aspire-postgres-<worktree-id>"
+  echo "      rm -rf ~/.reviews-dev/aspire/<worktree-id>/"
+  echo ""
+  exit 1
+fi
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
