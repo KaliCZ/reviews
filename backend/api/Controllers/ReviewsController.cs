@@ -163,13 +163,7 @@ public class ReviewsController(
             }
 
             // Recompute Score from vote rows so it self-heals on every write.
-            await db.Reviews
-                .Where(r => r.Id == id)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Score, _ => db.ReviewVotes
-                        .Where(v => v.ReviewId == id)
-                        .Sum(v => v.IsUpvote ? 1 : -1))
-                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
+            await db.Reviews.RecomputeScoreAsync(id, ct);
 
             await tx.CommitAsync(ct);
         });
@@ -211,13 +205,7 @@ public class ReviewsController(
                 .Where(v => v.ReviewId == id && v.VoterId == user.Id)
                 .ExecuteDeleteAsync(ct);
 
-            await db.Reviews
-                .Where(r => r.Id == id)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(r => r.Score, _ => db.ReviewVotes
-                        .Where(v => v.ReviewId == id)
-                        .Sum(v => v.IsUpvote ? 1 : -1))
-                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
+            await db.Reviews.RecomputeScoreAsync(id, ct);
 
             await tx.CommitAsync(ct);
         });
