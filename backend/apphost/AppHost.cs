@@ -66,6 +66,65 @@ var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
 Directory.CreateDirectory(zitadelSecrets);
 Directory.CreateDirectory(appSecrets);
 
+// State pairing: ZITADEL writes admin-pat.txt during FirstInstance and
+// never rewrites it; the DB volume remembers FirstInstance has run. Wipe
+// either half (manually, or by switching docker contexts) and bootstrap
+// deadlocks waiting for a PAT that won't reappear. Detect the mismatch
+// and reset both halves so the next boot is a clean re-bootstrap. Cheap
+// safety net — under normal use both halves move together.
+var postgresVolumeName = $"reviews-aspire-postgres-{worktreeId}";
+var hasPat = File.Exists(Path.Combine(zitadelSecrets, "admin-pat.txt"));
+var hasVolume = DockerVolumeExists(postgresVolumeName);
+if (hasPat != hasVolume)
+{
+    Console.WriteLine($"[apphost] secrets/volume out of sync (pat={hasPat}, volume={hasVolume}) — wiping both for a clean re-bootstrap");
+    Directory.Delete(zitadelSecrets, recursive: true);
+    Directory.Delete(appSecrets, recursive: true);
+    Directory.CreateDirectory(zitadelSecrets);
+    Directory.CreateDirectory(appSecrets);
+    if (hasVolume) RunDocker("volume", "rm", postgresVolumeName);
+}
+
+static bool DockerVolumeExists(string name)
+{
+    try
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "docker",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add("volume");
+        psi.ArgumentList.Add("inspect");
+        psi.ArgumentList.Add(name);
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p is null) return false;
+        p.WaitForExit(5000);
+        return p.ExitCode == 0;
+    }
+    catch { return false; }
+}
+
+static void RunDocker(params string[] args)
+{
+    try
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = "docker",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var p = System.Diagnostics.Process.Start(psi);
+        p?.WaitForExit(10000);
+    }
+    catch { /* best-effort cleanup — Aspire will surface the real error if it matters */ }
+}
+
 // Web is declared up front (just the endpoint) so zitadel-bootstrap below can
 // inject the OIDC redirect URI for whatever host port Aspire ends up
 // assigning. Aspire's PORT env var is forwarded into `ng serve --port`
