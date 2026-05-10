@@ -215,6 +215,11 @@ var api = builder.AddProject<Projects.api>("api")
     .WithReference(images).WaitFor(storage)
     .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
+    // Override the appsettings.Development.json fallback (http://localhost:8080).
+    // Under Aspire zitadel publishes on a random host port, and without this
+    // the JwtBearer handler retries OIDC discovery against an unreachable
+    // 8080 on every authorized request — listing endpoints crawl as a result.
+    .WithEnvironment("Auth__IssuerUrl", zitadelPublicUrl)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
