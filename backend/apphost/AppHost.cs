@@ -67,16 +67,13 @@ Directory.CreateDirectory(zitadelSecrets);
 Directory.CreateDirectory(appSecrets);
 
 // Web is declared up front (just the endpoint) so zitadel-bootstrap below can
-// inject the OIDC redirect URI. Web's host port stays pinned at 4200
-// because `ng serve` ignores the PORT env var and always binds to its own
-// default of 4200 — if we let Aspire randomize, the dashboard would point
-// at a port nothing's listening on while ng quietly serves on 4200.
-// Pinning means parallel worktrees collide on web, but that's the only
-// shared point of contact (everything stateful — ZITADEL, DBs, Temporal —
-// stays per-worktree). A future improvement would be a launcher script
-// that forwards PORT into `ng serve --port`, freeing this up to randomize.
+// inject the OIDC redirect URI for whatever host port Aspire ends up
+// assigning. Aspire's PORT env var is forwarded into `ng serve --port`
+// by web/scripts/serve.mjs (Angular's dev server otherwise ignores PORT
+// and binds to its 4200 default), so randomizing here actually moves ng's
+// listener too — parallel worktrees end up on different ports.
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
-    .WithHttpEndpoint(env: "PORT", targetPort: 4200)
+    .WithHttpEndpoint(env: "PORT")
     .WithExternalHttpEndpoints();
 var webEndpoint = web.GetEndpoint("http");
 var bffRedirectUri = ReferenceExpression.Create(
