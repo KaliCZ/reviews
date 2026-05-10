@@ -364,7 +364,7 @@ sequenceDiagram
         A->>P: UPSERT review_vote (review_id, voter_id, is_upvote)
         A->>P: UPDATE review.score = (SELECT sum from votes)
         A->>P: COMMIT
-        A->>R: invalidate product caches (with retry; best-effort)
+        A->>R: invalidate product caches (with retry, best-effort)
         A-->>B: 200 OK<br/>{ score, myVote: true | false }
     else remove (click your active button)
         B->>A: DELETE /api/reviews/:id/vote
@@ -373,7 +373,7 @@ sequenceDiagram
         A->>P: DELETE FROM review_vote WHERE (review_id, voter_id)
         A->>P: UPDATE review.score = (SELECT sum from votes)
         A->>P: COMMIT
-        A->>R: invalidate product caches (with retry; best-effort)
+        A->>R: invalidate product caches (with retry, best-effort)
         A-->>B: 200 OK<br/>{ score, myVote: null }
     end
 ```
