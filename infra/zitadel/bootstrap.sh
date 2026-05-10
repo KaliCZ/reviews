@@ -26,7 +26,7 @@ set -eu
 #     health check that Aspire reliably probes — bootstrap waits on
 #     zitadelDb instead and arrives well before zitadel finishes booting.
 # Either way: wait for the PAT file, then ZITADEL is fully ready.
-for i in $(seq 1 60); do
+for i in $(seq 1 5); do
   [ -s /zitadel-secrets/admin-pat.txt ] && break
   echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"
   sleep 2
