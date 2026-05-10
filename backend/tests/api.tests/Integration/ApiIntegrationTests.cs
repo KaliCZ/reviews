@@ -327,8 +327,17 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Remove_vote_drops_row_and_zeroes_score()
     {
-        // Product 10 is fixture-unique to avoid colliding with sibling tests.
+        // Product 10 is shared with Delete_falls_back; clear any prior row so
+        // the partial unique index doesn't reject re-submission.
         const long productId = 10;
+        var testUserId = CurrentUserAccessor.SubToGuid("00000000-0000-0000-0000-000000000001");
+        await using (var db = fx.CreateDbContext())
+        {
+            await db.Reviews
+                .Where(r => r.ProductId == productId && r.AuthorId == testUserId && r.Status != ReviewStatus.Deleted)
+                .ExecuteDeleteAsync();
+        }
+
         var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
         var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
         Assert.Equal(HttpStatusCode.Accepted, submitResponse.StatusCode);
@@ -371,7 +380,16 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     {
         // Removing without a prior vote is idempotent: still 200 with score 0
         // and no row appears in review_votes.
+        // Product 2 is shared with Delete_synchronously; clear any prior row.
         const long productId = 2;
+        var testUserId = CurrentUserAccessor.SubToGuid("00000000-0000-0000-0000-000000000001");
+        await using (var pre = fx.CreateDbContext())
+        {
+            await pre.Reviews
+                .Where(r => r.ProductId == productId && r.AuthorId == testUserId && r.Status != ReviewStatus.Deleted)
+                .ExecuteDeleteAsync();
+        }
+
         var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
         var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
         Assert.Equal(HttpStatusCode.Accepted, submitResponse.StatusCode);
@@ -463,7 +481,17 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Delete_synchronously_soft_deletes_and_recomputes_aggregates()
     {
+        // Product 2 is shared with Remove_vote_when_none_exists; clear any
+        // prior row so the partial unique index doesn't reject re-submission.
         const long productId = 2;
+        var testUserId = CurrentUserAccessor.SubToGuid("00000000-0000-0000-0000-000000000001");
+        await using (var pre = fx.CreateDbContext())
+        {
+            await pre.Reviews
+                .Where(r => r.ProductId == productId && r.AuthorId == testUserId && r.Status != ReviewStatus.Deleted)
+                .ExecuteDeleteAsync();
+        }
+
         var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
         var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
         Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
