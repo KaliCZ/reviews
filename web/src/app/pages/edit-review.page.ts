@@ -218,28 +218,12 @@ export class EditReviewPage {
 
   constructor() {
     effect(() => {
-      const s = this.slug();
       const id = this.reviewId();
-      if (!s || !id) return;
-      // No /api/reviews/:id endpoint yet, so page through the listing.
-      // Reachable only from the user's own review on the product page.
-      this.lookupOnPage(s, id, 1);
-    });
-  }
-
-  private lookupOnPage(slug: string, id: string, page: number) {
-    this.api.listReviews(slug, { sort: 'Helpful', page }).subscribe((pg) => {
-      const found = pg.items.find((r) => r.id === id);
-      if (found) {
-        this.fillFrom(found);
-        return;
-      }
-      const totalPages = Math.max(1, Math.ceil(pg.totalCount / pg.pageSize));
-      if (page >= totalPages) {
-        this.notFound.set(true);
-        return;
-      }
-      this.lookupOnPage(slug, id, page + 1);
+      if (!id) return;
+      this.api.getReview(id).subscribe({
+        next: (r) => this.fillFrom(r),
+        error: () => this.notFound.set(true),
+      });
     });
   }
 
