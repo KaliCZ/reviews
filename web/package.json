@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "cross-env NODE_OPTIONS=\"--import ./otel.register.mjs\" ng serve",
+    "start": "cross-env NODE_OPTIONS=\"--import ./otel.register.mjs\" PORT=4200 ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "vitest run --config vitest.config.ts",

@@ -1,8 +1,9 @@
 import { DOCUMENT, Inject, Injectable, PLATFORM_ID, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 
-// SSR has no client hint, so first paint may briefly show the system default
-// before localStorage hydrates the user's choice.
+// First paint runs the inline bootstrap in index.html so the html.dark class
+// is already correct before CSS evaluates; this service mirrors the same
+// decision in Angular state and reapplies it after hydration.
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
 const STORAGE_KEY = 'theme';
