@@ -100,6 +100,7 @@
     "deleteConfirm": "Smazat tuto recenzi? Před odstraněním může projít schvalovacím procesem.",
     "signInToVote": "Přihlaste se pro hlasování",
     "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
+    "removeVote": "Dalším kliknutím zrušíte svůj hlas",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
     "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu."
   },
