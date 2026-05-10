@@ -12,13 +12,18 @@ export interface BffConfig {
 }
 
 /**
- * docker compose `env_file:` requires the file to exist at compose-up but
- * zitadel-bootstrap writes zitadel.env at runtime. Try both the compose path
- * and the Aspire-supplied ZITADEL_ENV_FILE; missing files are ignored.
+ * Three sources, in priority order:
+ *   1. ZITADEL_ENV_FILE — Aspire writes a per-resource path here.
+ *   2. /run/secrets/zitadel.env — docker compose bind-mount.
+ *   3. ../infra/zitadel/.app-secrets/zitadel.env — host path for `npm run dev`,
+ *      resolved from web/ (cwd of `npm --prefix web start`).
+ *
+ * Missing files are silently ignored by dotenv.
  */
 export function loadConfig(): BffConfig {
   dotenv.config({ path: process.env['ZITADEL_ENV_FILE'] });
   dotenv.config({ path: '/run/secrets/zitadel.env' });
+  dotenv.config({ path: '../infra/zitadel/.app-secrets/zitadel.env' });
 
   const issuerPublic =
     process.env['ZITADEL_PUBLIC_URL'] ?? process.env['ZITADEL_ISSUER'] ?? 'http://localhost:8080';

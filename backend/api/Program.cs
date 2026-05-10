@@ -21,8 +21,13 @@ public class Program
         // Per-key files (filename `Section__Sub` → IConfiguration `Section:Sub`).
         // The zitadel-bootstrap container writes its OIDC outputs here at runtime.
         // docker-compose binds /run/secrets/; Aspire passes API_SECRETS_DIR.
+        // Path.GetFullPath resolves a relative API_SECRETS_DIR (e.g. set in
+        // launchSettings for the npm-run-dev path) against the API project's
+        // cwd; absolute paths from Aspire/compose pass through unchanged.
         var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
-        builder.Configuration.AddKeyPerFile(directoryPath: secretsDir, optional: true);
+        builder.Configuration.AddKeyPerFile(
+            directoryPath: Path.GetFullPath(secretsDir),
+            optional: true);
 
         builder.AddServiceDefaults();
 

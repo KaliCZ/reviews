@@ -4,12 +4,16 @@ import { StarRating } from '../components/star-rating';
 import { ApiService } from '../services/api.service';
 import { ProductSummary } from '../models';
 import { TPipe } from '../pipes/t.pipe';
+import { I18nService } from '../services/i18n.service';
 
 @Component({
   imports: [RouterLink, StarRating, TPipe],
   template: `
     <h1>{{ 'productList.heading' | t }}</h1>
     <p class="muted">{{ 'productList.subtitle' | t }}</p>
+    @if (loadError(); as msg) {
+      <p class="error" role="alert">{{ msg }}</p>
+    }
     <ul class="grid">
       @for (p of products(); track p.id) {
         <li class="card">
@@ -92,13 +96,22 @@ import { TPipe } from '../pipes/t.pipe';
       .empty {
         color: #888;
       }
+      .error {
+        background: var(--color-error-container);
+        color: var(--color-on-error-container);
+        padding: 0.5rem 0.75rem;
+        border-radius: 4px;
+        margin: 0.5rem 0 1rem;
+      }
     `,
   ],
 })
 export class ProductListPage {
   private readonly api = inject(ApiService);
+  private readonly i18n = inject(I18nService);
   protected readonly products = signal<ProductSummary[]>([]);
   protected readonly loaded = signal(false);
+  protected readonly loadError = signal<string | null>(null);
 
   constructor() {
     this.api.listProducts().subscribe({
@@ -106,7 +119,21 @@ export class ProductListPage {
         this.products.set(rows);
         this.loaded.set(true);
       },
-      error: () => this.loaded.set(true),
+      error: (err) => {
+        this.loadError.set(this.errorMessage(err, 'productList.loadFailed'));
+        this.loaded.set(true);
+      },
     });
+  }
+
+  private errorMessage(
+    err: { status?: number; error?: unknown; message?: string },
+    fallback: string,
+  ): string {
+    const body = typeof err.error === 'string' ? err.error : null;
+    const status = err.status ? `${err.status}` : '';
+    const detail = body || err.message || '';
+    const base = this.i18n.t(fallback);
+    return detail ? `${base} (${[status, detail].filter(Boolean).join(' ')})` : base;
   }
 }
