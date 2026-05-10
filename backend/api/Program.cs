@@ -60,7 +60,6 @@ public class Program
                 | HttpLoggingFields.RequestQuery
                 | HttpLoggingFields.ResponseStatusCode
                 | HttpLoggingFields.Duration;
-            o.CombineLogs = true;
         });
 
         builder.Services.AddHealthChecks().AddInfraHealthChecks();
