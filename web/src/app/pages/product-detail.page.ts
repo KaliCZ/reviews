@@ -46,7 +46,24 @@ import { I18nService } from '../services/i18n.service';
         <p class="error" role="alert">{{ msg }}</p>
       }
       @if (page(); as pg) {
-        @if (pg.items.length === 0) {
+        @if (pg.myReview; as mine) {
+          <section class="my-review" aria-label="{{ 'products.yourReview' | t }}">
+            <h3>{{ 'products.yourReview' | t }}</h3>
+            @if (mine.status === 'Pending') {
+              <p class="status pending">{{ 'products.statusPending' | t }}</p>
+            } @else if (mine.status === 'Rejected') {
+              <p class="status rejected">{{ 'products.statusRejected' | t }}</p>
+            }
+            <app-review-card
+              [review]="mine"
+              [productSlug]="p.slug"
+              [busy]="busy() === mine.id"
+              (vote)="onVote($event)"
+              (del)="onDelete($event)"
+            />
+          </section>
+        }
+        @if (pg.items.length === 0 && !pg.myReview) {
           <p class="muted">{{ 'products.noReviews' | t }}</p>
         } @else {
           @for (r of pg.items; track r.id) {
@@ -121,6 +138,32 @@ import { I18nService } from '../services/i18n.service';
         padding: 0.5rem 0.75rem;
         border-radius: 4px;
         margin: 0.5rem 0;
+      }
+      .my-review {
+        border: 1px solid var(--color-outline-variant);
+        border-radius: 6px;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0 1rem;
+        background: var(--color-surface-container, transparent);
+      }
+      .my-review h3 {
+        margin: 0;
+        font-size: 0.95rem;
+        color: var(--color-on-surface-muted);
+      }
+      .status {
+        margin: 0.4rem 0 0;
+        padding: 0.35rem 0.6rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+      }
+      .status.pending {
+        background: var(--color-warning-container, #fef3c7);
+        color: var(--color-on-warning-container, #92400e);
+      }
+      .status.rejected {
+        background: var(--color-error-container, #fee2e2);
+        color: var(--color-on-error-container, #991b1b);
       }
       @media (max-width: 700px) {
         .product {

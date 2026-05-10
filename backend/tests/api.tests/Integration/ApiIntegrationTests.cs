@@ -87,6 +87,8 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         Assert.Equal(1, root.GetProperty("page").GetInt32());
         Assert.True(root.GetProperty("pageSize").GetInt32() > 0);
         Assert.True(root.GetProperty("totalCount").GetInt32() >= 5); // seed has 5 for this product
+        // Anonymous viewer — no MyReview overlay.
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("myReview").ValueKind);
         var items = root.GetProperty("items");
         Assert.Equal(JsonValueKind.Array, items.ValueKind);
         Assert.True(items.GetArrayLength() > 0);
@@ -102,7 +104,84 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             AssertString(item, "updatedAtUtc");
             Assert.Contains(item.GetProperty("myVote").ValueKind, new[] { JsonValueKind.Null, JsonValueKind.True, JsonValueKind.False });
             Assert.Equal(JsonValueKind.False, item.GetProperty("mine").ValueKind);
+            // The shared listing only contains approved rows.
+            Assert.Equal("Approved", item.GetProperty("status").GetString());
         }
+    }
+
+    // -- /api/products/{slug}/reviews — MyReview overlay -----------------
+
+    // The author sees their own Pending review immediately, even though the
+    // shared listing only carries Approved rows and the first-page cache
+    // hasn't been invalidated yet (the workflow is still waiting on a
+    // moderator signal).
+    [Fact]
+    public async Task Get_product_reviews_overlays_authors_pending_review()
+    {
+        // Product 4 — no other test submits to it, so the test user has at
+        // most one row from a prior run we need to clean up.
+        const long productId = 4;
+        var testUserId = new Guid("00000000-0000-0000-0000-000000000001");
+        await using (var db = fx.CreateDbContext())
+        {
+            var existing = await db.Reviews
+                .Where(r => r.ProductId == productId && r.AuthorId == testUserId)
+                .ToListAsync();
+            if (existing.Count > 0)
+            {
+                db.Reviews.RemoveRange(existing);
+                await db.SaveChangesAsync();
+            }
+        }
+
+        var slug = await GetProductSlugAsync(productId);
+
+        // Warm the first-page cache so the overlay path runs against a
+        // cached payload — the bug we're guarding against.
+        var warm = await fx.ApiClient.GetAsync($"/api/products/{slug}/reviews");
+        Assert.Equal(HttpStatusCode.OK, warm.StatusCode);
+
+        var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 5);
+        var submit = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
+        Assert.Equal(HttpStatusCode.Accepted, submit.StatusCode);
+
+        // 5-star waits on a moderator signal — DON'T signal it. The Persist
+        // activity still lands the Pending row before WaitConditionAsync.
+        await fx.WaitForAsync(async () =>
+        {
+            await using var db = fx.CreateDbContext();
+            return await db.Reviews
+                .AsNoTracking()
+                .Where(r => r.ProductId == productId && r.Title == expectedTitle.ToNonEmpty())
+                .SingleOrDefaultAsync();
+        }, what: "pending review row");
+
+        var get = await fx.ApiClient.GetAsync($"/api/products/{slug}/reviews");
+        Assert.Equal(HttpStatusCode.OK, get.StatusCode);
+
+        using var doc = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        var myReview = root.GetProperty("myReview");
+        Assert.Equal(JsonValueKind.Object, myReview.ValueKind);
+        Assert.Equal(expectedTitle, myReview.GetProperty("title").GetString());
+        Assert.Equal("Pending", myReview.GetProperty("status").GetString());
+        Assert.True(myReview.GetProperty("mine").GetBoolean());
+
+        // Pending rows must not appear in the shared items array.
+        var items = root.GetProperty("items");
+        foreach (var item in items.EnumerateArray())
+            Assert.NotEqual(expectedTitle, item.GetProperty("title").GetString());
+    }
+
+    private async Task<string> GetProductSlugAsync(long productId)
+    {
+        await using var db = fx.CreateDbContext();
+        var slug = await db.Products
+            .AsNoTracking()
+            .Where(p => p.Id == productId)
+            .Select(p => p.Slug.Value)
+            .SingleAsync();
+        return slug;
     }
 
     // -- POST /api/reviews (auto-approve) --------------------------------
