@@ -191,10 +191,14 @@ var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
 // launchProfileName:null so AppHost doesn't grab launchSettings' :5146 —
-// that port belongs to `npm run dev`'s `dotnet watch`. API owns migrations
-// + seed; worker waits on API health before querying.
+// that port belongs to `npm run dev`'s `dotnet watch`. Skipping the
+// profile also drops its ASPNETCORE_ENVIRONMENT=Development, so we set
+// it back manually — appsettings.Development.json holds Turnstile dev
+// keys among other things. API owns migrations + seed; worker waits on
+// API health before querying.
 var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
     .WithHttpEndpoint()
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
