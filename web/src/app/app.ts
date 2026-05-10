@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, afterNextRender, inject } from '@angular/core';
 import { RouterLink, RouterOutlet, Router } from '@angular/router';
 import { AuthService } from './services/auth.service';
 import { ThemeToggle } from './components/theme-toggle';
@@ -11,12 +11,15 @@ import { TPipe } from './pipes/t.pipe';
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class App implements OnInit {
+export class App {
   protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
-  ngOnInit(): void {
-    this.auth.refresh();
+  constructor() {
+    // Browser-only: SSR fetches don't carry the session cookie, so /auth/me
+    // would always come back 401 — and the in-flight HttpClient request
+    // keeps Angular's PendingTasks from settling, blocking SSR stabilization.
+    afterNextRender(() => this.auth.refresh());
   }
 
   loginHref(): string {

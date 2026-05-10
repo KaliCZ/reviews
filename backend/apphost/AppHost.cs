@@ -13,10 +13,29 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Per-worktree offset added to the host-port bases below so parallel
-// AppHosts in different worktrees don't collide. Mirrored in
+// Per-worktree offset added to every host-port base below so parallel
+// AppHosts in different worktrees don't collide and individual services
+// keep stable URLs across restarts (browser bookmarks for zitadel/pgAdmin/
+// redisInsight, psql/redis-cli connections, etc.). Mirrored in
 // scripts/aspire.mjs for the dashboard listeners.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+
+// Per-worktree port bases. Spaced 1000 apart so the 0-999 offset can't push
+// one band into another's range. 24000-27999 is reserved for the AppHost's
+// own listeners (see scripts/aspire.mjs: dashboard, OTLP, MCP, resource).
+var postgresPort      = 15000 + portOffset;
+var apiPort           = 16000 + portOffset;
+var temporalGrpcPort  = 17000 + portOffset;
+var temporalUiPort    = 18000 + portOffset;
+var webPort           = 19000 + portOffset;
+var workerPort        = 20000 + portOffset;
+var redisPort         = 21000 + portOffset;
+var pgAdminPort       = 22000 + portOffset;
+var redisInsightPort  = 23000 + portOffset;
+var azuriteBlobPort   = 28000 + portOffset;
+var azuriteQueuePort  = 29000 + portOffset;
+var azuriteTablePort  = 30000 + portOffset;
+var zitadelPort       = 31000 + portOffset;
 
 // Stamps every container with com.docker.compose.project so Docker Desktop
 // shows them as one collapsible group per AppHost.
@@ -24,11 +43,11 @@ var dockerGroup = $"reviews-aspire-{worktreeId}";
 
 // One per-AppHost postgres hosts all four logical DBs; isolation between
 // parallel AppHosts comes from the worktree-scoped data volume.
-var postgres = builder.AddPostgres("postgres", password: postgresPassword)
+var postgres = builder.AddPostgres("postgres", password: postgresPassword, port: postgresPort)
     .WithDataVolume($"reviews-aspire-postgres-{worktreeId}")
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
     .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
-    .WithPgAdmin(pgAdmin => pgAdmin.WithDockerGroup(dockerGroup))
+    .WithPgAdmin(pgAdmin => pgAdmin.WithHostPort(pgAdminPort).WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
 var reviewsDb = postgres.AddDatabase("reviews");
@@ -36,8 +55,8 @@ var zitadelDb = postgres.AddDatabase("zitadel-db", databaseName: "zitadel");
 var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
 
-var cache = builder.AddRedis("cache")
-    .WithRedisInsight(insight => insight.WithDockerGroup(dockerGroup))
+var cache = builder.AddRedis("cache", port: redisPort)
+    .WithRedisInsight(insight => insight.WithHostPort(redisInsightPort).WithDockerGroup(dockerGroup))
     .WithDockerGroup(dockerGroup);
 
 // rediss:// URL for the JS BFF (the .NET integrations get the connection
@@ -46,7 +65,11 @@ var redisUrl = ReferenceExpression.Create(
     $"rediss://default:{cache.Resource.PasswordParameter!}@{cache.GetEndpoint("tcp").Property(EndpointProperty.Host)}:{cache.GetEndpoint("tcp").Property(EndpointProperty.Port)}");
 
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(emulator => emulator.WithDockerGroup(dockerGroup));
+    .RunAsEmulator(emulator => emulator
+        .WithBlobPort(azuriteBlobPort)
+        .WithQueuePort(azuriteQueuePort)
+        .WithTablePort(azuriteTablePort)
+        .WithDockerGroup(dockerGroup));
 var images = storage.AddBlobs("images");
 
 // Per-worktree secrets dirs (overridable via REVIEWS_*_SECRETS_DIR).
@@ -69,10 +92,13 @@ Directory.CreateDirectory(appSecrets);
 // the browser would otherwise see different ports and the OIDC redirect
 // would mismatch. The trade-off is that an unproxied endpoint requires a
 // pinned port. PORT is forwarded into ng serve by web/scripts/serve.mjs.
-var webPort = 19000 + portOffset;
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
-    .WithExternalHttpEndpoints();
+    .WithExternalHttpEndpoints()
+    // Probes the SSR root, not a cheap /healthz: AddJavaScriptApp would
+    // otherwise flip Healthy as soon as the node process starts, even when
+    // SSR is wedged on PendingTasks and can't actually serve a page.
+    .WithHttpHealthCheck("/");
 // Plain strings, not ReferenceExpression: a Property() reference would add
 // an implicit bootstrap→web dependency and deadlock with web→bootstrap.
 var bffRedirectUri = $"http://localhost:{webPort}/auth/callback";
@@ -98,7 +124,7 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME", "postgres")
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
-    .WithHttpEndpoint(name: "console", targetPort: 8080)
+    .WithHttpEndpoint(name: "console", port: zitadelPort, targetPort: 8080)
     // Gate for WaitFor(zitadel) below: flips Healthy once FirstInstance
     // completes and the management API is reachable.
     .WithHttpHealthCheck("/debug/ready", endpointName: "console")
@@ -130,12 +156,9 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadel);
 
-// Pinned per-worktree ports for temporal: scheme:"tcp" endpoints don't
-// auto-allocate, and the canonical 7233/8233 would collide across
-// worktrees and with compose.
-var temporalGrpcPort = 17000 + portOffset;
-var temporalUiPort = 18000 + portOffset;
-
+// scheme:"tcp" endpoints don't auto-allocate, and the canonical 7233/8233
+// would collide across worktrees and with compose — see the port-base
+// table at the top of this file.
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
     .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
     .WithEnvironment("DB", "postgres12")
@@ -168,8 +191,13 @@ temporalUi.WithEnvironment("TEMPORAL_CORS_ORIGINS", ReferenceExpression.Create(
 var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
+// launchProfileName:null so AppHost doesn't inherit launchSettings' :5146 —
+// that port belongs to `npm run dev` (`dotnet watch --project backend/api`),
+// and a leftover Aspire dcp proxy holding 5146 was crashing the compose-dev
+// api with EADDRINUSE.
 // API owns migrations + seed; worker waits on API health before querying.
-var api = builder.AddProject<Projects.api>("api")
+var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
+    .WithHttpEndpoint(port: apiPort)
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
@@ -181,9 +209,8 @@ var api = builder.AddProject<Projects.api>("api")
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// Pinned per-worktree port; without an endpoint here ASP.NET defaults to
-// :5000 and parallel AppHosts collide.
-var workerPort = 20000 + portOffset;
+// Without an endpoint here ASP.NET defaults to :5000 and parallel AppHosts
+// would collide.
 var workerService = builder.AddProject<Projects.worker>("worker")
     .WithHttpEndpoint(port: workerPort)
     .WithReference(reviewsDb).WaitFor(reviewsDb)
