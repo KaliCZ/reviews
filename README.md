@@ -3,8 +3,8 @@
 A product reviews platform: browse a catalog, read SSR-rendered product pages, sign in, then submit / edit / delete / vote on reviews.
 
 - Real OIDC auth via ZITADEL, surfaced to the SPA through the **BFF pattern** so tokens never reach the browser.
-- Mutating actions run through **durable Temporal workflows**, so async moderation (like approval process) is built in.
-- Reads are **cached in Redis** with workflow-driven invalidation — no TTL guesswork on hot pages.
+- Mutations that need a moderation gate (submit, edit) run through **durable Temporal workflows**; user-owned actions (delete, vote) are synchronous and gated on Turnstile + a fresh `auth_time` for delete.
+- Reads are **cached in Redis** and invalidated by the same code path that wrote, so a fresh review surfaces immediately rather than after a TTL.
 
 User-facing flows — sign-in, catalog browse, product page, paginated/sorted listings, submit, edit, delete, vote, image upload — are walked through in [docs/flows.md](docs/flows.md).
 

@@ -29,7 +29,7 @@ flowchart LR
     Worker -->|invalidate cache| Redis
 ```
 
-The browser never talks to ZITADEL or the API directly — the SSR/BFF process owns the session cookie and forwards `Authorization: Bearer <access_token>` on `/api/*` calls. Reads the user sees most often are served from Redis; reads that fan out by sort and filter go straight to Postgres. Anything that mutates state goes through a Temporal workflow so the persist step and the cache-invalidate step are durable together — a crash between them isn't possible.
+The browser never talks to ZITADEL or the API directly — the SSR/BFF process owns the session cookie and forwards `Authorization: Bearer <access_token>` on `/api/*` calls. Reads the user sees most often are served from Redis; reads that fan out by sort and filter go straight to Postgres. Mutations that need a moderation gate (submit, edit) go through a Temporal workflow so the persist step and the cache-invalidate step are durable together — a crash between them isn't possible. Mutations the user already owns (delete, vote) run synchronously in the API request: a single transactional update plus a best-effort cache invalidation, with retries inside `IReviewCacheInvalidator` and a 24h TTL backstop if invalidation ultimately fails.
 
 ---
 
@@ -360,7 +360,7 @@ sequenceDiagram
     A-->>B: 200 OK<br/>{ score, myVote }
 ```
 
-- **Why synchronous, not Temporal.** Submit/edit/delete are durable workflows because they have moderation gates and multi-step coordination. A vote is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
+- **Why synchronous, not Temporal.** Submit and edit are durable workflows because they have a moderation gate and multi-step coordination. A vote (like delete) is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
 - **Single endpoint with `isUpvote: bool`.** Flipping from up to down is one UPSERT, not delete-then-insert.
 - **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalised field ever drifts.
 - **The denormalised score is a cache, not a source of truth.** The vote rows are. Every vote recomputes the score from `SUM(is_upvote ? +1 : -1)` over the current rows, so a missed UPDATE doesn't leave the system permanently inconsistent.
