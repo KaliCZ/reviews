@@ -101,6 +101,8 @@
     "signInToVote": "Sign in to vote",
     "cantVoteOwn": "You can't vote on your own review.",
     "removeVote": "Click again to remove your vote",
+    "upvote": "Upvote this review",
+    "downvote": "Downvote this review",
     "voteFailed": "Vote failed. Please try again.",
     "deleteFailed": "Delete failed. Please try again."
   },

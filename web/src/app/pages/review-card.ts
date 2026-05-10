@@ -181,11 +181,11 @@ export class ReviewCard {
   // UI affordance only — destructive actions are gated server-side.
   readonly isMine = computed(() => this.review().mine);
 
-  voteButtonTitle(isUpvote: boolean): string | null {
+  voteButtonTitle(isUpvote: boolean): string {
     if (!this.auth.authenticated()) return this.i18n.t('vote.signInToVote');
     if (this.isMine()) return this.i18n.t('vote.cantVoteOwn');
     if (this.review().myVote === isUpvote) return this.i18n.t('vote.removeVote');
-    return null;
+    return this.i18n.t(isUpvote ? 'vote.upvote' : 'vote.downvote');
   }
 
   cast(isUpvote: boolean) {

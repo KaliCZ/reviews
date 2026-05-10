@@ -101,6 +101,8 @@
     "signInToVote": "Přihlaste se pro hlasování",
     "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
     "removeVote": "Dalším kliknutím zrušíte svůj hlas",
+    "upvote": "Hlasovat pro tuto recenzi",
+    "downvote": "Hlasovat proti této recenzi",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
     "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu."
   },
