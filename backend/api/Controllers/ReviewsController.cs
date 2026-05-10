@@ -25,6 +25,10 @@ public class ReviewsController(
     ITurnstileVerifier turnstile,
     IReviewCacheInvalidator cacheInvalidator) : ControllerBase
 {
+    // Header carries the Turnstile token for endpoints without a JSON body
+    // (DELETE). Submit/edit/vote pass it in the body instead.
+    public const string TurnstileHeader = "X-Turnstile-Token";
+
     // Author-scoped read so the edit page can load Pending reviews — the
     // public listing under /api/products/{slug}/reviews only surfaces Approved,
     // so without this the user can't edit a review until it's approved.
@@ -64,7 +68,7 @@ public class ReviewsController(
     {
         if (ValidateImageUrls(req.ImageUrls) is { } error) return BadRequest(error);
 
-        if (!await turnstile.VerifyAsync(req.TurnstileToken.Value, HttpContext.Connection.RemoteIpAddress?.ToString(), ct))
+        if (!await VerifyTurnstileAsync(req.TurnstileToken.Value, ct))
             return BadRequest("Turnstile verification failed.");
 
         var user = currentUser.User!;
@@ -105,6 +109,9 @@ public class ReviewsController(
     {
         if (ValidateImageUrls(req.ImageUrls) is { } error) return BadRequest(error);
 
+        if (!await VerifyTurnstileAsync(req.TurnstileToken.Value, ct))
+            return BadRequest("Turnstile verification failed.");
+
         var input = new EditReviewInput(
             ReviewId:  id,
             AuthorId:  currentUser.User!.Id,
@@ -120,20 +127,64 @@ public class ReviewsController(
         return Accepted(new AcceptedResponse(handle.Id, "edit-submitted"));
     }
 
+    // Synchronous: the user owns the review and chose to delete it. Recent-auth
+    // (auth_time) is enforced to make this destructive action expensive for
+    // anyone replaying a stolen access token.
     [HttpDelete("{id:guid}")]
-    public async Task<ActionResult<AcceptedResponse>> Delete(Guid id, CancellationToken ct)
+    public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {
-        var input = new DeleteReviewInput(id, currentUser.User!.Id);
-        var handle = await temporal.StartWorkflowAsync(
-            (DeleteReviewWorkflow wf) => wf.RunAsync(input),
-            new WorkflowOptions(id: $"delete-review-{id:N}-{Sequential.NewGuid():N}", taskQueue: ReviewQueues.TaskQueue));
-        return Accepted(new AcceptedResponse(handle.Id, "delete-submitted"));
+        if (RecentAuth.RequireFresh(User, RecentAuth.DeleteFreshness, Request, Response) is { } challenge)
+            return challenge;
+
+        var token = Request.Headers[TurnstileHeader].ToString();
+        if (string.IsNullOrEmpty(token) || !await VerifyTurnstileAsync(token, ct))
+            return BadRequest("Turnstile verification failed.");
+
+        var user = currentUser.User!;
+
+        var lookup = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Id == id && r.Status != ReviewStatus.Deleted)
+            .Select(r => new { r.AuthorId, r.ProductId, ProductSlug = r.Product.Slug.Value })
+            .SingleOrDefaultAsync(ct);
+        if (lookup is null) return NotFound();
+        if (lookup.AuthorId != user.Id) return Forbid();
+
+        // ExecuteAsync wraps the soft-delete + rating recompute in one
+        // strategy-managed unit so the retrying execution strategy
+        // (Aspire-wired NpgsqlRetryingExecutionStrategy) can replay it.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            await db.Reviews
+                .Where(r => r.Id == id && r.Status != ReviewStatus.Deleted)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Status, ReviewStatus.Deleted)
+                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
+
+            await db.Products
+                .Where(p => p.Id == lookup.ProductId)
+                .RecomputeAggregatesAsync(ct);
+
+            await tx.CommitAsync(ct);
+        });
+
+        // Best-effort: invalidator retries internally; the 24h TTL backstops
+        // a permanent miss and the next mutation re-DEL's the same keys.
+        await cacheInvalidator.InvalidateProductAsync(lookup.ProductSlug, ct);
+
+        return NoContent();
     }
 
     [HttpPost("{id:guid}/vote")]
     public async Task<ActionResult<VoteResponse>> Vote(
         Guid id, [FromBody] VoteRequest req, CancellationToken ct)
     {
+        if (!await VerifyTurnstileAsync(req.TurnstileToken.Value, ct))
+            return BadRequest("Turnstile verification failed.");
+
         var user = currentUser.User!;
 
         // Pinning to Approved blocks votes on deleted/rejected/pending reviews
@@ -168,9 +219,6 @@ public class ReviewsController(
             await tx.CommitAsync(ct);
         });
 
-        // Best-effort: invalidator retries internally; a permanent miss is
-        // backstopped by the 24h TTL and the next mutation re-DEL'ing the
-        // same keys.
         await cacheInvalidator.InvalidateProductAsync(slug, ct);
 
         // Read after commit + invalidation so we surface the latest committed
@@ -219,6 +267,9 @@ public class ReviewsController(
                 .SingleAsync(ct),
             null));
     }
+
+    private Task<bool> VerifyTurnstileAsync(string token, CancellationToken ct) =>
+        turnstile.VerifyAsync(token, HttpContext.Connection.RemoteIpAddress?.ToString(), ct);
 
     // Mirrors the DB CHECK constraints so 400 fires before the workflow starts.
     private static string? ValidateImageUrls(IReadOnlyList<NonEmptyString>? urls)

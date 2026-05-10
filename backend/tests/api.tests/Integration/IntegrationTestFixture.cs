@@ -194,7 +194,6 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
             .AddHostedTemporalWorker(taskQueue: ReviewQueues.TaskQueue)
             .AddWorkflow<SubmitReviewWorkflow>()
             .AddWorkflow<EditReviewWorkflow>()
-            .AddWorkflow<DeleteReviewWorkflow>()
             .AddScopedActivities<ReviewActivities>();
 
         return builder.Build();

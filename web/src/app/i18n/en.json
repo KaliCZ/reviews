@@ -97,14 +97,16 @@
     "successBack": "Back to product"
   },
   "vote": {
-    "deleteConfirm": "Delete this review? It might go through an approval process before it's removed.",
+    "deleteConfirm": "Delete this review? This can't be undone.",
     "signInToVote": "Sign in to vote",
     "cantVoteOwn": "You can't vote on your own review.",
     "removeVote": "Click again to remove your vote",
     "upvote": "Upvote this review",
     "downvote": "Downvote this review",
     "voteFailed": "Vote failed. Please try again.",
-    "deleteFailed": "Delete failed. Please try again."
+    "deleteFailed": "Delete failed. Please try again.",
+    "turnstileRequired": "Please complete the verification check before voting or deleting.",
+    "reauthPrompt": "For your security, you'll be asked to sign in again before we can delete your review. Continue?"
   },
   "reviewCard": {
     "imageAlt": "review photo"

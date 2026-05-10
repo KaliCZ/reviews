@@ -1,15 +1,17 @@
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, ViewChild, effect, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
 import { StarRating } from '../components/star-rating';
+import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
 import { AuthService } from '../services/auth.service';
 import { ProductDetail, ReviewsPage } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
+import { handleReauthRequired } from '../services/reauth';
 
 @Component({
-  imports: [RouterLink, StarRating, ReviewCard, TPipe],
+  imports: [RouterLink, StarRating, ReviewCard, TurnstileComponent, TPipe],
   template: `
     @if (product(); as p) {
       <article class="product">
@@ -83,6 +85,11 @@ import { I18nService } from '../services/i18n.service';
             </p>
           }
         }
+        @if (auth.authenticated() && (pg.items.length > 0 || pg.myReview) && siteKey(); as sk) {
+          <div class="turnstile-row">
+            <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
+          </div>
+        }
       }
     } @else if (notFound()) {
       <p>{{ 'products.notFound' | t }}</p>
@@ -139,6 +146,9 @@ import { I18nService } from '../services/i18n.service';
         border-radius: 4px;
         margin: 0.5rem 0;
       }
+      .turnstile-row {
+        margin-top: 1rem;
+      }
       .my-review {
         border: 1px solid var(--color-outline-variant);
         border-radius: 6px;
@@ -185,8 +195,13 @@ export class ProductDetailPage {
   protected readonly notFound = signal(false);
   protected readonly busy = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
+  protected readonly siteKey = signal<string | null>(null);
+
+  protected turnstileToken = '';
+  @ViewChild(TurnstileComponent) private turnstileWidget?: TurnstileComponent;
 
   constructor() {
+    this.api.config().subscribe((c) => this.siteKey.set(c.turnstileSiteKey));
     effect(() => {
       const s = this.slug();
       if (s) this.fetchAll(s);
@@ -208,11 +223,23 @@ export class ProductDetailPage {
     return `/auth/login?returnTo=${ret}`;
   }
 
-  onVote(e: { id: string; isUpvote: boolean | null }) {
+  async onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
+    let token = '';
+    if (e.isUpvote !== null) {
+      const t = await this.waitForTurnstileToken();
+      if (!t) {
+        this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+        this.busy.set(null);
+        return;
+      }
+      token = t;
+    }
     const req$ =
-      e.isUpvote === null ? this.api.removeVote(e.id) : this.api.voteReview(e.id, e.isUpvote);
+      e.isUpvote === null
+        ? this.api.removeVote(e.id)
+        : this.api.voteReview(e.id, e.isUpvote, token);
     req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. No refetch needed.
@@ -225,29 +252,52 @@ export class ProductDetailPage {
             ),
           });
         }
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
         this.actionError.set(this.errorMessage(err, 'vote.voteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });
   }
 
-  onDelete(id: string) {
+  async onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.busy.set(id);
     this.actionError.set(null);
-    this.api.deleteReview(id).subscribe({
+    const token = await this.waitForTurnstileToken();
+    if (!token) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      this.busy.set(null);
+      return;
+    }
+    this.api.deleteReview(id, token).subscribe({
       next: () => {
         setTimeout(() => this.fetchAll(this.slug()), 400);
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
+        if (handleReauthRequired(err, `/products/${this.slug()}`, this.i18n.t('vote.reauthPrompt')))
+          return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });
+  }
+
+  // Turnstile renders async (api.js loads, widget mounts, Cloudflare issues
+  // a token); a click that races the token would otherwise hit the empty
+  // path and surface a confusing "complete the verification" error.
+  private async waitForTurnstileToken(timeoutMs = 8000): Promise<string> {
+    const start = Date.now();
+    while (!this.turnstileToken && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.turnstileToken;
   }
 
   private errorMessage(

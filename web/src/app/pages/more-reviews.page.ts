@@ -1,11 +1,14 @@
-import { Component, effect, inject, input, signal } from '@angular/core';
+import { Component, ViewChild, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ReviewCard } from './review-card';
+import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
+import { AuthService } from '../services/auth.service';
 import { ReviewSort, SortDirection, ReviewsPage } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
+import { handleReauthRequired } from '../services/reauth';
 
 const PAGE_SIZE = 20;
 const RATING_OPTIONS: ReadonlyArray<1 | 2 | 3 | 4 | 5> = [5, 4, 3, 2, 1];
@@ -33,7 +36,7 @@ const SORT_OPTIONS: ReadonlyArray<{
 ];
 
 @Component({
-  imports: [FormsModule, RouterLink, ReviewCard, TPipe],
+  imports: [FormsModule, RouterLink, ReviewCard, TurnstileComponent, TPipe],
   template: `
     <p>
       <a [routerLink]="['/products', slug()]" class="link">{{ 'reviewList.backToProduct' | t }}</a>
@@ -86,6 +89,12 @@ const SORT_OPTIONS: ReadonlyArray<{
         />
       } @empty {
         <p class="muted">{{ 'reviewList.noMatches' | t }}</p>
+      }
+
+      @if (auth.authenticated() && pg.items.length > 0 && siteKey(); as sk) {
+        <div class="turnstile-row">
+          <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
+        </div>
       }
 
       @if (pg.totalCount > 0) {
@@ -178,12 +187,16 @@ const SORT_OPTIONS: ReadonlyArray<{
         border-radius: 4px;
         margin: 0.5rem 0;
       }
+      .turnstile-row {
+        margin-top: 1rem;
+      }
     `,
   ],
 })
 export class MoreReviewsPage {
   private readonly api = inject(ApiService);
   private readonly i18n = inject(I18nService);
+  protected readonly auth = inject(AuthService);
   readonly slug = input.required<string>();
 
   protected readonly ratingOptions = RATING_OPTIONS;
@@ -194,8 +207,13 @@ export class MoreReviewsPage {
   protected readonly page = signal<ReviewsPage | null>(null);
   protected readonly busy = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
+  protected readonly siteKey = signal<string | null>(null);
+
+  protected turnstileToken = '';
+  @ViewChild(TurnstileComponent) private turnstileWidget?: TurnstileComponent;
 
   constructor() {
+    this.api.config().subscribe((c) => this.siteKey.set(c.turnstileSiteKey));
     effect(() => {
       const s = this.slug();
       if (s) this.loadPage(1);
@@ -235,11 +253,23 @@ export class MoreReviewsPage {
       .subscribe((pg) => this.page.set(pg));
   }
 
-  onVote(e: { id: string; isUpvote: boolean | null }) {
+  async onVote(e: { id: string; isUpvote: boolean | null }) {
     this.busy.set(e.id);
     this.actionError.set(null);
+    let token = '';
+    if (e.isUpvote !== null) {
+      const t = await this.waitForTurnstileToken();
+      if (!t) {
+        this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+        this.busy.set(null);
+        return;
+      }
+      token = t;
+    }
     const req$ =
-      e.isUpvote === null ? this.api.removeVote(e.id) : this.api.voteReview(e.id, e.isUpvote);
+      e.isUpvote === null
+        ? this.api.removeVote(e.id)
+        : this.api.voteReview(e.id, e.isUpvote, token);
     req$.subscribe({
       next: (res) => {
         // Sync write — patch the affected row in place. Sort order on the
@@ -254,29 +284,57 @@ export class MoreReviewsPage {
             ),
           });
         }
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
         this.actionError.set(this.errorMessage(err, 'vote.voteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });
   }
 
-  onDelete(id: string) {
+  async onDelete(id: string) {
     if (!confirm(this.i18n.t('vote.deleteConfirm'))) return;
     this.busy.set(id);
     this.actionError.set(null);
-    this.api.deleteReview(id).subscribe({
+    const token = await this.waitForTurnstileToken();
+    if (!token) {
+      this.actionError.set(this.i18n.t('vote.turnstileRequired'));
+      this.busy.set(null);
+      return;
+    }
+    this.api.deleteReview(id, token).subscribe({
       next: () => {
         setTimeout(() => this.reload(), 400);
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
       error: (err) => {
+        if (
+          handleReauthRequired(
+            err,
+            `/products/${this.slug()}/reviews`,
+            this.i18n.t('vote.reauthPrompt'),
+          )
+        )
+          return;
         this.actionError.set(this.errorMessage(err, 'vote.deleteFailed'));
+        this.turnstileWidget?.reset();
         this.busy.set(null);
       },
     });
+  }
+
+  // Turnstile renders async; wait briefly for the token rather than failing
+  // a click that races widget mount + Cloudflare token issuance.
+  private async waitForTurnstileToken(timeoutMs = 8000): Promise<string> {
+    const start = Date.now();
+    while (!this.turnstileToken && Date.now() - start < timeoutMs) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return this.turnstileToken;
   }
 
   private errorMessage(

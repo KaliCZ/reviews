@@ -16,11 +16,20 @@ export function registerAuthRoutes(
     const codeVerifier = generators.codeVerifier();
     req.session.codeVerifier = codeVerifier;
     req.session.returnTo = typeof req.query['returnTo'] === 'string' ? req.query['returnTo'] : '/';
-    const url = oidcClient.authorizationUrl({
+
+    // OIDC `max_age` (seconds): the IdP must re-prompt the user when their
+    // session is older than this. Powers the API's reauth_required step-up
+    // for high-impact actions like delete.
+    const maxAgeRaw = typeof req.query['maxAge'] === 'string' ? Number(req.query['maxAge']) : NaN;
+    const maxAge = Number.isFinite(maxAgeRaw) && maxAgeRaw > 0 ? Math.floor(maxAgeRaw) : undefined;
+
+    const params: Record<string, string | number> = {
       scope: 'openid profile email offline_access',
       code_challenge: generators.codeChallenge(codeVerifier),
       code_challenge_method: 'S256',
-    });
+    };
+    if (maxAge !== undefined) params['max_age'] = maxAge;
+    const url = oidcClient.authorizationUrl(params);
     res.redirect(url);
   });
 
@@ -46,6 +55,13 @@ export function registerAuthRoutes(
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
         email: typeof claims['email'] === 'string' ? claims['email'] : undefined,
       };
+      // Pin the freshness signal at the moment of authentication. Prefer the
+      // IdP's id_token `auth_time` (it survives BFF restarts within session
+      // lifetime), fall back to "now" when the IdP omits it — ZITADEL emits
+      // it in the id_token but it's not guaranteed in every OIDC deployment.
+      const authTimeClaim =
+        typeof claims['auth_time'] === 'number' ? claims['auth_time'] : undefined;
+      req.session.authTime = authTimeClaim ?? Math.floor(Date.now() / 1000);
       delete req.session.codeVerifier;
       const dest = req.session.returnTo ?? '/';
       delete req.session.returnTo;

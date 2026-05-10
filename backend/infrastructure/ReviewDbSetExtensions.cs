@@ -19,4 +19,13 @@ public static class ReviewDbSetExtensions
                     .Sum(v => v.IsUpvote ? 1 : -1))
                 .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
     }
+
+    public static Task RecomputeAggregatesAsync(
+        this IQueryable<Product> products, CancellationToken ct = default) =>
+        products.ExecuteUpdateAsync(s => s
+            .SetProperty(p => p.ReviewCount, p => p.Reviews
+                .Count(r => r.Status == ReviewStatus.Approved))
+            .SetProperty(p => p.AverageRating, p => p.Reviews
+                .Where(r => r.Status == ReviewStatus.Approved)
+                .Average(r => (double?)(short)r.Rating) ?? 0), ct);
 }

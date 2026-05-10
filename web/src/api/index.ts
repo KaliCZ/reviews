@@ -79,10 +79,12 @@ export interface EditReviewRequest {
   title: string;
   body: string;
   imageUrls?: string[];
+  turnstileToken: string;
 }
 
 export interface VoteRequest {
   isUpvote: boolean;
+  turnstileToken: string;
 }
 
 export interface VoteResponse {

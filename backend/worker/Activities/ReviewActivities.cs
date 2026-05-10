@@ -102,29 +102,12 @@ public class ReviewActivities(
         logger.LogInformation("Applied edit to review {ReviewId}", input.ReviewId);
     }
 
-    [Activity(ReviewActivityNames.SoftDeleteReview)]
-    public async Task SoftDeleteAsync(Guid reviewId)
-    {
-        var review = await db.Reviews.SingleOrDefaultAsync(r => r.Id == reviewId);
-        if (review is null) return;
-        review.SoftDelete();
-        await db.SaveChangesAsync();
-        logger.LogInformation("Soft-deleted review {ReviewId}", reviewId);
-    }
-
     // No advisory lock: concurrent recomputes converge because both writers
     // read the same committed source-of-truth rows.
     [Activity(ReviewActivityNames.RecomputeProductRating)]
     public async Task RecomputeProductRatingAsync(long productId)
     {
-        await db.Products
-            .Where(p => p.Id == productId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(p => p.ReviewCount, p => p.Reviews
-                    .Count(r => r.Status == ReviewStatus.Approved))
-                .SetProperty(p => p.AverageRating, p => p.Reviews
-                    .Where(r => r.Status == ReviewStatus.Approved)
-                    .Average(r => (double?)(short)r.Rating) ?? 0));
+        await db.Products.Where(p => p.Id == productId).RecomputeAggregatesAsync();
         logger.LogInformation("Recomputed denormalized rating for product {ProductId}", productId);
     }
 

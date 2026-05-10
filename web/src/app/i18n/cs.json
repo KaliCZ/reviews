@@ -97,14 +97,16 @@
     "successBack": "Zpět na produkt"
   },
   "vote": {
-    "deleteConfirm": "Smazat tuto recenzi? Před odstraněním může projít schvalovacím procesem.",
+    "deleteConfirm": "Smazat tuto recenzi? Tuto akci nelze vrátit zpět.",
     "signInToVote": "Přihlaste se pro hlasování",
     "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
     "removeVote": "Dalším kliknutím zrušíte svůj hlas",
     "upvote": "Hlasovat pro tuto recenzi",
     "downvote": "Hlasovat proti této recenzi",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
-    "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu."
+    "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu.",
+    "turnstileRequired": "Před hlasováním nebo smazáním dokončete prosím ověření.",
+    "reauthPrompt": "Z bezpečnostních důvodů se před smazáním vaší recenze musíte znovu přihlásit. Pokračovat?"
   },
   "reviewCard": {
     "imageAlt": "fotka recenze"

@@ -2,13 +2,14 @@ import { Component, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { StarRating } from '../components/star-rating';
+import { TurnstileComponent } from '../components/turnstile';
 import { ApiService } from '../services/api.service';
 import { Limits, ReviewItem } from '../models';
 import { TPipe } from '../pipes/t.pipe';
 import { I18nService } from '../services/i18n.service';
 
 @Component({
-  imports: [FormsModule, RouterLink, StarRating, TPipe],
+  imports: [FormsModule, RouterLink, StarRating, TurnstileComponent, TPipe],
   template: `
     @if (review(); as r) {
       <p>
@@ -103,6 +104,10 @@ import { I18nService } from '../services/i18n.service';
           }
         </fieldset>
 
+        @if (siteKey(); as sk) {
+          <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
+        }
+
         @if (error(); as e) {
           <p class="error">{{ e }}</p>
         }
@@ -114,7 +119,8 @@ import { I18nService } from '../services/i18n.service';
             title.trim().length === 0 ||
             title.length > Limits.titleMax ||
             body.trim().length < Limits.bodyMin ||
-            body.length > Limits.bodyMax
+            body.length > Limits.bodyMax ||
+            turnstileToken.length === 0
           "
         >
           {{ saving() ? ('common.saving' | t) : ('common.save' | t) }}
@@ -264,14 +270,17 @@ export class EditReviewPage {
   protected readonly saving = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
+  protected readonly siteKey = signal<string | null>(null);
   protected readonly showSuccess = signal(false);
 
   protected rating = 5;
   protected title = '';
   protected body = '';
   protected imageUrls: string[] = [];
+  protected turnstileToken = '';
 
   constructor() {
+    this.api.config().subscribe((c) => this.siteKey.set(c.turnstileSiteKey));
     effect(() => {
       const id = this.reviewId();
       if (!id) return;
@@ -368,6 +377,7 @@ export class EditReviewPage {
         title: this.title.trim(),
         body: this.body.trim(),
         imageUrls: this.imageUrls,
+        turnstileToken: this.turnstileToken,
       })
       .subscribe({
         next: () => {

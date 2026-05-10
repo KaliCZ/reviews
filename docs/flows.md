@@ -29,7 +29,7 @@ flowchart LR
     Worker -->|invalidate cache| Redis
 ```
 
-The browser never talks to ZITADEL or the API directly — the SSR/BFF process owns the session cookie and forwards `Authorization: Bearer <access_token>` on `/api/*` calls. Reads the user sees most often are served from Redis; reads that fan out by sort and filter go straight to Postgres. Anything that mutates state goes through a Temporal workflow so the persist step and the cache-invalidate step are durable together — a crash between them isn't possible.
+The browser never talks to ZITADEL or the API directly — the SSR/BFF process owns the session cookie and forwards `Authorization: Bearer <access_token>` on `/api/*` calls. Reads the user sees most often are served from Redis; reads that fan out by sort and filter go straight to Postgres. Mutations that need a moderation gate (submit, edit) go through a Temporal workflow so the persist step and the cache-invalidate step are durable together — a crash between them isn't possible. Mutations the user already owns (delete, vote) run synchronously in the API request: a single transactional update plus a best-effort cache invalidation, with retries inside `IReviewCacheInvalidator` and a 24h TTL backstop if invalidation ultimately fails.
 
 ---
 
@@ -244,7 +244,8 @@ sequenceDiagram
     participant R as Redis
     participant M as Moderator
 
-    B->>A: PUT /api/reviews/:id<br/>{ rating, title, body, imageUrls? }
+    B->>A: PUT /api/reviews/:id<br/>{ rating, title, body, imageUrls?, turnstileToken }
+    Note over A: Validate Turnstile
     A->>T: StartWorkflow(EditReview)
     A-->>B: 202 Accepted (workflowId)
 
@@ -270,49 +271,40 @@ sequenceDiagram
 - **Ownership and freshness checked inside the workflow**, not just in the API. The activity reads the row again before applying — even if the `Authorize` lands minutes later, the check is against the row at apply-time, not the API request time.
 - **One-hour cutoff is a starting heuristic.** It maps to the common "saw a typo, fixing it" pattern. Edits beyond the window are unusual and worth a moderator's attention.
 - **Why a separate workflow from Submit.** Submit creates rows; Edit mutates existing ones with a different ownership story and different cache implications (a star-rating edit changes the product average; a body edit doesn't). Coupling them would tangle the state machines.
+- **Turnstile is required.** Edits are a write surface and the same anti-abuse gate that protects submit applies here — the API verifies the token server-side before starting the workflow, so a stolen token alone can't drive a flood of edits.
 
 ---
 
 ## 7. Deleting your own review
 
-Same 1-hour policy as edit, soft-delete only. Deleted rows stay in the table (`status = Deleted`) so vote rows remain reconcilable and so moderators can see what was removed.
+Synchronous, soft-delete only. The user owns the review and chose to delete it — no moderation gate. To make the action expensive for anyone replaying a stolen access token, the API requires a fresh `auth_time` claim (≤ 5 min); a stale token gets `401 reauth_required` and the SPA bounces through ZITADEL with `max_age=300` to force a password prompt. Turnstile is also required.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant B as Browser
     participant A as API
-    participant T as Temporal
-    participant W as Worker
+    participant Z as ZITADEL
     participant P as Postgres
     participant R as Redis
-    participant M as Moderator
 
-    B->>A: DELETE /api/reviews/:id
-    A->>T: StartWorkflow(DeleteReview)
-    A-->>B: 202 Accepted (workflowId)
+    B->>A: DELETE /api/reviews/:id (X-Turnstile-Token)
 
-    T->>W: dispatch
-    W->>P: load review, verify ownership
-
-    alt within 1h of CreatedAt AND author == caller
-        W->>P: soft-delete review
-    else over 1h OR not owner
-        W->>W: wait for moderator decision
-        M-->>T: signal Approve / Reject
-        alt approved
-            W->>P: soft-delete review
-        else rejected
-            Note over W: deletion dropped
-        end
+    alt auth_time stale (>5 min)
+        A-->>B: 401 reauth_required
+        B->>Z: /auth/login?max_age=300
+        Z-->>B: fresh session, returnTo
+        B->>A: DELETE /api/reviews/:id (retry)
     end
 
-    W->>R: invalidate product caches
-    W-->>T: complete
+    A->>P: BEGIN; UPDATE status = Deleted; recompute product aggregates; COMMIT
+    A->>R: invalidate product caches
+    A-->>B: 204 No Content
 ```
 
 - **Soft delete only.** Vote rows reference the review by id; hard-deleting would either orphan them or require cascade cleanup that fights the "votes are durable evidence" property.
 - **Listing endpoints filter `Status != Deleted`** so soft-deleted reviews disappear from the SPA but stay queryable for moderation tooling.
+- **`auth_time` is the OIDC claim that timestamps the IdP's user-authentication event** — token refresh doesn't bump it, so step-up checks read it to require a real password prompt. ZITADEL emits it in id_tokens but not in JWT access tokens, so the BFF pins it onto the session at `/auth/callback` and forwards it as `X-Auth-Time`; the API prefers the JWT claim and falls back to the header. The trust boundary is the BFF — only it talks to the API, and the proxy always overrides or strips `X-Auth-Time` on every request so the SPA can't spoof it.
 
 ---
 
@@ -355,26 +347,28 @@ sequenceDiagram
     participant R as Redis
 
     alt cast or flip
-        B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
+        B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false, turnstileToken }
+        Note over A: Validate Turnstile
         A->>P: verify review is Approved
-        A->>P: record vote, recompute score
-        A->>R: invalidate product caches (best-effort)
+        A->>P: BEGIN TX; UPSERT review_vote; recompute score; COMMIT
+        A->>R: invalidate product caches (with retry; best-effort)
         A-->>B: 200 OK<br/>{ score, myVote: true | false }
     else remove (click your active button)
         B->>A: DELETE /api/reviews/:id/vote
         A->>P: verify review is Approved
-        A->>P: remove vote, recompute score
-        A->>R: invalidate product caches (best-effort)
+        A->>P: BEGIN TX; DELETE review_vote; recompute score; COMMIT
+        A->>R: invalidate product caches (with retry; best-effort)
         A-->>B: 200 OK<br/>{ score, myVote: null }
     end
 ```
 
-- **Why synchronous, not Temporal.** Submit/edit/delete are durable workflows because they have moderation gates and multi-step coordination. A vote is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
+- **Why synchronous, not Temporal.** Submit and edit are durable workflows because they have a moderation gate and multi-step coordination. A vote (like delete) is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
 - **Single endpoint with `isUpvote: bool`.** Flipping from up to down is one UPSERT, not delete-then-insert.
 - **Removing your vote** — clicking the up/down button you've already cast issues `DELETE /api/reviews/:id/vote`, which drops the row, recomputes the score from the surviving rows, and returns `{ score, myVote: null }`. Idempotent: a delete with no prior vote is a no-op that still recomputes the score.
 - **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalised field ever drifts.
 - **The denormalised score is a cache, not a source of truth.** The vote rows are. Every vote recomputes the score from `SUM(is_upvote ? +1 : -1)` over the current rows, so a missed UPDATE doesn't leave the system permanently inconsistent.
 - **Vote permission gate.** Votes against a review whose `Status != Approved` return `404` — a stale client doesn't need to special-case the various non-approved states.
+- **Turnstile is required on cast/flip.** Votes are write traffic and the cheapest abuse target on the site (vote brigades, sockpuppet rings); the same gate that protects submit/edit/delete applies here. Removing your own vote (DELETE) is not gated — it can only undo a row you already wrote. The product page hosts a single Turnstile widget that vote and delete consume; tokens are single-use, so the widget auto-resets after each consumption.
 - **Response shape.** The handler returns `{ score, myVote }` (where `myVote` is `true`/`false` for cast/flip and `null` after removal) so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
 
 ---
