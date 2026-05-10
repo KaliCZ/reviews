@@ -85,7 +85,7 @@ import { handleReauthRequired } from '../services/reauth';
             </p>
           }
         }
-        @if (auth.authenticated() && pg.items.length > 0 && siteKey(); as sk) {
+        @if (auth.authenticated() && (pg.items.length > 0 || pg.myReview) && siteKey(); as sk) {
           <div class="turnstile-row">
             <app-turnstile [siteKey]="sk" (tokenChange)="turnstileToken = $event" />
           </div>
