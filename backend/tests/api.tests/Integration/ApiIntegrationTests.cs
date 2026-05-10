@@ -566,10 +566,9 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         // ZITADEL JWT access tokens don't carry `auth_time`; the BFF pins the
         // freshness signal in the session and forwards it as X-Auth-Time.
         // Simulate that path: omit the claim and supply a fresh header.
-        // Product 10 — no other test in this collection submits to it, so the
-        // test user's row from a prior fact in the same DB doesn't poison us.
+        // Product 10 is shared with Remove_vote_drops; clear any prior row.
         const long productId = 10;
-        var testUserId = new Guid("00000000-0000-0000-0000-000000000001");
+        var testUserId = CurrentUserAccessor.SubToGuid("00000000-0000-0000-0000-000000000001");
         await using (var db = fx.CreateDbContext())
         {
             await db.Reviews
