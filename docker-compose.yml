@@ -1,3 +1,12 @@
+# Pinned name so multiple git worktrees all attach to the same containers /
+# network / volumes instead of each spinning up an isolated stack and
+# colliding on host ports. Bootstrap output is bind-mounted from
+# $HOME/.reviews-dev/ ($USERPROFILE on Windows cmd, where $HOME isn't set)
+# by default so worktrees also share the OIDC client secret; override with
+# REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR if you need a
+# different location.
+name: reviews
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -73,9 +82,9 @@ services:
       - ./infra/zitadel/steps.yaml:/steps.yaml:ro
       # PAT lands here on first boot; consumed by zitadel-bootstrap below.
       # Bind-mount instead of named volume so the bootstrap output is visible
-      # on the host (and shared with the Aspire run path). Resets via
-      # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
-      - ./infra/zitadel/.secrets:/zitadel-secrets
+      # on the host and shared across worktrees + the Aspire run path. Resets
+      # via `docker compose down -v` AND deleting the host directory.
+      - ${REVIEWS_ZITADEL_SECRETS_DIR:-${HOME:-${USERPROFILE}}/.reviews-dev/zitadel-secrets}:/zitadel-secrets
     healthcheck:
       test: ["CMD", "/app/zitadel", "ready"]
       interval: 5s
@@ -104,11 +113,8 @@ services:
       ZITADEL_PUBLIC_URL: http://localhost:8080
     volumes:
       - ./infra/zitadel/bootstrap.sh:/bootstrap.sh:ro
-      # Bind-mount instead of named volume so the bootstrap output is visible
-      # on the host (and shared with the Aspire run path). Resets via
-      # `docker compose down -v` AND deleting infra/zitadel/.secrets/.
-      - ./infra/zitadel/.secrets:/zitadel-secrets:ro
-      - ./infra/zitadel/.app-secrets:/app-secrets
+      - ${REVIEWS_ZITADEL_SECRETS_DIR:-${HOME:-${USERPROFILE}}/.reviews-dev/zitadel-secrets}:/zitadel-secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-${HOME:-${USERPROFILE}}/.reviews-dev/app-secrets}:/app-secrets
     depends_on:
       zitadel:
         condition: service_healthy
@@ -202,8 +208,9 @@ services:
       # preserved as the public authority so ZITADEL's vhost routing still
       # matches).
       Auth__IssuerReachableUrl: http://zitadel:8080
+      REVIEWS_APP_SECRETS_DIR: /run/secrets
     volumes:
-      - ./infra/zitadel/.app-secrets:/run/secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-${HOME:-${USERPROFILE}}/.reviews-dev/app-secrets}:/run/secrets:ro
     ports:
       - "8081:8080"
     healthcheck:
@@ -232,22 +239,18 @@ services:
       dockerfile: Dockerfile
     environment:
       API_URL: http://api:8080
-      PORT: "4000"
-      # BFF reads /run/secrets/zitadel.env via dotenv at startup. SESSION_SECRET
-      # is a random string used to sign session cookies.
       SESSION_SECRET: dev-only-session-secret-rotate-in-prod-please
       REDIS_URL: redis://redis:6379
-      # The BFF separates browser-facing OIDC URLs (where users redirect to
-      # sign in) from server-facing ones (where the BFF exchanges the code
-      # and fetches tokens). PUBLIC stays http://localhost:8080 so the
-      # browser can resolve it; INTERNAL is http://zitadel:8080 so the
-      # docker network handles the server-to-server traffic.
-      ZITADEL_PUBLIC_URL: http://localhost:8080
+      # The BFF separates browser-facing OIDC URLs from server-facing ones:
+      # PUBLIC defaults to http://localhost:8080 (BFF code default — what the
+      # browser resolves); INTERNAL is set here to http://zitadel:8080 so the
+      # BFF's server-to-server token exchange goes over the docker network.
       ZITADEL_INTERNAL_URL: http://zitadel:8080
+      REVIEWS_APP_SECRETS_DIR: /run/secrets
     ports:
       - "4000:4000"
     volumes:
-      - ./infra/zitadel/.app-secrets:/run/secrets:ro
+      - ${REVIEWS_APP_SECRETS_DIR:-${HOME:-${USERPROFILE}}/.reviews-dev/app-secrets}:/run/secrets:ro
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/"]
       interval: 5s

@@ -19,12 +19,15 @@ public class Program
         var builder = WebApplication.CreateBuilder(args);
 
         // Per-key files (filename `Section__Sub` → IConfiguration `Section:Sub`).
-        // The zitadel-bootstrap container writes its OIDC outputs here at runtime.
-        // docker-compose binds /run/secrets/; Aspire passes API_SECRETS_DIR.
-        // Path.GetFullPath resolves a relative API_SECRETS_DIR (e.g. set in
-        // launchSettings for the npm-run-dev path) against the API project's
-        // cwd; absolute paths from Aspire/compose pass through unchanged.
-        var secretsDir = Environment.GetEnvironmentVariable("API_SECRETS_DIR") ?? "/run/secrets";
+        // Aspire and docker-compose both set REVIEWS_APP_SECRETS_DIR explicitly;
+        // bare `dotnet watch` from the host falls through to the shared default
+        // under the user profile, which is where the zitadel-bootstrap container
+        // writes its OIDC outputs by default.
+        var secretsDir = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".reviews-dev",
+                "app-secrets");
         builder.Configuration.AddKeyPerFile(
             directoryPath: Path.GetFullPath(secretsDir),
             optional: true);
@@ -96,7 +99,7 @@ public class Program
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy => policy
-                .WithOrigins(builder.Configuration["WEB_ORIGIN"] ?? "http://localhost:4200")
+                .WithOrigins(builder.Configuration.GetRequired<string>("WEB_ORIGIN"))
                 .AllowAnyHeader()
                 .AllowAnyMethod()
                 .AllowCredentials()); // BFF forwards Bearer tokens; cookies stay at the BFF

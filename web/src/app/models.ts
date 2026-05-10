@@ -5,6 +5,7 @@ export type {
   ReviewItem,
   ReviewsPage,
   ReviewSort,
+  ReviewStatus,
   SortDirection,
   Rating,
   SubmitReviewRequest,

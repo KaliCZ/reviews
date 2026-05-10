@@ -30,7 +30,10 @@
     "signInToReview": "Sign in to write a review",
     "reviewsHeading": "Reviews",
     "reviewCount": "{count} reviews",
-    "notFound": "Product not found."
+    "notFound": "Product not found.",
+    "yourReview": "Your review",
+    "statusPending": "Pending moderation — only you can see this for now.",
+    "statusRejected": "Rejected by a moderator — only you can see this."
   },
   "productList": {
     "heading": "Products",
@@ -67,18 +70,36 @@
     "tooManyImages": "You can attach at most {max} images ({remaining} remaining).",
     "imageTooLarge": "{name} is too large (max {mb} MB).",
     "imageBadType": "{name}: unsupported type {type}.",
-    "uploadedImageAlt": "uploaded"
+    "uploadedImageAlt": "uploaded",
+    "successTitle": "Thanks — your review was submitted!",
+    "successBody": "It should appear on the product page right away.",
+    "successModeration": "Some reviews go through a moderation step before they're visible to others. If yours doesn't appear yet, try refreshing later — you may receive an email once it's live.",
+    "successBack": "Back to {name}",
+    "disabledHint": {
+      "rating": "Pick a star rating to continue.",
+      "title": "Add a title to continue.",
+      "titleLong": "Title is too long.",
+      "body": "Add at least {min} characters to your review ({n} more needed).",
+      "bodyLong": "Review is too long.",
+      "turnstile": "Complete the verification to continue.",
+      "uploads": "Waiting for {n} upload(s) to finish."
+    }
   },
   "edit": {
     "heading": "Edit your review",
     "photos": "Photos (up to {n})",
-    "moderationNotice": "Edits to reviews older than an hour go through moderator approval before they apply. The Temporal UI is where moderators send approve/reject signals.",
+    "moderationNotice": "Your edit might go through an approval process before it appears.",
     "saveFailed": "Save failed",
-    "notFound": "Review not found."
+    "notFound": "Review not found.",
+    "successTitle": "Thanks — your edit was submitted!",
+    "successBody": "It should appear on the product page shortly.",
+    "successModeration": "Edits might go through an approval process before they appear.",
+    "successBack": "Back to product"
   },
   "vote": {
     "deleteConfirm": "Delete this review? This can't be undone.",
     "signInToVote": "Sign in to vote",
+    "cantVoteOwn": "You can't vote on your own review.",
     "voteFailed": "Vote failed. Please try again.",
     "deleteFailed": "Delete failed. Please try again.",
     "turnstileRequired": "Please complete the verification check before voting or deleting."

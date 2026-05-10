@@ -30,7 +30,10 @@
     "signInToReview": "Přihlaste se pro napsání recenze",
     "reviewsHeading": "Recenze",
     "reviewCount": "{count} recenzí",
-    "notFound": "Produkt nenalezen."
+    "notFound": "Produkt nenalezen.",
+    "yourReview": "Vaše recenze",
+    "statusPending": "Čeká na moderaci — zatím ji vidíte jen vy.",
+    "statusRejected": "Zamítnuto moderátorem — vidíte ji jen vy."
   },
   "productList": {
     "heading": "Produkty",
@@ -67,18 +70,36 @@
     "tooManyImages": "Můžete připojit nejvýše {max} obrázků (zbývá {remaining}).",
     "imageTooLarge": "{name} je příliš velký (max {mb} MB).",
     "imageBadType": "{name}: nepodporovaný typ {type}.",
-    "uploadedImageAlt": "nahraný obrázek"
+    "uploadedImageAlt": "nahraný obrázek",
+    "successTitle": "Děkujeme — vaše recenze byla odeslána!",
+    "successBody": "Měla by se na stránce produktu objevit hned.",
+    "successModeration": "Některé recenze před zveřejněním procházejí moderací. Pokud se vaše ještě neobjevila, zkuste to později — až bude zveřejněna, můžete dostat e-mail.",
+    "successBack": "Zpět na {name}",
+    "disabledHint": {
+      "rating": "Vyberte hodnocení hvězdičkami.",
+      "title": "Doplňte název.",
+      "titleLong": "Název je příliš dlouhý.",
+      "body": "Doplňte alespoň {min} znaků ({n} chybí).",
+      "bodyLong": "Recenze je příliš dlouhá.",
+      "turnstile": "Dokončete ověření.",
+      "uploads": "Čeká se na dokončení {n} nahrávání."
+    }
   },
   "edit": {
     "heading": "Upravit vaši recenzi",
     "photos": "Fotky (max {n})",
-    "moderationNotice": "Úpravy recenzí starších než hodinu procházejí schválením moderátora. Schvalování probíhá v Temporal UI.",
+    "moderationNotice": "Vaše úprava může před zveřejněním projít schvalovacím procesem.",
     "saveFailed": "Uložení selhalo",
-    "notFound": "Recenze nenalezena."
+    "notFound": "Recenze nenalezena.",
+    "successTitle": "Děkujeme — vaše úprava byla odeslána!",
+    "successBody": "Na stránce produktu by se měla brzy objevit.",
+    "successModeration": "Úpravy mohou před zveřejněním projít schvalovacím procesem.",
+    "successBack": "Zpět na produkt"
   },
   "vote": {
     "deleteConfirm": "Smazat tuto recenzi? Tuto akci nelze vrátit zpět.",
     "signInToVote": "Přihlaste se pro hlasování",
+    "cantVoteOwn": "Nemůžete hlasovat o vlastní recenzi.",
     "voteFailed": "Hlasování selhalo. Zkuste to prosím znovu.",
     "deleteFailed": "Smazání selhalo. Zkuste to prosím znovu.",
     "turnstileRequired": "Před hlasováním nebo smazáním dokončete prosím ověření."

@@ -7,7 +7,10 @@ public static class ReviewsCacheKeys
 
     public static string ProductDetail(string slug) => $"products:slug:{slug}";
 
-    public static string FirstPage(string slug) => $"reviews:slug:{slug}:page:1";
+    // v2: `ReviewItem` gained a `status` field. Old v1 entries deserialize
+    // with Status=Pending (enum default) and would mislabel approved rows.
+    // Bumping the suffix orphans them and they expire via the 24h TTL.
+    public static string FirstPage(string slug) => $"reviews:slug:{slug}:page:1:v2";
 
     public static IEnumerable<string> AffectedBy(string slug)
     {

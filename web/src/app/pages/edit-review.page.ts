@@ -18,6 +18,23 @@ import { I18nService } from '../services/i18n.service';
       <h1>{{ 'edit.heading' | t }}</h1>
       <p class="muted">{{ 'edit.moderationNotice' | t }}</p>
 
+      @if (showSuccess()) {
+        <div class="modal-backdrop" role="presentation" (click)="goBack()">
+          <div
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            [attr.aria-labelledby]="'edit-success-title'"
+            (click)="$event.stopPropagation()"
+          >
+            <h2 id="edit-success-title">{{ 'edit.successTitle' | t }}</h2>
+            <p>{{ 'edit.successBody' | t }}</p>
+            <p class="muted">{{ 'edit.successModeration' | t }}</p>
+            <button type="button" (click)="goBack()">{{ 'edit.successBack' | t }}</button>
+          </div>
+        </div>
+      }
+
       <form (submit)="save($event)">
         <label
           >{{ 'submit.rating' | t }}
@@ -108,6 +125,9 @@ import { I18nService } from '../services/i18n.service';
         >
           {{ saving() ? ('common.saving' | t) : ('common.save' | t) }}
         </button>
+        @if (!saving() && disabledReason(); as reason) {
+          <p class="hint" role="status">{{ reason }}</p>
+        }
       </form>
     } @else if (notFound()) {
       <p>{{ 'edit.notFound' | t }}</p>
@@ -131,6 +151,11 @@ import { I18nService } from '../services/i18n.service';
       }
       .counter.under {
         color: #b45309;
+      }
+      .hint {
+        margin: 0.5rem 0 0;
+        color: #b45309;
+        font-size: 0.9rem;
       }
       fieldset {
         margin: 0.75rem 0;
@@ -199,6 +224,35 @@ import { I18nService } from '../services/i18n.service';
         color: #2563eb;
         text-decoration: none;
       }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        z-index: 100;
+      }
+      .modal {
+        background: var(--color-surface, #fff);
+        color: var(--color-on-surface, inherit);
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 28rem;
+        width: 100%;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+      }
+      .modal h2 {
+        margin: 0 0 0.75rem;
+      }
+      .modal p {
+        margin: 0 0 0.75rem;
+        line-height: 1.5;
+      }
+      .modal button {
+        margin-top: 0.5rem;
+      }
     `,
   ],
 })
@@ -217,6 +271,7 @@ export class EditReviewPage {
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
   protected readonly siteKey = signal<string | null>(null);
+  protected readonly showSuccess = signal(false);
 
   protected rating = 5;
   protected title = '';
@@ -290,6 +345,26 @@ export class EditReviewPage {
     this.imageUrls = this.imageUrls.filter((u) => u !== url);
   }
 
+  disabledReason(): string | null {
+    if (this.title.trim().length === 0) {
+      return this.i18n.t('submit.disabledHint.title');
+    }
+    if (this.title.length > Limits.titleMax) {
+      return this.i18n.t('submit.disabledHint.titleLong');
+    }
+    const bodyLen = this.body.trim().length;
+    if (bodyLen < Limits.bodyMin) {
+      return this.i18n.t('submit.disabledHint.body', {
+        min: Limits.bodyMin,
+        n: Limits.bodyMin - bodyLen,
+      });
+    }
+    if (this.body.length > Limits.bodyMax) {
+      return this.i18n.t('submit.disabledHint.bodyLong');
+    }
+    return null;
+  }
+
   save(e: Event) {
     e.preventDefault();
     const r = this.review();
@@ -305,11 +380,18 @@ export class EditReviewPage {
         turnstileToken: this.turnstileToken,
       })
       .subscribe({
-        next: () => this.router.navigate(['/products', this.slug()]),
+        next: () => {
+          this.showSuccess.set(true);
+          this.saving.set(false);
+        },
         error: (err) => {
           this.error.set(err.error ?? err.message ?? this.i18n.t('edit.saveFailed'));
           this.saving.set(false);
         },
       });
+  }
+
+  goBack(): void {
+    this.router.navigate(['/products', this.slug()]);
   }
 }

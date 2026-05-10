@@ -150,7 +150,7 @@ public class ProductsController(
             if (cached.HasValue)
             {
                 var page1 = JsonSerializer.Deserialize<ReviewsPage>((string)cached!)!;
-                return Ok(await EnrichForViewerAsync(page1, ct));
+                return Ok(await OverlayMyReviewAsync(slug, await EnrichForViewerAsync(page1, ct), ct));
             }
         }
 
@@ -178,7 +178,7 @@ public class ProductsController(
                 FirstPageCacheTtl);
         }
 
-        return Ok(await EnrichForViewerAsync(built, ct));
+        return Ok(await OverlayMyReviewAsync(slug, await EnrichForViewerAsync(built, ct), ct));
     }
 
     private async Task<ReviewsPage> BuildPageAsync(
@@ -238,6 +238,7 @@ public class ProductsController(
             UpdatedAtUtc = r.UpdatedAtUtc,
             MyVote = null,
             Mine = uid is not null && r.AuthorId == uid,
+            Status = ReviewStatus.Approved,
         }).ToList();
 
         return new ReviewsPage
@@ -268,6 +269,61 @@ public class ProductsController(
                     Mine = i.AuthorId == user.Id,
                 })
                 .ToList()
+        };
+    }
+
+    // Always look up the viewer's own review for the product (any non-Deleted
+    // status) so they see it immediately after submitting — independent of
+    // first-page cache invalidation and regardless of whether the moderation
+    // workflow has approved it yet. Filtered out of `Items` to avoid showing
+    // it twice when it's already approved and on the cached first page.
+    private async Task<ReviewsPage> OverlayMyReviewAsync(NonEmptyString slug, ReviewsPage page, CancellationToken ct)
+    {
+        if (currentUser.User is not { } user) return page;
+
+        var row = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Product.Slug == slug
+                && r.AuthorId == user.Id
+                && r.Status != ReviewStatus.Deleted)
+            .Select(r => new
+            {
+                r.Id, r.ProductId, r.AuthorId, r.AuthorName, r.Rating,
+                r.Title, r.Body, r.ImageUrls, r.Score,
+                r.CreatedAtUtc, r.UpdatedAtUtc, r.Status,
+            })
+            .SingleOrDefaultAsync(ct);
+        if (row is null) return page;
+
+        // Reuse the existing ReviewItem for vote enrichment if present, so
+        // myVote/score on the overlay match what the user sees in-list.
+        var inList = page.Items.FirstOrDefault(i => i.Id == row.Id);
+        var myReview = inList is not null
+            ? inList with { Mine = true, Status = row.Status }
+            : new ReviewItem
+            {
+                Id = row.Id,
+                ProductId = row.ProductId,
+                AuthorId = row.AuthorId,
+                AuthorName = row.AuthorName,
+                Rating = row.Rating,
+                Title = row.Title,
+                Body = row.Body,
+                ImageUrls = row.ImageUrls,
+                Score = row.Score,
+                CreatedAtUtc = row.CreatedAtUtc,
+                UpdatedAtUtc = row.UpdatedAtUtc,
+                MyVote = null,
+                Mine = true,
+                Status = row.Status,
+            };
+
+        return page with
+        {
+            MyReview = myReview,
+            Items = inList is not null
+                ? page.Items.Where(i => i.Id != row.Id).ToList()
+                : page.Items,
         };
     }
 
