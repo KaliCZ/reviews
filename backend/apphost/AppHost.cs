@@ -70,16 +70,20 @@ Directory.CreateDirectory(appSecrets);
 // inject the OIDC redirect URI for whatever host port Aspire ends up
 // assigning. Aspire's PORT env var is forwarded into `ng serve --port`
 // by web/scripts/serve.mjs (Angular's dev server otherwise ignores PORT
-// and binds to its 4200 default), so randomizing here actually moves ng's
+// and binds to its 4200 default), so pinning here actually moves ng's
 // listener too — parallel worktrees end up on different ports.
 //
 // isProxied: false collapses Aspire's normal two-port setup (proxy port +
 // inner port) into one. Without it, the BFF reads PORT (the inner port)
 // and tells ZITADEL to redirect there, while the browser is on the proxy
 // port and bootstrap registered the proxy port — mismatch. Web only has
-// one caller (the browser), so the proxy hop adds no value here.
+// one caller (the browser), so the proxy hop adds no value here. The
+// trade-off is that isProxied: false requires an explicit port (Aspire
+// won't auto-allocate one for unproxied endpoints), so we derive a
+// stable per-worktree port the same way temporal does below.
+var webPort = 19000 + (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
-    .WithHttpEndpoint(env: "PORT", isProxied: false)
+    .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
     .WithExternalHttpEndpoints();
 var webEndpoint = web.GetEndpoint("http");
 var bffRedirectUri = ReferenceExpression.Create(
