@@ -140,8 +140,20 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithEnvironment("BFF_POST_LOGOUT_URIS", bffPostLogoutUri)
     .WaitFor(zitadel);
 
+// Deterministic per-worktree ports for temporal (grpc) and temporal-ui.
+// Aspire's WithEndpoint with scheme:"tcp" doesn't reliably publish to a
+// random host port the way WithHttpEndpoint does — we have to pin one.
+// Pinning to the canonical 7233/8233 would collide between parallel
+// worktrees, so derive an offset from worktreeId: same worktree gets the
+// same ports across restarts, different worktrees get different ports.
+// Range deliberately above 16000 to avoid ranges where dev tooling tends
+// to squat (and well clear of compose's pinned 7233/8233).
+var temporalPortOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
+var temporalGrpcPort = 17000 + temporalPortOffset;
+var temporalUiPort = 18000 + temporalPortOffset;
+
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
-    .WithEndpoint(name: "grpc", targetPort: 7233, scheme: "tcp")
+    .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
     .WithEnvironment("DB", "postgres12")
     .WithEnvironment("DB_PORT", postgres.Resource.PrimaryEndpoint.Property(EndpointProperty.TargetPort))
     .WithEnvironment("POSTGRES_USER", "postgres")
@@ -154,7 +166,7 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
     .WaitFor(temporalVisibilityDb);
 
 var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
-    .WithHttpEndpoint(targetPort: 8080)
+    .WithHttpEndpoint(port: temporalUiPort, targetPort: 8080)
     .WithEnvironment("TEMPORAL_ADDRESS", ReferenceExpression.Create(
         $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}"))
     .WaitFor(temporal);
