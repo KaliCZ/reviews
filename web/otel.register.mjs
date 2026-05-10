@@ -18,12 +18,6 @@ import { HostMetrics } from '@opentelemetry/host-metrics';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 
-// Stderr (not stdout) so the line shows up in the Aspire dashboard's
-// console feed even before the BFF's own logger is initialized.
-process.stderr.write(
-  `[otel-register] loaded; OTEL_EXPORTER_OTLP_ENDPOINT=${process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? '<unset>'} OTEL_EXPORTER_OTLP_PROTOCOL=${process.env.OTEL_EXPORTER_OTLP_PROTOCOL ?? '<unset>'} OTEL_SERVICE_NAME=${process.env.OTEL_SERVICE_NAME ?? '<unset>'}\n`,
-);
-
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const sdk = new NodeSDK({
     resource: resourceFromAttributes({
@@ -66,10 +60,4 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   };
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
-
-  process.stderr.write('[otel-register] NodeSDK started\n');
-} else {
-  process.stderr.write(
-    '[otel-register] no OTLP endpoint set — skipping SDK init\n',
-  );
 }
