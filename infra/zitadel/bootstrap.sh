@@ -18,10 +18,14 @@
 
 set -eu
 
-# Compose's zitadel healthcheck waits for ZITADEL's FirstInstance to finish
-# (which is when the PAT lands on disk). Aspire's WaitFor only blocks on the
-# container starting, so bootstrap can race ahead of FirstInstance — wait for
-# the file explicitly.
+# This wait loop is the readiness gate for both compose and Aspire:
+#   - Compose: depends_on with service_healthy gates on the zitadel
+#     healthcheck, but bootstrap can still race against FirstInstance
+#     finishing. The PAT file appears at the moment FirstInstance writes it.
+#   - Aspire: WaitFor in 13.3 needs Healthy state, and zitadel ships no
+#     health check that Aspire reliably probes — bootstrap waits on
+#     zitadelDb instead and arrives well before zitadel finishes booting.
+# Either way: wait for the PAT file, then ZITADEL is fully ready.
 for i in $(seq 1 60); do
   [ -s /zitadel-secrets/admin-pat.txt ] && break
   echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"

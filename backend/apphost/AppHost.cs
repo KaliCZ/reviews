@@ -146,7 +146,15 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
     .WithEnvironment("BFF_REDIRECT_URIS", bffRedirectUri)
     .WithEnvironment("BFF_POST_LOGOUT_URIS", bffPostLogoutUri)
-    .WaitFor(zitadel);
+    // Wait on postgres (via zitadelDb), not zitadel itself: in Aspire 13.3,
+    // WaitFor needs the target's health checks to flip Healthy, and a
+    // container with no health checks stays at Unknown forever. Postgres
+    // ships with a working health check; zitadel doesn't (and our attempt
+    // at WithHttpHealthCheck wasn't actually probed). Bootstrap.sh has its
+    // own PAT-file wait loop that handles the "zitadel container started
+    // but FirstInstance not finished" race, so we don't actually need
+    // Aspire to gate on zitadel readiness here.
+    .WaitFor(zitadelDb);
 
 // Deterministic per-worktree ports for temporal (grpc) and temporal-ui.
 // Aspire's WithEndpoint with scheme:"tcp" doesn't reliably publish to a
