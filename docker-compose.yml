@@ -207,6 +207,7 @@ services:
       # preserved as the public authority so ZITADEL's vhost routing still
       # matches).
       Auth__IssuerReachableUrl: http://zitadel:8080
+      REVIEWS_APP_SECRETS_DIR: /run/secrets
     volumes:
       - ${REVIEWS_APP_SECRETS_DIR:-${HOME}/.reviews-dev/app-secrets}:/run/secrets:ro
     ports:
@@ -238,8 +239,6 @@ services:
     environment:
       API_URL: http://api:8080
       PORT: "4000"
-      # BFF reads /run/secrets/zitadel.env via dotenv at startup. SESSION_SECRET
-      # is a random string used to sign session cookies.
       SESSION_SECRET: dev-only-session-secret-rotate-in-prod-please
       REDIS_URL: redis://redis:6379
       # The BFF separates browser-facing OIDC URLs (where users redirect to
@@ -249,6 +248,7 @@ services:
       # docker network handles the server-to-server traffic.
       ZITADEL_PUBLIC_URL: http://localhost:8080
       ZITADEL_INTERNAL_URL: http://zitadel:8080
+      REVIEWS_APP_SECRETS_DIR: /run/secrets
     ports:
       - "4000:4000"
     volumes:

@@ -111,7 +111,7 @@ var api = builder.AddProject<Projects.api>("api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
-    .WithEnvironment("API_SECRETS_DIR", appSecretsAbs)
+    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecretsAbs)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
@@ -127,7 +127,7 @@ var workerService = builder.AddProject<Projects.worker>("worker")
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
-    .WithEnvironment("ZITADEL_ENV_FILE", Path.Combine(appSecretsAbs, "zitadel.env"))
+    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecretsAbs)
     // In Aspire both URLs collapse to localhost; compose differs because that
     // route crosses container boundaries.
     .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")

@@ -14,23 +14,15 @@ export interface BffConfig {
 }
 
 /**
- * Four sources, in priority order:
- *   1. ZITADEL_ENV_FILE — Aspire writes a per-resource path here.
- *   2. ${REVIEWS_APP_SECRETS_DIR}/zitadel.env — explicit override.
- *   3. /run/secrets/zitadel.env — docker compose bind-mount.
- *   4. <home>/.reviews-dev/app-secrets/zitadel.env — shared default for
- *      `npm run dev`, same dir Aspire writes to.
- *
- * Missing files are silently ignored by dotenv. dotenv.config keeps already-set
- * vars, so earlier sources win.
+ * Aspire and docker-compose both set REVIEWS_APP_SECRETS_DIR explicitly; bare
+ * `npm run dev` falls through to the shared default under the user home dir,
+ * which is where zitadel-bootstrap writes its OIDC outputs.
  */
 export function loadConfig(): BffConfig {
-  dotenv.config({ path: process.env['ZITADEL_ENV_FILE'] });
-  if (process.env['REVIEWS_APP_SECRETS_DIR']) {
-    dotenv.config({ path: `${process.env['REVIEWS_APP_SECRETS_DIR']}/zitadel.env` });
-  }
-  dotenv.config({ path: '/run/secrets/zitadel.env' });
-  dotenv.config({ path: path.join(os.homedir(), '.reviews-dev', 'app-secrets', 'zitadel.env') });
+  const secretsDir =
+    process.env['REVIEWS_APP_SECRETS_DIR'] ??
+    path.join(os.homedir(), '.reviews-dev', 'app-secrets');
+  dotenv.config({ path: path.join(secretsDir, 'zitadel.env') });
 
   const issuerPublic =
     process.env['ZITADEL_PUBLIC_URL'] ?? process.env['ZITADEL_ISSUER'] ?? 'http://localhost:8080';

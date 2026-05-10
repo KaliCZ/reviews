@@ -14,7 +14,7 @@
 #                     automatically.
 #
 # Both paths are bind-mounted volumes; reset by `docker compose down -v` or
-# by deleting `infra/zitadel/.secrets/` and `infra/zitadel/.app-secrets/`.
+# by deleting the host directories (default `~/.reviews-dev/`).
 
 set -eu
 
