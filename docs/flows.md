@@ -357,22 +357,34 @@ sequenceDiagram
     participant P as Postgres
     participant R as Redis
 
-    B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
-    A->>P: SELECT review where status = Approved
-    A->>P: BEGIN TX
-    A->>P: UPSERT review_vote (review_id, voter_id, is_upvote)
-    A->>P: UPDATE review.score = (SELECT sum from votes)
-    A->>P: COMMIT
-    A->>R: invalidate product caches (with retry; best-effort)
-    A-->>B: 200 OK<br/>{ score, myVote }
+    alt cast or flip
+        B->>A: POST /api/reviews/:id/vote<br/>{ isUpvote: true | false }
+        A->>P: SELECT review where status = Approved
+        A->>P: BEGIN TX
+        A->>P: UPSERT review_vote (review_id, voter_id, is_upvote)
+        A->>P: UPDATE review.score = (SELECT sum from votes)
+        A->>P: COMMIT
+        A->>R: invalidate product caches (with retry; best-effort)
+        A-->>B: 200 OK<br/>{ score, myVote: true | false }
+    else remove (click your active button)
+        B->>A: DELETE /api/reviews/:id/vote
+        A->>P: SELECT review where status = Approved
+        A->>P: BEGIN TX
+        A->>P: DELETE FROM review_vote WHERE (review_id, voter_id)
+        A->>P: UPDATE review.score = (SELECT sum from votes)
+        A->>P: COMMIT
+        A->>R: invalidate product caches (with retry; best-effort)
+        A-->>B: 200 OK<br/>{ score, myVote: null }
+    end
 ```
 
 - **Why synchronous, not Temporal.** Submit/edit/delete are durable workflows because they have moderation gates and multi-step coordination. A vote is a single transactional UPSERT plus a cache `DEL`; routing it through Temporal added end-to-end latency and coupled a UI-critical click path to workflow infra availability without buying anything in return. The denormalised score self-heals (next vote recomputes from rows), and cache invalidation has a 24h TTL backstop plus the next mutation re-DEL'ing the same keys, so a transient Redis failure is benign — `IReviewCacheInvalidator` retries a handful of times then logs and moves on.
 - **Single endpoint with `isUpvote: bool`.** Flipping from up to down is one UPSERT, not delete-then-insert.
+- **Removing your vote** — clicking the up/down button you've already cast issues `DELETE /api/reviews/:id/vote`, which drops the row, recomputes the score from the surviving rows, and returns `{ score, myVote: null }`. Idempotent: a delete with no prior vote is a no-op that still recomputes the score.
 - **Why store every vote, not just aggregate counters.** We need to know *who* voted to enforce one-vote-per-user, to let users see and change their own vote, to detect abuse patterns (sockpuppet rings, vote brigades), and to recompute the score deterministically if the denormalised field ever drifts.
 - **The denormalised score is a cache, not a source of truth.** The vote rows are. Every vote recomputes the score from `SUM(is_upvote ? +1 : -1)` over the current rows, so a missed UPDATE doesn't leave the system permanently inconsistent.
 - **Vote permission gate.** Votes against a review whose `Status != Approved` return `404` — a stale client doesn't need to special-case the various non-approved states.
-- **Response shape.** The handler returns `{ score, myVote }` so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
+- **Response shape.** The handler returns `{ score, myVote }` (where `myVote` is `true`/`false` for cast/flip and `null` after removal) so the SPA patches the affected row in place and skips a follow-up `GET /reviews`.
 
 ---
 
