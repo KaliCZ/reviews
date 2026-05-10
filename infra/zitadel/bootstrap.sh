@@ -23,11 +23,8 @@ set -eu
 # Timestamped output so the dashboard log shows phase progress and timing.
 log() { echo "[bootstrap $(date +%H:%M:%S)] $*"; }
 
-# Print wipe-and-restart instructions, then exit. Same recovery for both
-# failure modes (PAT file missing, PAT file rejected) — the underlying
-# problem is always that ZITADEL's DB and the on-disk PAT have drifted out
-# of sync, and ZITADEL won't rewrite the PAT on subsequent boots, so there's
-# no automatic recovery.
+# Print wipe-and-restart instructions and exit. Used for any unrecoverable
+# state where ZITADEL's DB and the on-disk PAT have drifted out of sync.
 fail_with_recovery() {
   echo ""
   echo "[bootstrap] ERROR: $1"
@@ -110,16 +107,12 @@ while true; do
   sleep 2
 done
 
-# OIDC redirect URIs the BFF will use, registered with the OIDC app below.
-# Comma-separated so each mode can pass however many it needs:
-#   - compose: 4000 (the web container) AND 4200 (npm run dev's local web)
-#   - Aspire: whatever random port AppHost assigned to web
-# Defaults preserve compose's two-URI list so compose passes nothing extra.
+# Comma-separated OIDC redirect / logout URIs to register with the app.
+# Defaults cover compose; Aspire passes its assigned web port via env.
 BFF_REDIRECT_URIS=${BFF_REDIRECT_URIS:-http://localhost:4000/auth/callback,http://localhost:4200/auth/callback}
 BFF_POST_LOGOUT_URIS=${BFF_POST_LOGOUT_URIS:-http://localhost:4000/,http://localhost:4200/}
 
-# Convert a comma-separated list into a JSON string array. POSIX shell, no
-# bashisms — runs in curlimages/curl's busybox sh.
+# POSIX-only — runs in curlimages/curl's busybox sh.
 to_json_array() {
   saved_ifs=$IFS
   IFS=','
@@ -133,11 +126,8 @@ to_json_array() {
   echo "${result}]"
 }
 
-# ZITADEL routes by the Host header (matches ZITADEL_EXTERNALDOMAIN +
-# ZITADEL_EXTERNALPORT), so requests sent to the internal docker DNS name
-# need their Host header rewritten to the public authority. Derive it from
-# ZITADEL_PUBLIC_URL so this script works for compose (localhost:8080) and
-# for Aspire (random per-AppHost port) without extra config.
+# ZITADEL routes by Host header (matches EXTERNALDOMAIN + EXTERNALPORT),
+# so calls via the internal DNS name still need the public Host set.
 VHOST=${ISSUER#http://}
 VHOST=${VHOST#https://}
 VHOST=${VHOST%%/*}
@@ -173,8 +163,8 @@ while true; do
   esac
 done
 
-# `zitadel ready` flips green well before the projection layer has caught up,
-# so the first management calls can 404. A tiny retry loop covers the gap.
+# Retry wrapper: ZITADEL's projection layer can lag readiness, so the first
+# calls sometimes 404. 5 attempts × 2s covers the gap.
 api() {
   url=$1; method=${2:-GET}; data=${3:-}
   for i in 1 2 3 4 5; do
@@ -196,17 +186,14 @@ api() {
   return 1
 }
 
-# Clean up Auth__IssuerUrl from older bootstrap runs — the URL now comes from
-# orchestration env vars, and a leftover file would shadow them via KeyPerFile.
-# Done before the smart-skip so even fast-path runs scrub the leftover.
+# Issuer URL now comes from orchestration env; scrub any leftover file
+# that would otherwise shadow it via KeyPerFile.
 rm -f /app-secrets/Auth__IssuerUrl
 
 # --- Smart skip ------------------------------------------------------------
-# If a previous run left zitadel.env on disk AND ZITADEL still has a matching
-# OIDC app, nothing to do. The cross-check guards against the case where the
-# host's .app-secrets directory survived a postgres-volume wipe (e.g.
-# switching between Aspire and compose, or between two compose stacks) — we
-# would otherwise hand the BFF a client_id that ZITADEL never created.
+# Skip if zitadel.env on disk still matches ZITADEL's live OIDC app. The
+# cross-check catches state drift after a postgres wipe that left the
+# host secrets dir intact.
 if [ -f /app-secrets/zitadel.env ]; then
   STORED_CID=$(sed -n 's/^ZITADEL_CLIENT_ID=//p' /app-secrets/zitadel.env)
   PROJECT_LIST=$(api /management/v1/projects/_search POST \
@@ -241,10 +228,8 @@ else
 fi
 
 # --- OIDC app --------------------------------------------------------------
-# Reaching here means the smart-skip above didn't match, so any pre-existing
-# app belongs to a stale ZITADEL state. ZITADEL only exposes client_secret at
-# create time (no working rotation endpoint in v2.71), so the only way to
-# land in a known-good state is to remove and recreate.
+# Stale app from a prior run gets deleted and recreated — ZITADEL v2.71
+# only exposes client_secret at create time, with no working rotation API.
 APP_LIST=$(api "/management/v1/projects/$PID/apps/_search" POST \
   '{"queries":[{"nameQuery":{"name":"reviews-bff","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 APP_ID=$(echo "$APP_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
@@ -257,8 +242,7 @@ fi
 REDIRECT_URIS_JSON=$(to_json_array "$BFF_REDIRECT_URIS")
 POST_LOGOUT_URIS_JSON=$(to_json_array "$BFF_POST_LOGOUT_URIS")
 
-# devMode=true is what lets ZITADEL accept the http:// redirect URI; without
-# it the call fails with "redirect uri is not https".
+# devMode=true lets ZITADEL accept http:// redirect URIs (dev only).
 APP_BODY="{
   \"name\":\"reviews-bff\",
   \"redirectUris\":$REDIRECT_URIS_JSON,
@@ -299,11 +283,8 @@ ZITADEL_CLIENT_ID=$CID
 ZITADEL_CLIENT_SECRET=$SEC
 EOF
 
-# Per-key file for the .NET API (KeyPerFileConfigurationProvider). Filename
-# encodes the IConfiguration key with `__` standing in for `:` — so
-# `Auth__Audience` surfaces as `Auth:Audience`. Only the audience (= OIDC
-# client_id) is bootstrap-discovered; IssuerUrl and RequireHttps are set by
-# the orchestration layer.
+# KeyPerFileConfigurationProvider: filename `Auth__Audience` becomes the
+# IConfiguration key `Auth:Audience` for the .NET API.
 log "Writing per-key secret files for the API"
 printf "%s" "$CID" > /app-secrets/Auth__Audience
 
