@@ -148,6 +148,9 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithEnvironment("ZITADEL_PUBLIC_URL", zitadelPublicUrl)
     .WithEnvironment("BFF_REDIRECT_URIS", bffRedirectUri)
     .WithEnvironment("BFF_POST_LOGOUT_URIS", bffPostLogoutUri)
+    // Surfaced in bootstrap.sh's recovery error message so the user sees
+    // the actual paths/volume names to wipe, not <worktree-id> placeholders.
+    .WithEnvironment("WORKTREE_ID", worktreeId)
     // Wait on postgres (via zitadelDb), not zitadel itself: in Aspire 13.3,
     // WaitFor needs the target's health checks to flip Healthy, and a
     // container with no health checks stays at Unknown forever. Postgres

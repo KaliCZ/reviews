@@ -33,6 +33,7 @@ for i in 1 2 3; do
 done
 
 if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
+  WID=${WORKTREE_ID:-<worktree-id>}
   echo ""
   echo "[bootstrap] ERROR: /zitadel-secrets/admin-pat.txt never appeared."
   echo ""
@@ -41,18 +42,18 @@ if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
   echo "  ZITADEL only writes the PAT once (during FirstInstance) and won't"
   echo "  rewrite it on subsequent boots, so there's no automatic recovery."
   echo ""
-  echo "  To fix: stop aspire, drop the postgres volume + zitadel-secrets dir,"
-  echo "  and start fresh. From the host:"
+  echo "  To fix: stop aspire (Ctrl+C in the AppHost terminal), then run the"
+  echo "  cleanup commands below from the host."
   echo ""
   echo "  PowerShell:"
-  echo "      docker stop (docker ps -q --filter name=postgres- --filter name=zitadel-)"
-  echo "      docker volume rm reviews-aspire-postgres-<worktree-id>"
-  echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\aspire\\<worktree-id>\""
+  echo "      docker ps -q --filter name=postgres- --filter name=zitadel- | % { docker stop \$_ }"
+  echo "      docker volume rm reviews-aspire-postgres-${WID}"
+  echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\aspire\\${WID}\""
   echo ""
   echo "  bash / zsh:"
-  echo "      docker stop \$(docker ps -q --filter name=postgres- --filter name=zitadel-)"
-  echo "      docker volume rm reviews-aspire-postgres-<worktree-id>"
-  echo "      rm -rf ~/.reviews-dev/aspire/<worktree-id>/"
+  echo "      docker ps -q --filter name=postgres- --filter name=zitadel- | xargs -r docker stop"
+  echo "      docker volume rm reviews-aspire-postgres-${WID}"
+  echo "      rm -rf ~/.reviews-dev/aspire/${WID}/"
   echo ""
   exit 1
 fi
