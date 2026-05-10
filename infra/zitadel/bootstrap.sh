@@ -18,13 +18,6 @@
 
 set -eu
 
-# Skip if the env file already has values. To force a re-run: delete the file
-# (or wipe the volume / .app-secrets directory).
-if [ -f /app-secrets/zitadel.env ]; then
-  echo "[bootstrap] /app-secrets/zitadel.env already present — skipping"
-  exit 0
-fi
-
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}
@@ -56,6 +49,31 @@ api() {
   return 1
 }
 
+# --- Smart skip ------------------------------------------------------------
+# If a previous run left zitadel.env on disk AND ZITADEL still has a matching
+# OIDC app, nothing to do. The cross-check guards against the case where the
+# host's .app-secrets directory survived a postgres-volume wipe (e.g.
+# switching between Aspire and compose, or between two compose stacks) — we
+# would otherwise hand the BFF a client_id that ZITADEL never created.
+if [ -f /app-secrets/zitadel.env ]; then
+  STORED_CID=$(sed -n 's/^ZITADEL_CLIENT_ID=//p' /app-secrets/zitadel.env)
+  PROJECT_LIST=$(api /management/v1/projects/_search POST \
+    '{"queries":[{"nameQuery":{"name":"reviews","method":"TEXT_QUERY_METHOD_EQUALS"}}]}' || true)
+  CHECK_PID=$(echo "$PROJECT_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
+  LIVE_CID=
+  if [ -n "$CHECK_PID" ]; then
+    APP_LIST=$(api "/management/v1/projects/$CHECK_PID/apps/_search" POST \
+      '{"queries":[{"nameQuery":{"name":"reviews-bff","method":"TEXT_QUERY_METHOD_EQUALS"}}]}' || true)
+    LIVE_CID=$(echo "$APP_LIST" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
+  fi
+  if [ -n "$STORED_CID" ] && [ "$STORED_CID" = "$LIVE_CID" ]; then
+    echo "[bootstrap] /app-secrets/zitadel.env matches ZITADEL state — skipping"
+    exit 0
+  fi
+  echo "[bootstrap] /app-secrets/zitadel.env stale (ZITADEL was reset?) — recreating"
+  rm -f /app-secrets/zitadel.env /app-secrets/Auth__IssuerUrl /app-secrets/Auth__Audience
+fi
+
 # --- Project ---------------------------------------------------------------
 echo "[bootstrap] Looking up or creating project 'reviews'"
 PROJECT_LIST=$(api /management/v1/projects/_search POST \
@@ -71,10 +89,18 @@ else
 fi
 
 # --- OIDC app --------------------------------------------------------------
-echo "[bootstrap] Looking up or creating OIDC app 'reviews-bff'"
+# Reaching here means the smart-skip above didn't match, so any pre-existing
+# app belongs to a stale ZITADEL state. ZITADEL only exposes client_secret at
+# create time (no working rotation endpoint in v2.71), so the only way to
+# land in a known-good state is to remove and recreate.
 APP_LIST=$(api "/management/v1/projects/$PID/apps/_search" POST \
   '{"queries":[{"nameQuery":{"name":"reviews-bff","method":"TEXT_QUERY_METHOD_EQUALS"}}]}')
 APP_ID=$(echo "$APP_LIST" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -n 1)
+if [ -n "$APP_ID" ]; then
+  echo "[bootstrap] Removing stale OIDC app $APP_ID"
+  curl -fsS -X DELETE "$Z/management/v1/projects/$PID/apps/$APP_ID" \
+    -H "Host: localhost:8080" -H "Authorization: Bearer $PAT" > /dev/null
+fi
 
 # devMode=true is what lets ZITADEL accept the http:// redirect URI; without
 # it the call fails with "redirect uri is not https".
@@ -93,22 +119,11 @@ APP_BODY="{
   \"idTokenUserinfoAssertion\":true
 }"
 
-if [ -z "$APP_ID" ]; then
-  APP_CREATE=$(api "/management/v1/projects/$PID/apps/oidc" POST "$APP_BODY")
-  CID=$(echo "$APP_CREATE" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
-  SEC=$(echo "$APP_CREATE" | sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' | head -n 1)
-  echo "[bootstrap] Created OIDC app — client_id=$CID"
-else
-  # App already exists from a previous run, but our local state was wiped
-  # (otherwise we'd have exited at the env-file check above). ZITADEL won't
-  # show the existing client_secret a second time, so rotate it via
-  # ResetClientSecret to land in a known state.
-  echo "[bootstrap] OIDC app exists ($APP_ID); rotating client_secret"
-  APP_DETAIL=$(api "/management/v1/projects/$PID/apps/$APP_ID")
-  CID=$(echo "$APP_DETAIL" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
-  RESET=$(api "/management/v1/projects/$PID/apps/$APP_ID/oidc_config/_secret" POST '{}')
-  SEC=$(echo "$RESET" | sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' | head -n 1)
-fi
+echo "[bootstrap] Creating OIDC app 'reviews-bff'"
+APP_CREATE=$(api "/management/v1/projects/$PID/apps/oidc" POST "$APP_BODY")
+CID=$(echo "$APP_CREATE" | sed -n 's/.*"clientId":"\([^"]*\)".*/\1/p' | head -n 1)
+SEC=$(echo "$APP_CREATE" | sed -n 's/.*"clientSecret":"\([^"]*\)".*/\1/p' | head -n 1)
+echo "[bootstrap] Created OIDC app — client_id=$CID"
 
 # --- Test user -------------------------------------------------------------
 echo "[bootstrap] Importing test user 'alice' (idempotent)"
