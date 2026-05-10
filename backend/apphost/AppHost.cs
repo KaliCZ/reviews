@@ -17,6 +17,12 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
+// Stamp every container with com.docker.compose.project so Docker Desktop
+// groups all of this AppHost's containers under one collapsible row.
+// Per-worktree value keeps parallel AppHosts in separate groups, mirroring
+// how compose's `name: reviews` groups its own stack.
+var dockerGroup = $"reviews-aspire-{worktreeId}";
+
 // Single per-AppHost postgres serves the app, ZITADEL, and Temporal — no
 // dedicated singleton for ZITADEL because we'd then need to coordinate two
 // stateful singletons across parallel AppHosts (and worry about the bootstrap
@@ -27,7 +33,8 @@ var postgres = builder.AddPostgres("postgres", password: postgresPassword)
     .WithDataVolume($"reviews-aspire-postgres-{worktreeId}")
     .WithBindMount("../../infra/postgres-init.sh", "/docker-entrypoint-initdb.d/postgres-init.sh", isReadOnly: true)
     .WithEnvironment("POSTGRES_MULTIPLE_DATABASES", "reviews,zitadel,temporal,temporal_visibility")
-    .WithPgAdmin();
+    .WithPgAdmin(pgAdmin => pgAdmin.WithDockerGroup(dockerGroup))
+    .WithDockerGroup(dockerGroup);
 
 var reviewsDb = postgres.AddDatabase("reviews");
 var zitadelDb = postgres.AddDatabase("zitadel-db", databaseName: "zitadel");
@@ -35,7 +42,8 @@ var temporalDb = postgres.AddDatabase("temporal-db", databaseName: "temporal");
 var temporalVisibilityDb = postgres.AddDatabase("temporal-visibility-db", databaseName: "temporal_visibility");
 
 var cache = builder.AddRedis("cache")
-    .WithRedisInsight();
+    .WithRedisInsight(insight => insight.WithDockerGroup(dockerGroup))
+    .WithDockerGroup(dockerGroup);
 
 // Aspire 13.3 generates a Redis password and exposes the primary endpoint over
 // TLS with a self-signed dev cert. The .NET integrations consume the resource's
@@ -45,7 +53,8 @@ var cache = builder.AddRedis("cache")
 var redisUrl = ReferenceExpression.Create(
     $"rediss://default:{cache.Resource.PasswordParameter!}@{cache.GetEndpoint("tcp").Property(EndpointProperty.Host)}:{cache.GetEndpoint("tcp").Property(EndpointProperty.Port)}");
 
-var storage = builder.AddAzureStorage("storage").RunAsEmulator();
+var storage = builder.AddAzureStorage("storage")
+    .RunAsEmulator(emulator => emulator.WithDockerGroup(dockerGroup));
 var images = storage.AddBlobs("images");
 
 // Per-worktree secrets dirs under ~/.reviews-dev/aspire/<worktree-id>/. The
@@ -121,6 +130,7 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", targetPort: 8080)
+    .WithDockerGroup(dockerGroup)
     .WaitFor(zitadelDb);
 
 // EXTERNALPORT has to match the published host port so the issuer URL ZITADEL
@@ -151,6 +161,7 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     // Surfaced in bootstrap.sh's recovery error message so the user sees
     // the actual paths/volume names to wipe, not <worktree-id> placeholders.
     .WithEnvironment("WORKTREE_ID", worktreeId)
+    .WithDockerGroup(dockerGroup)
     // Wait on postgres (via zitadelDb), not zitadel itself: in Aspire 13.3,
     // WaitFor needs the target's health checks to flip Healthy, and a
     // container with no health checks stays at Unknown forever. Postgres
@@ -183,6 +194,7 @@ var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest
     .WithEnvironment("DBNAME", "temporal")
     .WithEnvironment("VISIBILITY_DBNAME", "temporal_visibility")
     .WithEnvironment("ENABLE_ES", "false")
+    .WithDockerGroup(dockerGroup)
     .WaitFor(temporalDb)
     .WaitFor(temporalVisibilityDb);
 
@@ -190,6 +202,7 @@ var temporalUi = builder.AddContainer("temporal-ui", "temporalio/ui", "latest")
     .WithHttpEndpoint(port: temporalUiPort, targetPort: 8080)
     .WithEnvironment("TEMPORAL_ADDRESS", ReferenceExpression.Create(
         $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.TargetPort)}"))
+    .WithDockerGroup(dockerGroup)
     .WaitFor(temporal);
 
 // CORS origin set after WithHttpEndpoint so the endpoint reference exists.
