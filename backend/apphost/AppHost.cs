@@ -130,14 +130,12 @@ var zitadel = builder.AddContainer("zitadel", "ghcr.io/zitadel/zitadel", "v2.71.
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD", postgresPassword)
     .WithEnvironment("ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE", "disable")
     .WithHttpEndpoint(name: "console", targetPort: 8080)
-    // Probes ZITADEL's post-FirstInstance readiness endpoint so the dashboard
-    // shows the right state. We deliberately don't WaitFor(zitadel) on
-    // bootstrap below — a previous attempt (commit 38595e9) found probes
-    // weren't actually firing under Aspire 13.3, which parked bootstrap in
-    // Waiting forever. bootstrap.sh now does its own HTTP-readiness wait
-    // (see infra/zitadel/bootstrap.sh phase 2), so this check is purely
-    // cosmetic; if you observe it flipping Healthy reliably in the dashboard,
-    // a follow-up can flip bootstrap's WaitFor below to (zitadel).
+    // Gates downstream WaitFor(zitadel) on FirstInstance completing — that's
+    // when /debug/ready starts returning 200. Mirrors compose's
+    // `/app/zitadel ready` healthcheck. A previous attempt (commit 38595e9)
+    // found probes weren't firing in an earlier Aspire build and was
+    // reverted; verified working again in 13.3 — observe in the dashboard
+    // it briefly shows Unhealthy then flips to Healthy a few seconds in.
     .WithHttpHealthCheck("/debug/ready", endpointName: "console")
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadelDb);
@@ -171,15 +169,13 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     // the actual paths/volume names to wipe, not <worktree-id> placeholders.
     .WithEnvironment("WORKTREE_ID", worktreeId)
     .WithDockerGroup(dockerGroup)
-    // Wait on postgres (via zitadelDb), not zitadel itself: in Aspire 13.3,
-    // WaitFor needs the target's health checks to flip Healthy, and a
-    // container with no health checks stays at Unknown forever. Postgres
-    // ships with a working health check; zitadel doesn't (and our attempt
-    // at WithHttpHealthCheck wasn't actually probed). Bootstrap.sh has its
-    // own PAT-file wait loop that handles the "zitadel container started
-    // but FirstInstance not finished" race, so we don't actually need
-    // Aspire to gate on zitadel readiness here.
-    .WaitFor(zitadelDb);
+    // Gate on zitadel's HTTP healthcheck (defined above): bootstrap can't
+    // reach the management API until /debug/ready returns 200, so waiting
+    // here removes the race that previously surfaced as a silent exit 7
+    // under parallel-AppHost contention. bootstrap.sh's phase 2 HTTP wait
+    // remains as a backstop and still carries the compose path, but in
+    // Aspire this WaitFor is now the load-bearing gate.
+    .WaitFor(zitadel);
 
 // Deterministic per-worktree ports for temporal (grpc) and temporal-ui.
 // Aspire's WithEndpoint with scheme:"tcp" doesn't reliably publish to a
