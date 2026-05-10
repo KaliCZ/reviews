@@ -72,6 +72,10 @@ export class ApiService {
     });
   }
 
+  removeVote(id: string): Observable<VoteResponse> {
+    return this.http.delete<VoteResponse>(`/api/reviews/${encodeURIComponent(id)}/vote`);
+  }
+
   uploadImage(file: File): Observable<UploadedImage> {
     const fd = new FormData();
     fd.append('file', file);
