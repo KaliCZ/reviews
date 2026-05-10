@@ -7,11 +7,13 @@
 #   admin-pat.txt   — PAT for the bootstrap service account
 #
 # Outputs (written to /app-secrets):
-#   zitadel.env     — KEY=VALUE flat dotenv for the JS BFF
-#   Auth__IssuerUrl — KeyPerFile entries for the .NET API (one file per key,
-#   Auth__Audience    filename = config key with `__` standing in for `:`).
-#                     The api's KeyPerFileConfigurationProvider picks them up
-#                     automatically.
+#   zitadel.env    — KEY=VALUE flat dotenv for the JS BFF
+#   Auth__Audience — KeyPerFile entry for the .NET API (filename = config key
+#                    with `__` standing in for `:`, picked up automatically by
+#                    KeyPerFileConfigurationProvider). The issuer URL is a
+#                    deployment-topology fact, not a bootstrap-discovered
+#                    secret, so it's set as an env var by the orchestration
+#                    layer (Aspire AppHost / docker-compose) — not here.
 #
 # Both paths are bind-mounted volumes; reset by `docker compose down -v` or
 # by deleting the host directories (default `~/.reviews-dev/`).
@@ -116,6 +118,11 @@ api() {
   return 1
 }
 
+# Clean up Auth__IssuerUrl from older bootstrap runs — the URL now comes from
+# orchestration env vars, and a leftover file would shadow them via KeyPerFile.
+# Done before the smart-skip so even fast-path runs scrub the leftover.
+rm -f /app-secrets/Auth__IssuerUrl
+
 # --- Smart skip ------------------------------------------------------------
 # If a previous run left zitadel.env on disk AND ZITADEL still has a matching
 # OIDC app, nothing to do. The cross-check guards against the case where the
@@ -138,7 +145,7 @@ if [ -f /app-secrets/zitadel.env ]; then
     exit 0
   fi
   echo "[bootstrap] /app-secrets/zitadel.env stale (ZITADEL was reset?) — recreating"
-  rm -f /app-secrets/zitadel.env /app-secrets/Auth__IssuerUrl /app-secrets/Auth__Audience
+  rm -f /app-secrets/zitadel.env /app-secrets/Auth__Audience
 fi
 
 # --- Project ---------------------------------------------------------------
@@ -214,13 +221,12 @@ ZITADEL_CLIENT_ID=$CID
 ZITADEL_CLIENT_SECRET=$SEC
 EOF
 
-# Per-key files for the .NET API (KeyPerFileConfigurationProvider). Filenames
-# encode the IConfiguration key with `__` standing in for `:` — so
-# `Auth__IssuerUrl` surfaces as `Auth:IssuerUrl`. RequireHttps is left to the
-# api's appsettings (true in prod, overridden to false in compose); we don't
-# write it here so the framework's normal precedence stays predictable.
+# Per-key file for the .NET API (KeyPerFileConfigurationProvider). Filename
+# encodes the IConfiguration key with `__` standing in for `:` — so
+# `Auth__Audience` surfaces as `Auth:Audience`. Only the audience (= OIDC
+# client_id) is bootstrap-discovered; IssuerUrl and RequireHttps are set by
+# the orchestration layer.
 echo "[bootstrap] Writing per-key secret files for the API"
-printf "%s" "$ISSUER" > /app-secrets/Auth__IssuerUrl
-printf "%s" "$CID"    > /app-secrets/Auth__Audience
+printf "%s" "$CID" > /app-secrets/Auth__Audience
 
 echo "[bootstrap] Done. Test login: alice / Password1!"
