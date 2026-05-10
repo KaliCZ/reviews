@@ -33,8 +33,7 @@ var images = storage.AddBlobs("images");
 
 // Per-user shared dir under the home folder, so multiple worktrees attach
 // to the same bootstrap output without any env-var setup. Override with
-// REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR if you need a
-// different location (e.g. CI, prod, or a per-worktree run).
+// REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR.
 var sharedRoot = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
     ".reviews-dev");
@@ -44,7 +43,6 @@ var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
     ?? Path.Combine(sharedRoot, "app-secrets");
 Directory.CreateDirectory(zitadelSecrets);
 Directory.CreateDirectory(appSecrets);
-var appSecretsAbs = Path.GetFullPath(appSecrets);
 
 // Pinned: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate Next.js app
 // not bundled in this image). v2.71.2 is the last v2 release shipping the
@@ -111,7 +109,7 @@ var api = builder.AddProject<Projects.api>("api")
     .WithReference(reviewsDb).WaitFor(reviewsDb)
     .WithReference(cache).WaitFor(cache)
     .WithReference(images).WaitFor(storage)
-    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecretsAbs)
+    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
     .WithEnvironment("ConnectionStrings__temporal", temporalConnString)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
@@ -127,7 +125,7 @@ var workerService = builder.AddProject<Projects.worker>("worker")
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithReference(api).WaitFor(api)
     .WithEnvironment("API_URL", api.GetEndpoint("http"))
-    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecretsAbs)
+    .WithEnvironment("REVIEWS_APP_SECRETS_DIR", appSecrets)
     // In Aspire both URLs collapse to localhost; compose differs because that
     // route crosses container boundaries.
     .WithEnvironment("ZITADEL_PUBLIC_URL", "http://localhost:8080")
