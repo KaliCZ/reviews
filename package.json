@@ -2,7 +2,7 @@
   "name": "reviews",
   "private": true,
   "scripts": {
-    "dev": "npm run dev:infra && dotnet build Reviews.slnx && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"dotnet watch --project backend/api\" \"dotnet watch --project backend/worker\" \"npm --prefix web start\"",
+    "dev": "npm run dev:infra && dotnet build Reviews.slnx && concurrently --kill-others-on-fail -n api,worker,web -c blue,green,magenta \"dotnet watch --project backend/api\" \"dotnet watch --project backend/worker\" \"npm --prefix web run start:dev\"",
     "dev:infra": "docker compose up -d --wait postgres redis azurite zitadel temporal temporal-ui && docker compose run --rm zitadel-bootstrap",
     "aspire": "dotnet run --project backend/apphost",
     "test": "dotnet test Reviews.slnx && npm --prefix web test",
