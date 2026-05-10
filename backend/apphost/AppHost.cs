@@ -16,25 +16,14 @@ var zitadelMasterkey = builder.AddParameter("zitadel-masterkey", secret: true);
 var worktreeId = Convert.ToHexString(SHA256.HashData(
     Encoding.UTF8.GetBytes(Path.GetFullPath(Environment.CurrentDirectory))))[..8].ToLowerInvariant();
 
-// Per-worktree offset for the small set of services that genuinely need
-// pinned ports — see the table below. Everything else lets Aspire allocate
-// a random ephemeral port, which is collision-free between parallel
-// AppHosts because each process gets its own random pick. Mirrored in
+// Per-worktree offset for the few services pinned below. Mirrored in
 // scripts/aspire.mjs for the dashboard listeners.
-//
-// Birthday-collision math is on this offset: 10 worktrees / 1000 slots ≈
-// 4.4% chance two share an offset, in which case all six pinned services
-// collide simultaneously. Acceptable for current scale; if we push past it,
-// widen the modulus or add a runtime detect-and-bump.
 var portOffset = (int)(uint.Parse(worktreeId[..4], System.Globalization.NumberStyles.HexNumber) % 1000);
 
-// Pinned per-worktree because either functionally required (web's OIDC
-// redirect URI, temporal's scheme:"tcp" endpoint) or because the URL is
-// hit directly from a browser (login UI, dev-tooling dashboards) and
-// stable bookmarks across restarts are worth keeping. Bases spaced 1000
-// apart so the 0-999 offset can't push one band into another's range.
-// 24000-27999 is reserved for the AppHost's own listeners (see
-// scripts/aspire.mjs: dashboard, OTLP, MCP, resource service).
+// Pinned services: OIDC redirect target, gRPC (no auto-allocate), and
+// browser-facing UIs where stable bookmarks help. Everything else gets a
+// random Aspire-allocated port. Bases spaced 1000 apart; 24000-27999 is
+// reserved for the AppHost's own listeners (scripts/aspire.mjs).
 var temporalGrpcPort  = 17000 + portOffset;
 var temporalUiPort    = 18000 + portOffset;
 var webPort           = 19000 + portOffset;
@@ -99,9 +88,7 @@ Directory.CreateDirectory(appSecrets);
 var web = builder.AddJavaScriptApp("web", "../../web", "start")
     .WithHttpEndpoint(port: webPort, env: "PORT", isProxied: false)
     .WithExternalHttpEndpoints()
-    // Probes the SSR root, not a cheap /healthz: AddJavaScriptApp would
-    // otherwise flip Healthy as soon as the node process starts, even when
-    // SSR is wedged on PendingTasks and can't actually serve a page.
+    // Probes SSR, not the node process — Healthy should mean the page renders.
     .WithHttpHealthCheck("/");
 // Plain strings, not ReferenceExpression: a Property() reference would add
 // an implicit bootstrap→web dependency and deadlock with web→bootstrap.
@@ -160,13 +147,8 @@ var zitadelBootstrap = builder.AddContainer("zitadel-bootstrap", "curlimages/cur
     .WithDockerGroup(dockerGroup)
     .WaitFor(zitadel);
 
-// Temporal serves only gRPC, so WithHttpHealthCheck doesn't apply. A TCP
-// connect against the grpc port is a near-equivalent readiness signal
-// because auto-setup opens the port last, after schema + namespace
-// provisioning. compose probes `temporal operator namespace describe`,
-// which is strictly stronger but would need a custom IHealthCheck that
-// shells out via `docker exec` — flagged as a maybe-later if this proves
-// flaky in practice.
+// Temporal is gRPC-only, so we probe the port directly. Auto-setup opens
+// it last, so port-open ≈ ready in practice.
 builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =>
 {
     try
@@ -182,9 +164,8 @@ builder.Services.AddHealthChecks().AddAsyncCheck("temporal-grpc-tcp", async () =
     }
 });
 
-// scheme:"tcp" endpoints don't auto-allocate, and the canonical 7233/8233
-// would collide across worktrees and with compose — see the port-base
-// table at the top of this file.
+// scheme:"tcp" doesn't auto-allocate, and the canonical 7233 would collide
+// across worktrees and with compose.
 var temporal = builder.AddContainer("temporal", "temporalio/auto-setup", "latest")
     .WithEndpoint(name: "grpc", port: temporalGrpcPort, targetPort: 7233, scheme: "tcp")
     .WithEnvironment("DB", "postgres12")
@@ -219,12 +200,9 @@ temporalUi.WithEnvironment("TEMPORAL_CORS_ORIGINS", ReferenceExpression.Create(
 var temporalConnString = ReferenceExpression.Create(
     $"{temporal.GetEndpoint("grpc").Property(EndpointProperty.Host)}:{temporal.GetEndpoint("grpc").Property(EndpointProperty.Port)}");
 
-// launchProfileName:null so AppHost doesn't inherit launchSettings' :5146 —
-// that port belongs to `npm run dev` (`dotnet watch --project backend/api`),
-// and a leftover Aspire dcp proxy holding 5146 was crashing the compose-dev
-// api with EADDRINUSE. WithHttpEndpoint() with no port lets Aspire allocate
-// a random ephemeral one; consumers reach the api via WithReference.
-// API owns migrations + seed; worker waits on API health before querying.
+// launchProfileName:null so AppHost doesn't grab launchSettings' :5146 —
+// that port belongs to `npm run dev`'s `dotnet watch`. API owns migrations
+// + seed; worker waits on API health before querying.
 var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
     .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)
@@ -238,9 +216,8 @@ var api = builder.AddProject<Projects.api>("api", launchProfileName: null)
     .WaitFor(temporal)
     .WaitForCompletion(zitadelBootstrap);
 
-// WithHttpEndpoint() (no port) overrides ASP.NET's default :5000 with an
-// Aspire-allocated random ephemeral port — without it, parallel AppHosts
-// would all fight over :5000.
+// WithHttpEndpoint() pulls the port off ASP.NET's default :5000, which
+// parallel AppHosts would otherwise fight over.
 var workerService = builder.AddProject<Projects.worker>("worker")
     .WithHttpEndpoint()
     .WithReference(reviewsDb).WaitFor(reviewsDb)

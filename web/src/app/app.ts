@@ -16,9 +16,8 @@ export class App {
   private readonly router = inject(Router);
 
   constructor() {
-    // Browser-only: SSR fetches don't carry the session cookie, so /auth/me
-    // would always come back 401 — and the in-flight HttpClient request
-    // keeps Angular's PendingTasks from settling, blocking SSR stabilization.
+    // Browser-only: SSR has no session cookie, and the in-flight request
+    // would block Angular's PendingTasks from settling.
     afterNextRender(() => this.auth.refresh());
   }
 
