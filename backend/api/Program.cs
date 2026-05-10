@@ -22,19 +22,20 @@ public class Program
         // The zitadel-bootstrap container writes its OIDC outputs here at runtime.
         // Lookup chain:
         //   1. API_SECRETS_DIR — Aspire injects this explicitly.
-        //   2. REVIEWS_APP_SECRETS_DIR — multi-worktree shared override
-        //      (see README, "Sharing infra across worktrees").
+        //   2. REVIEWS_APP_SECRETS_DIR — explicit override.
         //   3. /run/secrets — docker-compose bind-mount inside the API container.
-        //   4. ../../infra/zitadel/.app-secrets — host path for `dotnet watch`
-        //      from this project's cwd, single-worktree default.
-        // Path.GetFullPath resolves relatives against cwd; absolute paths pass
-        // through unchanged.
+        //   4. <UserProfile>/.reviews-dev/app-secrets — shared default for
+        //      `dotnet watch` from the host, also where Aspire writes by
+        //      default so multiple worktrees pick up the same bootstrap output.
         var secretsDir =
             Environment.GetEnvironmentVariable("API_SECRETS_DIR")
             ?? Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
             ?? (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
                 ? "/run/secrets"
-                : "../../infra/zitadel/.app-secrets");
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".reviews-dev",
+                    "app-secrets"));
         builder.Configuration.AddKeyPerFile(
             directoryPath: Path.GetFullPath(secretsDir),
             optional: true);

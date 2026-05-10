@@ -131,31 +131,15 @@ The application's `AuthorId` is a Guid hashed from the ZITADEL `sub` claim, so t
 
 ZITADEL doesn't yet support project/app provisioning via its declarative YAML. So the bootstrap is two-phase: `infra/zitadel/steps.yaml` creates the org + admin + a service-account PAT on first start, then a one-shot `zitadel-bootstrap` container uses that PAT to create the OIDC app and writes the resulting client id/secret to a bind-mounted secrets dir the API and BFF read at startup.
 
-To reset auth state: `docker compose down -v && rm -rf infra/zitadel/.secrets infra/zitadel/.app-secrets`.
+To reset auth state: `docker compose down -v && rm -rf "$HOME/.reviews-dev"`.
 
 #### Sharing infra across worktrees
 
-`docker compose` uses the directory name as the project name by default, so each git worktree gets its own isolated stack — and they all bind the same host ports (5432, 6379, 8080, 7233, 8233, 10000-10002). To run `npm run dev` from a second worktree without port collisions, the compose file pins `name: reviews` so every worktree attaches to the same containers, network, and volumes.
+`docker compose` uses the directory name as the project name by default, so each git worktree would get its own isolated stack — and they'd all bind the same host ports (5432, 6379, 8080, 7233, 8233, 10000-10002). The compose file pins `name: reviews` so every worktree attaches to the same containers, network, and volumes.
 
-The OIDC client_id/secret minted by `zitadel-bootstrap` are written to `infra/zitadel/.app-secrets/`, which is per-worktree. If two worktrees both run bootstrap against shared ZITADEL state, the second one rotates the credentials and breaks the first. To share the secrets too, point both worktrees at the same host directory:
+Bootstrap output (the OIDC client_id/secret + ZITADEL admin PAT) lives in `$HOME/.reviews-dev/` by default, so worktrees share it automatically — the second worktree's bootstrap sees the stored client_id matches the live ZITADEL app and skips re-creating it. To use a different location (CI, alternate user, per-worktree run), set `REVIEWS_APP_SECRETS_DIR` and `REVIEWS_ZITADEL_SECRETS_DIR`.
 
-```bash
-# macOS / Linux — add to ~/.zshrc or ~/.bashrc
-export REVIEWS_APP_SECRETS_DIR="$HOME/.reviews-dev/app-secrets"
-export REVIEWS_ZITADEL_SECRETS_DIR="$HOME/.reviews-dev/zitadel-secrets"
-mkdir -p "$REVIEWS_APP_SECRETS_DIR" "$REVIEWS_ZITADEL_SECRETS_DIR"
-```
-
-```powershell
-# Windows — add to $PROFILE
-$env:REVIEWS_APP_SECRETS_DIR  = "$env:USERPROFILE\.reviews-dev\app-secrets"
-$env:REVIEWS_ZITADEL_SECRETS_DIR = "$env:USERPROFILE\.reviews-dev\zitadel-secrets"
-New-Item -ItemType Directory -Force -Path $env:REVIEWS_APP_SECRETS_DIR, $env:REVIEWS_ZITADEL_SECRETS_DIR | Out-Null
-```
-
-Compose substitutes these into the bind mounts, the BFF and API read from the same shared dir, and the second worktree's bootstrap sees the stored client_id matches the live ZITADEL app and skips re-creating it. CI and anyone who hasn't set the env vars keep the per-worktree path — single-worktree behaviour is unchanged.
-
-> **TODO** — this only covers the `npm run dev` path. Running `Aspire` in parallel across worktrees still collides because `backend/apphost/AppHost.cs` hardcodes host ports (8080 zitadel, 7233 temporal, 8233 temporal-ui, 4200 web) and Aspire spins up fresh containers per dashboard run rather than attaching to the shared compose stack. Fixing that needs either dynamic ports + service discovery (non-trivial because ZITADEL's external URL is baked into JWT issuer claims) or making AppHost attach to the compose-managed infra. Out of scope for now — only one Aspire at a time.
+> **TODO** — sharing covers state. Running `Aspire` in parallel across worktrees still collides because `backend/apphost/AppHost.cs` hardcodes host ports (8080 zitadel, 7233 temporal, 8233 temporal-ui, 4200 web) and Aspire spins up fresh containers per dashboard run rather than attaching to the shared compose stack. Fixing that needs either dynamic ports + service discovery (non-trivial because ZITADEL's external URL is baked into JWT issuer claims) or making AppHost attach to the compose-managed infra. Out of scope for now — only one Aspire at a time.
 
 ### Public vs internal URLs
 

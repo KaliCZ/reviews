@@ -31,10 +31,19 @@ var redisUrl = ReferenceExpression.Create(
 var storage = builder.AddAzureStorage("storage").RunAsEmulator();
 var images = storage.AddBlobs("images");
 
-// In containers KeyPerFile reads /run/secrets/*; in Aspire (host process) the
-// API points there via API_SECRETS_DIR.
-const string zitadelSecrets = "../../infra/zitadel/.secrets";
-const string appSecrets = "../../infra/zitadel/.app-secrets";
+// Per-user shared dir under the home folder, so multiple worktrees attach
+// to the same bootstrap output without any env-var setup. Override with
+// REVIEWS_APP_SECRETS_DIR / REVIEWS_ZITADEL_SECRETS_DIR if you need a
+// different location (e.g. CI, prod, or a per-worktree run).
+var sharedRoot = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+    ".reviews-dev");
+var zitadelSecrets = Environment.GetEnvironmentVariable("REVIEWS_ZITADEL_SECRETS_DIR")
+    ?? Path.Combine(sharedRoot, "zitadel-secrets");
+var appSecrets = Environment.GetEnvironmentVariable("REVIEWS_APP_SECRETS_DIR")
+    ?? Path.Combine(sharedRoot, "app-secrets");
+Directory.CreateDirectory(zitadelSecrets);
+Directory.CreateDirectory(appSecrets);
 var appSecretsAbs = Path.GetFullPath(appSecrets);
 
 // Pinned: ZITADEL v4 (July 2025) defaults to LoginV2 (a separate Next.js app
