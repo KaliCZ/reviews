@@ -25,10 +25,10 @@ public class EditReviewWorkflow
     private ModerationDecision? decision;
 
     [WorkflowSignal(ApproveSignal)]
-    public Task ApproveAsync(string? reason) { decision = new ModerationDecision(true, reason); return Task.CompletedTask; }
+    public Task ApproveAsync(string? reason = null) { decision = new ModerationDecision(true, reason); return Task.CompletedTask; }
 
     [WorkflowSignal(RejectSignal)]
-    public Task RejectAsync(string? reason) { decision = new ModerationDecision(false, reason); return Task.CompletedTask; }
+    public Task RejectAsync(string? reason = null) { decision = new ModerationDecision(false, reason); return Task.CompletedTask; }
 
     [WorkflowRun]
     public async Task<string> RunAsync(EditReviewInput input)
