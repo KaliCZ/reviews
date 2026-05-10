@@ -19,6 +19,25 @@ import { I18nService } from '../services/i18n.service';
       </p>
       <h1>{{ 'submit.heading' | t: { product: p.name } }}</h1>
 
+      @if (showSuccess()) {
+        <div class="modal-backdrop" role="presentation" (click)="goBack()">
+          <div
+            class="modal"
+            role="dialog"
+            aria-modal="true"
+            [attr.aria-labelledby]="'submit-success-title'"
+            (click)="$event.stopPropagation()"
+          >
+            <h2 id="submit-success-title">{{ 'submit.successTitle' | t }}</h2>
+            <p>{{ 'submit.successBody' | t }}</p>
+            <p class="muted">{{ 'submit.successModeration' | t }}</p>
+            <button type="button" (click)="goBack()">
+              {{ 'submit.successBack' | t: { name: p.name } }}
+            </button>
+          </div>
+        </div>
+      }
+
       <form (submit)="submit($event)">
         <label
           >{{ 'submit.rating' | t }}
@@ -201,6 +220,35 @@ import { I18nService } from '../services/i18n.service';
         color: #2563eb;
         text-decoration: none;
       }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        z-index: 100;
+      }
+      .modal {
+        background: var(--color-surface, #fff);
+        color: var(--color-on-surface, inherit);
+        border-radius: 8px;
+        padding: 1.5rem;
+        max-width: 28rem;
+        width: 100%;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+      }
+      .modal h2 {
+        margin: 0 0 0.75rem;
+      }
+      .modal p {
+        margin: 0 0 0.75rem;
+        line-height: 1.5;
+      }
+      .modal button {
+        margin-top: 0.5rem;
+      }
     `,
   ],
 })
@@ -218,6 +266,7 @@ export class SubmitReviewPage {
   protected readonly submitting = signal(false);
   protected readonly error = signal<string | null>(null);
   protected readonly uploadError = signal<string | null>(null);
+  protected readonly showSuccess = signal(false);
   // Submit stays disabled while > 0 so we don't post before URLs are known.
   protected readonly uploadsInFlight = signal(0);
 
@@ -325,12 +374,24 @@ export class SubmitReviewPage {
       })
       .subscribe({
         next: () => {
-          this.router.navigate(['/products', p.slug]);
+          // Don't auto-navigate — the product page reads from a cache that
+          // may not be invalidated yet, and Pending reviews aren't in the
+          // shared listing at all. Show a confirmation so the user knows
+          // it landed and clicks through deliberately; the product page
+          // overlays their own review (any status) regardless of cache.
+          this.showSuccess.set(true);
+          this.submitting.set(false);
         },
         error: (err) => {
           this.error.set(err.error ?? err.message ?? this.i18n.t('submit.submitFailed'));
           this.submitting.set(false);
         },
       });
+  }
+
+  goBack(): void {
+    const p = this.product();
+    if (!p) return;
+    this.router.navigate(['/products', p.slug]);
   }
 }

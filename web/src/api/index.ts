@@ -36,6 +36,8 @@ export interface ProductDetail {
   myReviewId: string | null;
 }
 
+export type ReviewStatus = 'Pending' | 'Approved' | 'Rejected';
+
 export interface ReviewItem {
   id: string;
   productId: number;
@@ -50,6 +52,7 @@ export interface ReviewItem {
   updatedAtUtc: string;
   myVote: boolean | null;
   mine: boolean;
+  status: ReviewStatus;
 }
 
 export interface ReviewsPage {
@@ -57,6 +60,7 @@ export interface ReviewsPage {
   page: number;
   pageSize: number;
   totalCount: number;
+  myReview: ReviewItem | null;
 }
 
 // rating stays as `number` here so SPA forms don't need a cast at submit.

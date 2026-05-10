@@ -30,7 +30,10 @@
     "signInToReview": "Přihlaste se pro napsání recenze",
     "reviewsHeading": "Recenze",
     "reviewCount": "{count} recenzí",
-    "notFound": "Produkt nenalezen."
+    "notFound": "Produkt nenalezen.",
+    "yourReview": "Vaše recenze",
+    "statusPending": "Čeká na moderaci — zatím ji vidíte jen vy.",
+    "statusRejected": "Zamítnuto moderátorem — vidíte ji jen vy."
   },
   "productList": {
     "heading": "Produkty",
@@ -67,7 +70,11 @@
     "tooManyImages": "Můžete připojit nejvýše {max} obrázků (zbývá {remaining}).",
     "imageTooLarge": "{name} je příliš velký (max {mb} MB).",
     "imageBadType": "{name}: nepodporovaný typ {type}.",
-    "uploadedImageAlt": "nahraný obrázek"
+    "uploadedImageAlt": "nahraný obrázek",
+    "successTitle": "Děkujeme — vaše recenze byla odeslána!",
+    "successBody": "Měla by se na stránce produktu objevit hned.",
+    "successModeration": "Některé recenze před zveřejněním procházejí moderací. Pokud se vaše ještě neobjevila, zkuste to později — až bude zveřejněna, můžete dostat e-mail.",
+    "successBack": "Zpět na {name}"
   },
   "edit": {
     "heading": "Upravit vaši recenzi",
