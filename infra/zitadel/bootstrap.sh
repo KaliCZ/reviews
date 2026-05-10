@@ -20,6 +20,50 @@
 
 set -eu
 
+# Print wipe-and-restart instructions, then exit. Same recovery for both
+# failure modes (PAT file missing, PAT file rejected) — the underlying
+# problem is always that ZITADEL's DB and the on-disk PAT have drifted out
+# of sync, and ZITADEL won't rewrite the PAT on subsequent boots, so there's
+# no automatic recovery.
+fail_with_recovery() {
+  echo ""
+  echo "[bootstrap] ERROR: $1"
+  echo ""
+  echo "  ZITADEL's DB and /zitadel-secrets/admin-pat.txt are out of sync."
+  echo "  Wipe both halves and restart so FirstInstance runs against an empty"
+  echo "  DB and writes a fresh PAT."
+  echo ""
+  if [ -n "${WORKTREE_ID:-}" ]; then
+    WID=$WORKTREE_ID
+    echo "  Aspire — stop the AppHost (Ctrl+C), then:"
+    echo ""
+    echo "  PowerShell:"
+    echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | % { docker rm -f \$_ }"
+    echo "      docker volume rm reviews-aspire-postgres-${WID}"
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\aspire\\${WID}\""
+    echo ""
+    echo "  bash / zsh:"
+    echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | xargs -r docker rm -f"
+    echo "      docker volume rm reviews-aspire-postgres-${WID}"
+    echo "      rm -rf ~/.reviews-dev/aspire/${WID}/"
+  else
+    echo "  Compose:"
+    echo ""
+    echo "  PowerShell:"
+    echo "      docker compose down -v"
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\zitadel-secrets\""
+    echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\app-secrets\""
+    echo "      docker compose up"
+    echo ""
+    echo "  bash / zsh:"
+    echo "      docker compose down -v"
+    echo "      rm -rf ~/.reviews-dev/zitadel-secrets ~/.reviews-dev/app-secrets"
+    echo "      docker compose up"
+  fi
+  echo ""
+  exit 1
+}
+
 # This wait loop is the readiness gate for both compose and Aspire:
 #   - Compose: depends_on with service_healthy gates on the zitadel
 #     healthcheck, but bootstrap can still race against FirstInstance
@@ -35,29 +79,7 @@ for i in 1 2 3; do
 done
 
 if [ ! -s /zitadel-secrets/admin-pat.txt ]; then
-  WID=${WORKTREE_ID:-<worktree-id>}
-  echo ""
-  echo "[bootstrap] ERROR: /zitadel-secrets/admin-pat.txt never appeared."
-  echo ""
-  echo "  This usually means ZITADEL's DB has prior FirstInstance state but the"
-  echo "  PAT secret on disk is gone — the two halves drifted out of sync."
-  echo "  ZITADEL only writes the PAT once (during FirstInstance) and won't"
-  echo "  rewrite it on subsequent boots, so there's no automatic recovery."
-  echo ""
-  echo "  To fix: stop aspire (Ctrl+C in the AppHost terminal), then run the"
-  echo "  cleanup commands below from the host."
-  echo ""
-  echo "  PowerShell:"
-  echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | % { docker rm -f \$_ }"
-  echo "      docker volume rm reviews-aspire-postgres-${WID}"
-  echo "      Remove-Item -Recurse -Force \"\$env:USERPROFILE\\.reviews-dev\\aspire\\${WID}\""
-  echo ""
-  echo "  bash / zsh:"
-  echo "      docker ps -aq --filter volume=reviews-aspire-postgres-${WID} | xargs -r docker rm -f"
-  echo "      docker volume rm reviews-aspire-postgres-${WID}"
-  echo "      rm -rf ~/.reviews-dev/aspire/${WID}/"
-  echo ""
-  exit 1
+  fail_with_recovery "/zitadel-secrets/admin-pat.txt never appeared."
 fi
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
@@ -94,6 +116,20 @@ to_json_array() {
 VHOST=${ISSUER#http://}
 VHOST=${VHOST#https://}
 VHOST=${VHOST%%/*}
+
+# Sanity-check the PAT before doing real work. ZITADEL only writes the PAT
+# during FirstInstance (once per DB lifetime) — if the on-disk PAT no longer
+# matches what's in the DB, every subsequent management call would 401. Catch
+# that up front instead of retrying through 5 cryptic 401s in api() below.
+AUTH_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+  "$Z/management/v1/projects/_search" \
+  -H "Host: $VHOST" \
+  -H "Authorization: Bearer $PAT" \
+  -H "Content-Type: application/json" \
+  -d '{}')
+if [ "$AUTH_HTTP" = "401" ] || [ "$AUTH_HTTP" = "403" ]; then
+  fail_with_recovery "ZITADEL rejected the PAT (HTTP $AUTH_HTTP)."
+fi
 
 # `zitadel ready` flips green well before the projection layer has caught up,
 # so the first management calls can 404. A tiny retry loop covers the gap.
