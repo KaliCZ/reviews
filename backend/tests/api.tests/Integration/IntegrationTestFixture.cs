@@ -10,6 +10,7 @@ using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Reviews.Api.Services;
 using Reviews.Infrastructure;
+using Reviews.Infrastructure.Caching;
 using Reviews.Shared;
 using Reviews.Worker;
 using StrongTypes.EfCore;
@@ -182,6 +183,8 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
             opts.UseNpgsql().UseStrongTypes());
         builder.AddRedisClient(connectionName: "cache");
 
+        builder.Services.AddSingleton<IReviewCacheInvalidator, ReviewCacheInvalidator>();
+
         builder.Services
             .AddTemporalClient(options =>
             {
@@ -192,7 +195,6 @@ public sealed class IntegrationTestFixture : IAsyncLifetime
             .AddWorkflow<SubmitReviewWorkflow>()
             .AddWorkflow<EditReviewWorkflow>()
             .AddWorkflow<DeleteReviewWorkflow>()
-            .AddWorkflow<RateReviewWorkflow>()
             .AddScopedActivities<ReviewActivities>();
 
         return builder.Build();

@@ -169,10 +169,17 @@ export class ProductDetailPage {
     this.busy.set(e.id);
     this.actionError.set(null);
     this.api.voteReview(e.id, e.isUpvote).subscribe({
-      next: () => {
-        // Workflow runs async; the worker invalidates the cache so a quick
-        // re-fetch usually catches the updated score.
-        setTimeout(() => this.fetchAll(this.slug()), 400);
+      next: (res) => {
+        // Sync write — patch the affected row in place. No refetch needed.
+        const pg = this.page();
+        if (pg) {
+          this.page.set({
+            ...pg,
+            items: pg.items.map((r) =>
+              r.id === e.id ? { ...r, score: res.score, myVote: res.myVote } : r,
+            ),
+          });
+        }
         this.busy.set(null);
       },
       error: (err) => {

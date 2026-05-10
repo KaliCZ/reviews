@@ -81,6 +81,11 @@ export interface VoteRequest {
   isUpvote: boolean;
 }
 
+export interface VoteResponse {
+  score: number;
+  myVote: boolean;
+}
+
 export interface AcceptedResponse {
   workflowId: string;
   status: string;

@@ -20,8 +20,6 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
         @"^submit-review-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
     private static readonly Regex EditWorkflowIdPattern = new(
         @"^edit-review-[0-9a-fA-F]{32}-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
-    private static readonly Regex VoteWorkflowIdPattern = new(
-        @"^vote-[0-9a-fA-F]{32}-[0-9a-fA-F]{32}$", RegexOptions.Compiled);
 
     // -- /api/products (list) --------------------------------------------
 
@@ -178,7 +176,7 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
     [Fact]
     public async Task Vote_creates_row_then_flip_updates_score()
     {
-        // RecordVote requires Approved, so submit a 4-star (auto-approved) first.
+        // Vote requires Approved, so submit a 4-star (auto-approved) first.
         const long productId = 9;
         var (body, expectedTitle, _) = MakeSubmitPayload(productId, rating: 4);
         var submitResponse = await fx.ApiClient.PostAsync("/api/reviews", JsonContent(body));
@@ -197,16 +195,14 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
                 .SingleAsync();
         }
 
-        // Upvote.
+        // Upvote — sync; response carries the new score.
         var up = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
             JsonContent("""{"isUpvote": true}"""));
-        Assert.Equal(HttpStatusCode.Accepted, up.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, up.StatusCode);
         using (var d = JsonDocument.Parse(await up.Content.ReadAsStringAsync()))
         {
-            Assert.Matches(VoteWorkflowIdPattern, d.RootElement.GetProperty("workflowId").GetString()!);
-            Assert.Equal("voted", d.RootElement.GetProperty("status").GetString());
-            await fx.TemporalClient.GetWorkflowHandle(
-                d.RootElement.GetProperty("workflowId").GetString()!).GetResultAsync<string>();
+            Assert.Equal(1, d.RootElement.GetProperty("score").GetInt32());
+            Assert.True(d.RootElement.GetProperty("myVote").GetBoolean());
         }
 
         await using (var db = fx.CreateDbContext())
@@ -217,30 +213,32 @@ public class ApiIntegrationTests(IntegrationTestFixture fx)
             Assert.Equal(1, review.Score);
         }
 
-        // Vote workflow id is deterministic per (review, voter); the second
-        // call may join an already-done workflow (UseExisting policy).
+        // Flip to downvote — same row gets UPSERT'd in place.
         var down = await fx.ApiClient.PostAsync($"/api/reviews/{reviewId}/vote",
             JsonContent("""{"isUpvote": false}"""));
-        Assert.Equal(HttpStatusCode.Accepted, down.StatusCode);
-        var downWorkflowId = JsonDocument.Parse(await down.Content.ReadAsStringAsync())
-            .RootElement.GetProperty("workflowId").GetString()!;
-        try { await fx.TemporalClient.GetWorkflowHandle(downWorkflowId).GetResultAsync<string>(); }
-        catch (Temporalio.Exceptions.WorkflowAlreadyStartedException) { /* benign */ }
-
-        // The second start may join the existing handle without re-running,
-        // so observe DB state rather than the workflow result.
-        await fx.WaitForAsync<object>(async () =>
+        Assert.Equal(HttpStatusCode.OK, down.StatusCode);
+        using (var d = JsonDocument.Parse(await down.Content.ReadAsStringAsync()))
         {
-            await using var db = fx.CreateDbContext();
-            var v = await db.ReviewVotes.AsNoTracking().SingleAsync(v => v.ReviewId == reviewId);
-            return v.IsUpvote ? null : new object();
-        }, what: "downvote flip");
+            Assert.Equal(-1, d.RootElement.GetProperty("score").GetInt32());
+            Assert.False(d.RootElement.GetProperty("myVote").GetBoolean());
+        }
 
         await using (var db = fx.CreateDbContext())
         {
+            var v = await db.ReviewVotes.AsNoTracking().SingleAsync(v => v.ReviewId == reviewId);
+            Assert.False(v.IsUpvote);
             var review = await db.Reviews.AsNoTracking().SingleAsync(r => r.Id == reviewId);
             Assert.Equal(-1, review.Score);
         }
+    }
+
+    [Fact]
+    public async Task Vote_on_unknown_review_returns_404()
+    {
+        var bogus = Guid.NewGuid();
+        var resp = await fx.ApiClient.PostAsync($"/api/reviews/{bogus}/vote",
+            JsonContent("""{"isUpvote": true}"""));
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
     // -- PUT /api/reviews/{id} -------------------------------------------

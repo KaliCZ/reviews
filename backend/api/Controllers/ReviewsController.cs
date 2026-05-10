@@ -6,6 +6,7 @@ using Reviews.Api.Auth;
 using Reviews.Api.Models;
 using Reviews.Api.Services;
 using Reviews.Infrastructure;
+using Reviews.Infrastructure.Caching;
 using Reviews.Infrastructure.Entities;
 using Reviews.Shared;
 using StrongTypes;
@@ -21,7 +22,8 @@ public class ReviewsController(
     ReviewsDbContext db,
     ITemporalClient temporal,
     ICurrentUserAccessor currentUser,
-    ITurnstileVerifier turnstile) : ControllerBase
+    ITurnstileVerifier turnstile,
+    IReviewCacheInvalidator cacheInvalidator) : ControllerBase
 {
     [HttpPost]
     public async Task<ActionResult<AcceptedResponse>> Submit(
@@ -96,21 +98,63 @@ public class ReviewsController(
     }
 
     [HttpPost("{id:guid}/vote")]
-    public async Task<ActionResult<AcceptedResponse>> Vote(
+    public async Task<ActionResult<VoteResponse>> Vote(
         Guid id, [FromBody] VoteRequest req, CancellationToken ct)
     {
         var user = currentUser.User!;
-        var input = new VoteInput(id, user.Id, req.IsUpvote);
-        // Deterministic workflow id per (review, voter) + UseExisting:
-        // rapid-fire votes from the same user serialize on the server and
-        // double-clicks join the in-flight execution instead of erroring.
-        var handle = await temporal.StartWorkflowAsync(
-            (RateReviewWorkflow wf) => wf.RunAsync(input),
-            new WorkflowOptions(id: $"vote-{id:N}-{user.Id:N}", taskQueue: ReviewQueues.TaskQueue)
+
+        // Pinning to Approved blocks votes on deleted/rejected/pending reviews
+        // even from a stale client.
+        var slug = await db.Reviews
+            .AsNoTracking()
+            .Where(r => r.Id == id && r.Status == ReviewStatus.Approved)
+            .Select(r => (string?)r.Product.Slug.Value)
+            .SingleOrDefaultAsync(ct);
+        if (slug is null) return NotFound();
+
+        // Aspire wires NpgsqlRetryingExecutionStrategy into the DbContext;
+        // user-initiated transactions must be wrapped in ExecuteAsync so the
+        // upsert + score recompute live in one strategy-managed unit.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var updated = await db.ReviewVotes
+                .Where(v => v.ReviewId == id && v.VoterId == user.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(v => v.IsUpvote, req.IsUpvote), ct);
+            if (updated == 0)
             {
-                IdConflictPolicy = Temporalio.Api.Enums.V1.WorkflowIdConflictPolicy.UseExisting,
-            });
-        return Accepted(new AcceptedResponse(handle.Id, "voted"));
+                db.ReviewVotes.Add(new ReviewVote(id, user.Id, req.IsUpvote));
+                await db.SaveChangesAsync(ct);
+            }
+
+            // Recompute Score from vote rows so it self-heals on every write.
+            await db.Reviews
+                .Where(r => r.Id == id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(r => r.Score, _ => db.ReviewVotes
+                        .Where(v => v.ReviewId == id)
+                        .Sum(v => v.IsUpvote ? 1 : -1))
+                    .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
+
+            await tx.CommitAsync(ct);
+        });
+
+        // Best-effort: invalidator retries internally; a permanent miss is
+        // backstopped by the 24h TTL and the next mutation re-DEL'ing the
+        // same keys.
+        await cacheInvalidator.InvalidateProductAsync(slug, ct);
+
+        // Read after commit + invalidation so we surface the latest committed
+        // score (picking up any concurrent voter that raced us) and don't hold
+        // tx locks for the round-trip.
+        return Ok(new VoteResponse(
+            await db.Reviews.AsNoTracking()
+                .Where(r => r.Id == id)
+                .Select(r => r.Score)
+                .SingleAsync(ct),
+            req.IsUpvote));
     }
 
     // Mirrors the DB CHECK constraints so 400 fires before the workflow starts.

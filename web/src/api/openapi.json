@@ -7,9 +7,7 @@
   "paths": {
     "/api/Config": {
       "get": {
-        "tags": [
-          "Config"
-        ],
+        "tags": ["Config"],
         "responses": {
           "200": {
             "description": "OK",
@@ -36,9 +34,7 @@
     },
     "/api/Images/{path}": {
       "get": {
-        "tags": [
-          "Images"
-        ],
+        "tags": ["Images"],
         "parameters": [
           {
             "name": "path",
@@ -58,9 +54,7 @@
     },
     "/api/Images": {
       "post": {
-        "tags": [
-          "Images"
-        ],
+        "tags": ["Images"],
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -105,18 +99,14 @@
         },
         "security": [
           {
-            "Bearer": [
-              "Bearer"
-            ]
+            "Bearer": ["Bearer"]
           }
         ]
       }
     },
     "/api/Products": {
       "get": {
-        "tags": [
-          "Products"
-        ],
+        "tags": ["Products"],
         "responses": {
           "200": {
             "description": "OK",
@@ -152,9 +142,7 @@
     },
     "/api/Products/{slug}": {
       "get": {
-        "tags": [
-          "Products"
-        ],
+        "tags": ["Products"],
         "parameters": [
           {
             "name": "slug",
@@ -192,9 +180,7 @@
     },
     "/api/Products/{slug}/reviews": {
       "get": {
-        "tags": [
-          "Products"
-        ],
+        "tags": ["Products"],
         "parameters": [
           {
             "name": "slug",
@@ -262,9 +248,7 @@
     },
     "/api/Reviews": {
       "post": {
-        "tags": [
-          "Reviews"
-        ],
+        "tags": ["Reviews"],
         "requestBody": {
           "content": {
             "application/json": {
@@ -308,18 +292,14 @@
         },
         "security": [
           {
-            "Bearer": [
-              "Bearer"
-            ]
+            "Bearer": ["Bearer"]
           }
         ]
       }
     },
     "/api/Reviews/{id}": {
       "put": {
-        "tags": [
-          "Reviews"
-        ],
+        "tags": ["Reviews"],
         "parameters": [
           {
             "name": "id",
@@ -374,16 +354,12 @@
         },
         "security": [
           {
-            "Bearer": [
-              "Bearer"
-            ]
+            "Bearer": ["Bearer"]
           }
         ]
       },
       "delete": {
-        "tags": [
-          "Reviews"
-        ],
+        "tags": ["Reviews"],
         "parameters": [
           {
             "name": "id",
@@ -419,18 +395,14 @@
         },
         "security": [
           {
-            "Bearer": [
-              "Bearer"
-            ]
+            "Bearer": ["Bearer"]
           }
         ]
       }
     },
     "/api/Reviews/{id}/vote": {
       "post": {
-        "tags": [
-          "Reviews"
-        ],
+        "tags": ["Reviews"],
         "parameters": [
           {
             "name": "id",
@@ -467,17 +439,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedResponse"
+                  "$ref": "#/components/schemas/VoteResponse"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedResponse"
+                  "$ref": "#/components/schemas/VoteResponse"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AcceptedResponse"
+                  "$ref": "#/components/schemas/VoteResponse"
                 }
               }
             }
@@ -485,9 +457,7 @@
         },
         "security": [
           {
-            "Bearer": [
-              "Bearer"
-            ]
+            "Bearer": ["Bearer"]
           }
         ]
       }
@@ -496,10 +466,7 @@
   "components": {
     "schemas": {
       "AcceptedResponse": {
-        "required": [
-          "status",
-          "workflowId"
-        ],
+        "required": ["status", "workflowId"],
         "type": "object",
         "properties": {
           "workflowId": {
@@ -514,9 +481,7 @@
         "additionalProperties": false
       },
       "ConfigResponse": {
-        "required": [
-          "turnstileSiteKey"
-        ],
+        "required": ["turnstileSiteKey"],
         "type": "object",
         "properties": {
           "turnstileSiteKey": {
@@ -527,11 +492,7 @@
         "additionalProperties": false
       },
       "EditReviewRequest": {
-        "required": [
-          "body",
-          "rating",
-          "title"
-        ],
+        "required": ["body", "rating", "title"],
         "type": "object",
         "properties": {
           "rating": {
@@ -558,14 +519,7 @@
         "additionalProperties": false
       },
       "ProductDetail": {
-        "required": [
-          "averageRating",
-          "description",
-          "id",
-          "name",
-          "reviewCount",
-          "slug"
-        ],
+        "required": ["averageRating", "description", "id", "name", "reviewCount", "slug"],
         "type": "object",
         "properties": {
           "id": {
@@ -605,13 +559,7 @@
         "additionalProperties": false
       },
       "ProductSummary": {
-        "required": [
-          "averageRating",
-          "id",
-          "name",
-          "reviewCount",
-          "slug"
-        ],
+        "required": ["averageRating", "id", "name", "reviewCount", "slug"],
         "type": "object",
         "properties": {
           "id": {
@@ -717,9 +665,7 @@
         "additionalProperties": false
       },
       "ReviewsPage": {
-        "required": [
-          "items"
-        ],
+        "required": ["items"],
         "type": "object",
         "properties": {
           "items": {
@@ -736,13 +682,7 @@
         "additionalProperties": false
       },
       "SubmitReviewRequest": {
-        "required": [
-          "body",
-          "productId",
-          "rating",
-          "title",
-          "turnstileToken"
-        ],
+        "required": ["body", "productId", "rating", "title", "turnstileToken"],
         "type": "object",
         "properties": {
           "productId": {
@@ -777,9 +717,7 @@
         "additionalProperties": false
       },
       "UploadedImage": {
-        "required": [
-          "url"
-        ],
+        "required": ["url"],
         "type": "object",
         "properties": {
           "url": {
@@ -790,14 +728,26 @@
         "additionalProperties": false
       },
       "VoteRequest": {
-        "required": [
-          "value"
-        ],
+        "required": ["value"],
         "type": "object",
         "properties": {
           "value": {
             "type": "integer",
             "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VoteResponse": {
+        "required": ["myVote", "score"],
+        "type": "object",
+        "properties": {
+          "score": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myVote": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

@@ -5,6 +5,7 @@ using Reviews.Api.Auth;
 using Reviews.Api.Configuration;
 using Reviews.Api.Controllers;
 using Reviews.Infrastructure;
+using Reviews.Infrastructure.Caching;
 using Reviews.Infrastructure.Seeding;
 using StrongTypes.EfCore;
 using StrongTypes.OpenApi.Swashbuckle;
@@ -47,6 +48,8 @@ public class Program
             .Bind(builder.Configuration.GetSection(TurnstileOptions.Section))
             .ValidateDataAnnotations()
             .ValidateOnStart();
+
+        builder.Services.AddSingleton<IReviewCacheInvalidator, ReviewCacheInvalidator>();
 
         builder.Services.AddReviewsAuth(builder.Configuration);
         builder.Services.AddReviewsRateLimiting();

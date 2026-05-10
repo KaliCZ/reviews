@@ -56,20 +56,16 @@ test("upvote a review and see the score change", async ({ page }) => {
   );
   await otherReview.locator("button.vote").first().click();
   const r = await voteResp;
-  expect(r.status()).toBe(202);
+  expect(r.status()).toBe(200);
 
-  // Direction depends on prior vote state, so just assert the value moved.
-  // Generous timeout for shared CI; reload to force a refetch.
+  // Sync write — the SPA patches the row from the response body, so the
+  // displayed score updates without any reload. Direction depends on prior
+  // vote state, so just assert the value moved.
   await expect
     .poll(
-      async () => {
-        await page.reload();
-        return parseInt(
-          (await otherReview.locator(".score").textContent()) ?? "",
-          10,
-        );
-      },
-      { timeout: 60_000, intervals: [1000, 2000, 3000] },
+      async () =>
+        parseInt((await otherReview.locator(".score").textContent()) ?? "", 10),
+      { timeout: 5_000 },
     )
     .not.toBe(before);
 });
