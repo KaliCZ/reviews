@@ -14,10 +14,19 @@
 #                     automatically.
 #
 # Both paths are bind-mounted volumes; reset by `docker compose down -v` or
-# by deleting `infra/zitadel/.secrets/` and `infra/zitadel/.app-secrets/`.
+# by deleting the host directories (default `~/.reviews-dev/`).
 
 set -eu
 
+# Compose's zitadel healthcheck waits for ZITADEL's FirstInstance to finish
+# (which is when the PAT lands on disk). Aspire's WaitFor only blocks on the
+# container starting, so bootstrap can race ahead of FirstInstance — wait for
+# the file explicitly.
+for i in $(seq 1 60); do
+  [ -s /zitadel-secrets/admin-pat.txt ] && break
+  echo "[bootstrap] waiting for /zitadel-secrets/admin-pat.txt (attempt $i)"
+  sleep 2
+done
 PAT=$(cat /zitadel-secrets/admin-pat.txt)
 Z=${ZITADEL_INTERNAL_URL:-http://zitadel:8080}
 ISSUER=${ZITADEL_PUBLIC_URL:-http://localhost:8080}

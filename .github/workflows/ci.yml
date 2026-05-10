@@ -77,16 +77,16 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
-      # ZITADEL bind-mounts ./infra/zitadel/.secrets and writes admin-pat.txt
-      # there from inside the container (UID 1000). On the GH runner the dir
-      # doesn't exist on the host, so Docker auto-creates it as root, and
-      # ZITADEL's bootstrap migration fails with EACCES. Pre-creating the
-      # dirs with world-writable perms keeps both the zitadel and zitadel-
-      # bootstrap containers happy without us having to know their UIDs.
+      # ZITADEL writes admin-pat.txt into the bind-mounted secrets dir from
+      # inside the container (UID 1000). If the dir doesn't exist on the host,
+      # Docker auto-creates it as root and ZITADEL's bootstrap migration fails
+      # with EACCES. Pre-creating with world-writable perms keeps both the
+      # zitadel and zitadel-bootstrap containers happy without us having to
+      # know their UIDs. Defaults match docker-compose.yml.
       - name: Prepare zitadel bind-mount dirs
         run: |
-          mkdir -p infra/zitadel/.secrets infra/zitadel/.app-secrets
-          chmod 0777 infra/zitadel/.secrets infra/zitadel/.app-secrets
+          mkdir -p "$HOME/.reviews-dev/zitadel-secrets" "$HOME/.reviews-dev/app-secrets"
+          chmod 0777 "$HOME/.reviews-dev/zitadel-secrets" "$HOME/.reviews-dev/app-secrets"
 
       # Build and bring up the full compose stack; --wait blocks until every
       # service reports healthy. Playwright then runs against the running
