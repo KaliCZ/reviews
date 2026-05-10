@@ -193,11 +193,6 @@ services:
       ConnectionStrings__images: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;QueueEndpoint=http://azurite:10001/devstoreaccount1;TableEndpoint=http://azurite:10002/devstoreaccount1;
       ConnectionStrings__temporal: temporal:7233
       WEB_ORIGIN: http://localhost:4000
-      # ZITADEL is published on the host's 8080 in compose; the API talks to it
-      # over the docker network via Auth__IssuerReachableUrl below, but the
-      # issuer string in JWTs / discovery doc still has to match the public
-      # URL the browser sees.
-      Auth__IssuerUrl: http://localhost:8080
       Auth__RequireHttps: "false"
       # Cloudflare's documented dev-only Turnstile test keys. Always-passes
       # site key + always-accepts secret means the e2e suite gets a real
