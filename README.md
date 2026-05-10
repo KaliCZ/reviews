@@ -45,7 +45,7 @@ npm run aspire
 
 Spins up all services with the Aspire dashboard at the URL printed on startup. You get a unified log/trace/metrics view, hot reload on the API and Angular, connection strings injected automatically.
 
-Multiple `npm run aspire` runs (one per git worktree) work in parallel — each AppHost derives a worktree id from its working directory and uses it for the postgres data volume + the secrets dir, and every resource gets a random host port. The result is fully isolated stacks across worktrees; find each one's URLs in its own dashboard.
+Multiple `npm run aspire` runs (one per git worktree) work in parallel — each AppHost derives a worktree id from its working directory and uses it for the postgres data volume + the secrets dir, every Aspire-managed resource gets a random host port, and `scripts/aspire.mjs` derives stable per-worktree ports for the AppHost's own listeners (dashboard, OTLP, MCP, resource service) so launchSettings doesn't pin them all to the same numbers. The result is fully isolated stacks across worktrees; find each one's URLs in its own dashboard.
 
 ### 2. `npm run dev` (no Aspire workload required)
 
