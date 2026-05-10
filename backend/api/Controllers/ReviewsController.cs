@@ -164,14 +164,7 @@ public class ReviewsController(
                     .SetProperty(r => r.Status, ReviewStatus.Deleted)
                     .SetProperty(r => r.UpdatedAtUtc, _ => DateTime.UtcNow), ct);
 
-            await db.Products
-                .Where(p => p.Id == lookup.ProductId)
-                .ExecuteUpdateAsync(s => s
-                    .SetProperty(p => p.ReviewCount, p => p.Reviews
-                        .Count(r => r.Status == ReviewStatus.Approved))
-                    .SetProperty(p => p.AverageRating, p => p.Reviews
-                        .Where(r => r.Status == ReviewStatus.Approved)
-                        .Average(r => (double?)(short)r.Rating) ?? 0), ct);
+            await db.Products.RecomputeAggregatesAsync(lookup.ProductId, ct);
 
             await tx.CommitAsync(ct);
         });
