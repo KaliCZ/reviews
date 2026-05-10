@@ -7,7 +7,7 @@ export function handleReauthRequired(
   err: { status?: number; error?: unknown },
   returnTo: string,
   promptMessage?: string,
-  maxAgeSeconds = 10,
+  maxAgeSeconds = 300,
 ): boolean {
   if (err.status !== 401) return false;
   const body = err.error;
