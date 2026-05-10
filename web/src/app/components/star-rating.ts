@@ -5,7 +5,12 @@ import { I18nService } from '../services/i18n.service';
   selector: 'app-star-rating',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <span class="stars" [class.interactive]="interactive()" [attr.aria-label]="ariaLabel()">
+    <span
+      class="stars"
+      [class.interactive]="interactive()"
+      [class.large]="size() === 'large'"
+      [attr.aria-label]="ariaLabel()"
+    >
       @for (s of stars; track s) {
         <button
           type="button"
@@ -43,6 +48,15 @@ import { I18nService } from '../services/i18n.service';
       .interactive .star:disabled {
         cursor: default;
       }
+      .stars.large {
+        gap: 6px;
+      }
+      .stars.large .star {
+        font-size: 3rem;
+      }
+      .stars.large.interactive .star:hover:not(:disabled) {
+        transform: scale(1.1);
+      }
     `,
   ],
 })
@@ -51,6 +65,7 @@ export class StarRating {
 
   readonly value = input(0);
   readonly interactive = input(false);
+  readonly size = input<'medium' | 'large'>('medium');
   readonly valueChange = output<number>();
 
   readonly stars = [1, 2, 3, 4, 5];
